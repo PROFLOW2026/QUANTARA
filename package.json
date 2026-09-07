@@ -1,0 +1,23 @@
+{
+  "name": "quantara",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=@quantara/web",
+    "build:web": "npm run build --workspace=@quantara/web",
+    "start:web": "npm run start --workspace=@quantara/web",
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:seed": "python scripts/seed.py",
+    "demo": "python scripts/demo.py",
+    "verify:db": "python scripts/verify_supabase_runtime.py",
+    "verify:twelvedata": "python scripts/verify_twelvedata.py",
+    "test:engine": "cd apps/engine && python -m pytest tests/ -q"
+  },
+  "devDependencies": {
+    "pg": "^8.23.0"
+  }
+}
