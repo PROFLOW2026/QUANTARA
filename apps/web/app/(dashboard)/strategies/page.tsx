@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow, EmptyState,
 } from "@/components/ui/table";
+import { translateTimeframe } from "@/lib/display-text";
 import { api, ApiError } from "@/lib/api-client";
 import { t } from "@/lib/i18n";
 
@@ -49,7 +50,9 @@ export default async function StrategiesPage() {
                     <TableCell><StatusBadge status={s.status} /></TableCell>
                     <TableCell>{s.versions_count}</TableCell>
                     <TableCell>{s.instruments?.join(", ") ?? "—"}</TableCell>
-                    <TableCell>{s.timeframes?.join(", ") ?? "—"}</TableCell>
+                    <TableCell>
+                      {s.timeframes?.map((tf) => translateTimeframe(tf)).join(", ") ?? "—"}
+                    </TableCell>
                     <TableCell>{s.active_instances}</TableCell>
                     <TableCell>
                       <Link

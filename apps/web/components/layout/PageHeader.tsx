@@ -1,4 +1,5 @@
 import { t } from "@/lib/i18n";
+import { translateStatus } from "@/lib/display-text";
 import { Card, CardContent } from "@/components/ui/card";
 
 interface PageHeaderProps {
@@ -57,7 +58,7 @@ export function StatusBadge({ status }: { status: string }) {
   return (
     <span className="inline-flex items-center gap-1.5 text-sm">
       <span className={`h-2 w-2 rounded-full ${color}`} />
-      {status}
+      {translateStatus(status)}
     </span>
   );
 }

@@ -19,6 +19,7 @@ import {
   type WorkerStatus,
   type TodayActivity,
 } from "@/lib/api-client";
+import { translateRiskProfile } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
 import { formatPercent, formatRelativeTime } from "@/lib/utils";
 
@@ -32,7 +33,8 @@ export default function HomePageClient() {
   const [risk, setRisk] = useState<RiskStatus | null>(null);
   const [today, setToday] = useState<TodayActivity | null>(null);
   const [workers, setWorkers] = useState<WorkerStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [criticalError, setCriticalError] = useState<string | null>(null);
+  const [goldError, setGoldError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(async () => {
@@ -54,16 +56,43 @@ export default function HomePageClient() {
       }
 
       if (results[0].status === "fulfilled") setPortfolio(results[0].value);
-      if (results[1].status === "fulfilled") setGold(results[1].value);
-      if (results[2].status === "fulfilled") setDecision(results[2].value);
-      if (results[3].status === "fulfilled") setPositions(results[3].value);
-      if (results[4].status === "fulfilled") setRisk(results[4].value);
-      if (results[5].status === "fulfilled") setToday(results[5].value);
-      if (results[6].status === "fulfilled") setWorkers(results[6].value);
+      else setPortfolio(null);
 
-      setError(failed.length > 0 ? t("common.error") : null);
+      if (results[1].status === "fulfilled") {
+        setGold(results[1].value);
+        setGoldError(null);
+      } else {
+        setGold(null);
+        const reason = (results[1] as PromiseRejectedResult).reason;
+        setGoldError(
+          reason instanceof ApiError
+            ? `${t("home.gold_load_error")} (${reason.status})`
+            : t("home.gold_load_error")
+        );
+      }
+
+      if (results[2].status === "fulfilled") setDecision(results[2].value);
+      else setDecision(null);
+
+      if (results[3].status === "fulfilled") setPositions(results[3].value);
+      else setPositions([]);
+
+      if (results[4].status === "fulfilled") setRisk(results[4].value);
+      else setRisk(null);
+
+      if (results[5].status === "fulfilled") setToday(results[5].value);
+      else setToday(null);
+
+      if (results[6].status === "fulfilled") setWorkers(results[6].value);
+      else setWorkers(null);
+
+      const criticalFailed = results.some(
+        (result, index) => index !== 1 && result.status === "rejected"
+      );
+      setCriticalError(criticalFailed ? t("common.error") : null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t("common.error"));
+      setCriticalError(e instanceof Error ? e.message : t("common.error"));
+      setGoldError(null);
     } finally {
       setLoading(false);
     }
@@ -81,11 +110,12 @@ export default function HomePageClient() {
     <>
       <PageHeader titleKey="home.title" />
 
-      {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
+      {criticalError && <div className="mb-4"><ErrorBanner message={criticalError} /></div>}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCardCurrency
           label={t("home.equity")}
+          hint={t("home.equity_hint")}
           value={portfolio?.equity ?? 0}
         />
         <Card>
@@ -99,7 +129,10 @@ export default function HomePageClient() {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle>{t("home.drawdown")}</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>{t("home.drawdown")}</CardTitle>
+            <p className="text-xs text-muted">{t("home.drawdown_hint")}</p>
+          </CardHeader>
           <CardContent>
             <p className="font-mono text-2xl text-loss">
               {formatPercent(-(portfolio?.current_drawdown_pct ?? 0))}
@@ -130,6 +163,8 @@ export default function HomePageClient() {
                   {t("home.last_update")}: {formatRelativeTime(gold.last_update)}
                 </p>
               </>
+            ) : goldError ? (
+              <p className="text-sm text-warning">{goldError}</p>
             ) : (
               <p className="text-sm text-muted">{loading ? t("common.loading") : t("common.no_data")}</p>
             )}
@@ -156,7 +191,7 @@ export default function HomePageClient() {
         <Card>
           <CardHeader><CardTitle>{t("home.risk_status")}</CardTitle></CardHeader>
           <CardContent className="space-y-1 text-sm">
-            <p><span className="text-muted">{t("home.profile")}: </span>{risk?.profile ?? "—"}</p>
+            <p><span className="text-muted">{t("home.profile")}: </span>{translateRiskProfile(risk?.profile)}</p>
             <p>
               <span className="text-muted">{t("common.status")}: </span>
               {risk?.halted ? t("common.halted") : t("common.active")}

@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { translateDecisionType } from "@/lib/display-text";
 
 type DecisionCategory = "approved" | "hold" | "denied" | "default";
 
@@ -42,5 +43,5 @@ interface DecisionTypeBadgeProps {
 
 export function DecisionTypeBadge({ type }: DecisionTypeBadgeProps) {
   const category = categorizeDecisionType(type);
-  return <Badge variant={variantMap[category]}>{type}</Badge>;
+  return <Badge variant={variantMap[category]}>{translateDecisionType(type)}</Badge>;
 }

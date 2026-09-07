@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow, EmptyState,
 } from "@/components/ui/table";
+import { translateRiskProfile } from "@/lib/display-text";
 import { api, ApiError } from "@/lib/api-client";
 import { t } from "@/lib/i18n";
 import { formatCurrency, formatDateTime, formatPercent } from "@/lib/utils";
@@ -52,7 +53,7 @@ export default async function PortfolioPage() {
         </Card>
         <Card>
           <CardHeader><CardTitle>{t("portfolio.risk_profile")}</CardTitle></CardHeader>
-          <CardContent><p>{portfolio?.risk_profile ?? "—"}</p></CardContent>
+          <CardContent><p>{translateRiskProfile(portfolio?.risk_profile)}</p></CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle>{t("portfolio.mode")}</CardTitle></CardHeader>

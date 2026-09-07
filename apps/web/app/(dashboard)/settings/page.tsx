@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader, ErrorBanner } from "@/components/layout/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { translateRiskProfile } from "@/lib/display-text";
 import { api, ApiError, type Settings } from "@/lib/api-client";
 import { t } from "@/lib/i18n";
 
@@ -70,7 +71,7 @@ export default function SettingsPage() {
         <Card>
           <CardHeader><CardTitle>{t("settings.default_risk_profile")}</CardTitle></CardHeader>
           <CardContent>
-            <p>{settings?.default_risk_profile ?? "—"}</p>
+            <p>{translateRiskProfile(settings?.default_risk_profile)}</p>
           </CardContent>
         </Card>
 

@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow, EmptyState,
 } from "@/components/ui/table";
+import { translateSignalReason } from "@/lib/display-text";
 import { api, ApiError } from "@/lib/api-client";
 import { t } from "@/lib/i18n";
 import { formatDateTime } from "@/lib/utils";
@@ -45,7 +46,9 @@ export default async function DecisionsPage() {
                   <TableRow key={d.id}>
                     <TableCell>{formatDateTime(d.timestamp)}</TableCell>
                     <TableCell><DecisionTypeBadge type={d.decision_type} /></TableCell>
-                    <TableCell className="max-w-xs truncate">{d.message}</TableCell>
+                    <TableCell className="max-w-xs truncate">
+                      {translateSignalReason(d.message)}
+                    </TableCell>
                     <TableCell>{d.strategy_name ?? "—"}</TableCell>
                     <TableCell>{d.instrument ?? "—"}</TableCell>
                     <TableCell>{d.candle_time ? formatDateTime(d.candle_time) : "—"}</TableCell>

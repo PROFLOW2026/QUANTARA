@@ -14,7 +14,7 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "QUANTARA",
-  description: "Algorithmic trading — Paper & Backtest",
+  description: "מסחר אלגוריתמי — סימולציה ובדיקות היסטוריות",
 };
 
 export default function RootLayout({

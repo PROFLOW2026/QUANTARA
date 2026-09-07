@@ -16,6 +16,7 @@ import {
   type CandleLatest,
   type MarketProviderStatus,
 } from "@/lib/api-client";
+import { translateTimeframe } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
 import { cn, formatDateTime, formatPrice } from "@/lib/utils";
 
@@ -30,14 +31,16 @@ export default function MarketGoldPage() {
   const [latest, setLatest] = useState<CandleLatest | null>(null);
   const [candles, setCandles] = useState<Candle[]>([]);
   const [status, setStatus] = useState<MarketProviderStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [latestError, setLatestError] = useState<string | null>(null);
+  const [sectionError, setSectionError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    setError(null);
+    setLatestError(null);
+    setSectionError(null);
     try {
-      const [latestRes, candlesRes, statusRes] = await Promise.all([
+      const [latestRes, candlesRes, statusRes] = await Promise.allSettled([
         api.getCandlesLatest("XAU/USD"),
         api.getCandles({
           instrument: "XAU/USD",
@@ -46,11 +49,41 @@ export default function MarketGoldPage() {
         }),
         api.getMarketStatus(),
       ]);
-      setLatest(latestRes);
-      setCandles(candlesRes);
-      setStatus(statusRes);
+
+      if (latestRes.status === "fulfilled") {
+        setLatest(latestRes.value);
+      } else {
+        setLatest(null);
+        const reason = latestRes.reason;
+        setLatestError(
+          reason instanceof ApiError
+            ? `${t("home.gold_load_error")} (${reason.status})`
+            : t("home.gold_load_error")
+        );
+      }
+
+      if (candlesRes.status === "fulfilled") {
+        setCandles(candlesRes.value);
+      } else {
+        setCandles([]);
+      }
+
+      if (statusRes.status === "fulfilled") {
+        setStatus(statusRes.value);
+      } else {
+        setStatus(null);
+      }
+
+      const failed = [latestRes, candlesRes, statusRes].filter((r) => r.status === "rejected");
+      if (failed.length === 3) {
+        const reason = (failed[0] as PromiseRejectedResult).reason;
+        throw reason instanceof ApiError ? reason : new Error(t("common.error"));
+      }
+      if (candlesRes.status === "rejected" || statusRes.status === "rejected") {
+        setSectionError(t("common.error"));
+      }
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : t("common.error"));
+      setSectionError(e instanceof ApiError ? e.message : t("common.error"));
     } finally {
       setLoading(false);
     }
@@ -63,7 +96,7 @@ export default function MarketGoldPage() {
   return (
     <>
       <PageHeader titleKey="market.gold_title" />
-      {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
+      {sectionError && <div className="mb-4"><ErrorBanner message={sectionError} /></div>}
 
       <div className="mb-4 grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-1">
@@ -76,6 +109,8 @@ export default function MarketGoldPage() {
                 changePct={latest.change_pct}
                 size="xl"
               />
+            ) : latestError ? (
+              <p className="text-warning text-sm">{latestError}</p>
             ) : (
               <p className="text-muted">{loading ? t("common.loading") : t("common.no_data")}</p>
             )}
@@ -94,16 +129,18 @@ export default function MarketGoldPage() {
             </p>
             {status?.provider && (
               <p>
-                {t("market.provider")}: <span className="font-mono">{status.provider}</span>
+                {t("market.data_source")}: <span className="font-mono">{status.provider}</span>
               </p>
             )}
             {status?.candle_counts && (
-              <p className="font-mono text-xs text-muted">
-                5m: {status.candle_counts["5m"] ?? 0} · 15m: {status.candle_counts["15m"] ?? 0} · 1h: {status.candle_counts["1h"] ?? 0}
+              <p className="text-xs text-muted">
+                {translateTimeframe("5m")}: {status.candle_counts["5m"] ?? 0} ·{" "}
+                {translateTimeframe("15m")}: {status.candle_counts["15m"] ?? 0} ·{" "}
+                {translateTimeframe("1h")}: {status.candle_counts["1h"] ?? 0}
               </p>
             )}
             {status?.last_fetch && (
-              <p>{t("common.updated")}: {formatDateTime(status.last_fetch)}</p>
+              <p>{t("market.last_updated")}: {formatDateTime(status.last_fetch)}</p>
             )}
             {status?.stale && (
               <p className="text-warning">{t("market.stale_warning")}</p>

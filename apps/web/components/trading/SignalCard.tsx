@@ -1,5 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DecisionTypeBadge } from "@/components/trading/DecisionTypeBadge";
+import {
+  translateExecution,
+  translateSignalReason,
+  translateTimeframe,
+} from "@/lib/display-text";
 import { formatPrice, formatRelativeTime } from "@/lib/utils";
 import { t } from "@/lib/i18n";
 import type { Decision } from "@/lib/api-client";
@@ -19,6 +24,7 @@ export function SignalCard({ decision }: SignalCardProps) {
     <Card>
       <CardHeader>
         <CardTitle>{t("home.active_signal")}</CardTitle>
+        <p className="text-xs text-muted">{t("home.signal_hint")}</p>
         {decision && <DecisionTypeBadge type={decision.decision_type} />}
       </CardHeader>
       <CardContent>
@@ -29,7 +35,7 @@ export function SignalCard({ decision }: SignalCardProps) {
             <p className="font-medium text-slate-200">{t("home.no_signal")}</p>
             <p>
               <span className="text-muted">{t("home.reason")}: </span>
-              {decision.message}
+              {translateSignalReason(decision.message)}
             </p>
             {decision.signal?.strategy && (
               <p>
@@ -40,7 +46,7 @@ export function SignalCard({ decision }: SignalCardProps) {
             {decision.signal?.timeframe && (
               <p>
                 <span className="text-muted">{t("home.timeframe")}: </span>
-                {decision.signal.timeframe}
+                {translateTimeframe(decision.signal.timeframe)}
               </p>
             )}
             <p className="text-xs text-muted">
@@ -81,14 +87,16 @@ export function SignalCard({ decision }: SignalCardProps) {
             {(decision.signal?.risk_target != null || decision.signal?.risk_actual != null) && (
               <p>
                 <span className="text-muted">{t("home.risk")}: </span>
-                ${decision.signal?.risk_target ?? "—"} target / $
-                {decision.signal?.risk_actual ?? "—"} actual
+                {t("home.risk_target_actual", {
+                  target: decision.signal?.risk_target ?? "—",
+                  actual: decision.signal?.risk_actual ?? "—",
+                })}
               </p>
             )}
             {decision.signal?.execution && (
               <p>
                 <span className="text-muted">{t("home.execution")}: </span>
-                {decision.signal.execution}
+                {translateExecution(decision.signal.execution)}
               </p>
             )}
             {decision.signal?.strategy && (
@@ -99,7 +107,7 @@ export function SignalCard({ decision }: SignalCardProps) {
             )}
             <p>
               <span className="text-muted">{t("home.reason")}: </span>
-              {decision.signal?.reason ?? decision.message}
+              {translateSignalReason(decision.signal?.reason ?? decision.message)}
             </p>
           </div>
         )}

@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { PageHeader, ErrorBanner, StatusBadge } from "@/components/layout/PageHeader";
+import { StrategyParametersSummary } from "@/components/trading/StrategyParametersSummary";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow, EmptyState,
-} from "@/components/ui/table";
+import { EmptyState } from "@/components/ui/table";
 import { api, ApiError } from "@/lib/api-client";
+import { shortenHash } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
 import { formatDateTime } from "@/lib/utils";
 
@@ -32,49 +32,64 @@ export default async function StrategyVersionsPage({ params }: Props) {
           </Link>
         }
       />
-      <p className="mb-4 font-mono text-sm text-muted">{params.slug}</p>
+      <p className="mb-4 text-sm text-muted">{params.slug}</p>
       {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
 
-      <Card>
-        <CardContent className="pt-4">
-          {!versions?.length ? (
-            <EmptyState message={t("common.no_data")} />
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t("common.version")}</TableHead>
-                  <TableHead>{t("common.status")}</TableHead>
-                  <TableHead>{t("common.created")}</TableHead>
-                  <TableHead>{t("strategies.parameters")}</TableHead>
-                  <TableHead>{t("strategies.trades_count")}</TableHead>
-                  <TableHead>{t("strategies.backtests_count")}</TableHead>
-                  <TableHead>{t("strategies.logic_hash")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {versions.map((v) => (
-                  <TableRow key={v.id}>
-                    <TableCell className="font-mono">{v.version}</TableCell>
-                    <TableCell><StatusBadge status={v.status} /></TableCell>
-                    <TableCell>{formatDateTime(v.created_at)}</TableCell>
-                    <TableCell>
-                      {v.parameters ? (
-                        <pre className="max-w-xs overflow-x-auto rounded bg-surface-elevated p-2 text-xs">
-                          {JSON.stringify(v.parameters, null, 2)}
-                        </pre>
-                      ) : "—"}
-                    </TableCell>
-                    <TableCell>{v.trades_count}</TableCell>
-                    <TableCell>{v.backtests_count}</TableCell>
-                    <TableCell className="font-mono text-xs">{v.logic_hash ?? "—"}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      {!versions?.length ? (
+        <EmptyState message={t("common.no_data")} />
+      ) : (
+        <div className="space-y-4">
+          {versions.map((v) => (
+            <Card key={v.id}>
+              <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="font-mono">{v.version}</CardTitle>
+                  <p className="mt-1 text-sm text-muted">
+                    {t("common.created")}: {formatDateTime(v.created_at)}
+                  </p>
+                </div>
+                <StatusBadge status={v.status} />
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <h3 className="mb-2 text-sm font-medium text-slate-200">
+                    {t("strategies.parameters_summary")}
+                  </h3>
+                  <StrategyParametersSummary parameters={v.parameters} />
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2 text-sm">
+                  <div>
+                    <span className="text-muted">{t("strategies.trades_count")}: </span>
+                    {v.trades_count}
+                  </div>
+                  <div>
+                    <span className="text-muted">{t("strategies.backtests_count")}: </span>
+                    {v.backtests_count}
+                  </div>
+                </div>
+
+                {v.parameters ? (
+                  <details className="rounded-md border border-border bg-surface-elevated/30 p-3">
+                    <summary className="cursor-pointer text-sm text-accent">
+                      {t("common.show_advanced")}
+                    </summary>
+                    <div className="mt-3 space-y-2 text-xs">
+                      <p>
+                        <span className="text-muted">{t("strategies.logic_hash")}: </span>
+                        <span className="font-mono">{shortenHash(v.logic_hash)}</span>
+                      </p>
+                      <pre className="overflow-x-auto text-muted">
+                        {JSON.stringify(v.parameters, null, 2)}
+                      </pre>
+                    </div>
+                  </details>
+                ) : null}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </>
   );
 }

@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow, EmptyState,
 } from "@/components/ui/table";
+import { translateExitReason } from "@/lib/display-text";
 import { api, ApiError } from "@/lib/api-client";
 import { t } from "@/lib/i18n";
 import { formatDateTime, formatPrice } from "@/lib/utils";
@@ -55,7 +56,7 @@ export default async function JournalPage() {
                     </TableCell>
                     <TableCell><PnLDisplay value={tr.pnl} size="sm" /></TableCell>
                     <TableCell>{tr.duration ?? "—"}</TableCell>
-                    <TableCell>{tr.exit_reason ?? "—"}</TableCell>
+                    <TableCell>{translateExitReason(tr.exit_reason)}</TableCell>
                     <TableCell className="text-xs">
                       {tr.strategy_name ?? "—"}
                       {tr.strategy_version && ` v${tr.strategy_version}`}
