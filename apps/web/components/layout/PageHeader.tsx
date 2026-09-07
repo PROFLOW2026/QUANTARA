@@ -1,3 +1,5 @@
+"use client";
+
 import { t } from "@/lib/i18n";
 import { translateStatus } from "@/lib/display-text";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,6 +29,23 @@ export function ErrorBanner({ message }: { message?: string }) {
     <Card className="border-loss/30 bg-loss/5">
       <CardContent className="py-3 text-sm text-loss">
         {message ?? t("common.error")}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function EngineConnectionError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <Card className="border-loss/30 bg-loss/5">
+      <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-loss">{t("common.engine_connection_error")}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="rounded-md bg-surface-elevated px-4 py-2 text-sm text-slate-100 hover:bg-accent/20"
+        >
+          {t("common.retry")}
+        </button>
       </CardContent>
     </Card>
   );

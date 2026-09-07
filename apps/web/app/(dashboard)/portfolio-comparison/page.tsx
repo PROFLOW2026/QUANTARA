@@ -3,13 +3,14 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { PageHeader, ErrorBanner } from "@/components/layout/PageHeader";
+import { PageHeader, ErrorBanner, EngineConnectionError } from "@/components/layout/PageHeader";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   api,
   ApiError,
+  isEngineConnectionError,
   type CompetitionPortfolioSummary,
   type CompetitionResponse,
 } from "@/lib/api-client";
@@ -38,7 +39,6 @@ const MultiEquityCurveChart = dynamic(
 );
 
 const POLL_INTERVAL = 60_000;
-const FETCH_TIMEOUT_MS = 20_000;
 
 function normalizeCompetitionResponse(
   raw: CompetitionResponse | null | undefined
@@ -72,41 +72,43 @@ function portfolioRiskLabel(p: CompetitionPortfolioSummary): string {
 export default function PortfolioComparisonPage() {
   const [data, setData] = useState<CompetitionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(
-      () => controller.abort(),
-      FETCH_TIMEOUT_MS
-    );
 
     try {
       const res = normalizeCompetitionResponse(await api.getCompetition());
       if (!res?.active || !res.experiment) {
         setData(res);
+        setConnectionError(false);
         setError(t("competition.load_error_inactive"));
         return;
       }
       if (!res.portfolios?.length) {
         setData(res);
+        setConnectionError(false);
         setError(t("competition.load_error_empty"));
         return;
       }
       setData(res);
       setError(null);
+      setConnectionError(false);
     } catch (e) {
       setData(null);
-      if (e instanceof ApiError) {
-        setError(`${t("competition.load_error_api")} (${e.status})`);
-      } else if (e instanceof DOMException && e.name === "AbortError") {
-        setError(t("competition.load_error_timeout"));
+      if (isEngineConnectionError(e)) {
+        setConnectionError(true);
+        setError(t("common.engine_connection_error"));
       } else {
-        setError(t("competition.load_error_generic"));
+        setConnectionError(false);
+        if (e instanceof ApiError) {
+          setError(`${t("competition.load_error_api")} (${e.status})`);
+        } else {
+          setError(t("competition.load_error_generic"));
+        }
       }
     } finally {
-      window.clearTimeout(timeoutId);
       setLoading(false);
     }
   }, []);
@@ -132,7 +134,11 @@ export default function PortfolioComparisonPage() {
     return (
       <>
         <PageHeader titleKey="competition.title" subtitleKey="competition.subtitle" />
-        <ErrorBanner message={error ?? t("common.no_data")} />
+        {connectionError ? (
+          <EngineConnectionError onRetry={() => void fetchData(true)} />
+        ) : (
+          <ErrorBanner message={error ?? t("common.no_data")} />
+        )}
       </>
     );
   }

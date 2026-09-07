@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { PageHeader, ErrorBanner, WorkerIndicator } from "@/components/layout/PageHeader";
+import { PageHeader, ErrorBanner, WorkerIndicator, EngineConnectionError } from "@/components/layout/PageHeader";
 import { MetricCardCurrency } from "@/components/trading/MetricCard";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import { PriceDisplay } from "@/components/trading/PriceDisplay";
@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   api,
   ApiError,
+  isEngineConnectionError,
   type Portfolio,
   type RiskStatus,
   type Position,
@@ -37,10 +38,12 @@ export default function HomePageClient() {
     ReturnType<typeof api.getCompetition>
   > | null>(null);
   const [criticalError, setCriticalError] = useState<string | null>(null);
+  const [engineConnectionError, setEngineConnectionError] = useState(false);
   const [goldError, setGoldError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchAll = useCallback(async () => {
+  const fetchAll = useCallback(async (showLoading = false) => {
+    if (showLoading) setLoading(true);
     try {
       const results = await Promise.allSettled([
         api.getPortfolio(),
@@ -53,14 +56,24 @@ export default function HomePageClient() {
         api.getCompetition(),
       ]);
 
+      let connectionError = false;
+
       const failed = results.filter((r) => r.status === "rejected");
       if (failed.length === results.length) {
         const reason = (failed[0] as PromiseRejectedResult).reason;
-        throw reason instanceof ApiError ? reason : new Error(t("common.error"));
+        if (isEngineConnectionError(reason)) {
+          connectionError = true;
+        } else {
+          throw reason instanceof ApiError ? reason : new Error(t("common.error"));
+        }
       }
 
       if (results[0].status === "fulfilled") setPortfolio(results[0].value);
-      else setPortfolio(null);
+      else {
+        setPortfolio(null);
+        const reason = (results[0] as PromiseRejectedResult).reason;
+        if (isEngineConnectionError(reason)) connectionError = true;
+      }
 
       if (results[1].status === "fulfilled") {
         setGold(results[1].value);
@@ -96,9 +109,15 @@ export default function HomePageClient() {
       const criticalFailed = results.some(
         (result, index) => index !== 1 && index !== 7 && result.status === "rejected"
       );
-      setCriticalError(criticalFailed ? t("common.error") : null);
+      setEngineConnectionError(connectionError);
+      setCriticalError(
+        criticalFailed && !connectionError ? t("common.error") : null
+      );
     } catch (e) {
-      setCriticalError(e instanceof Error ? e.message : t("common.error"));
+      setEngineConnectionError(isEngineConnectionError(e));
+      setCriticalError(
+        isEngineConnectionError(e) ? null : e instanceof Error ? e.message : t("common.error")
+      );
       setGoldError(null);
     } finally {
       setLoading(false);
@@ -106,8 +125,10 @@ export default function HomePageClient() {
   }, []);
 
   useEffect(() => {
-    fetchAll();
-    const id = setInterval(fetchAll, POLL_INTERVAL);
+    void fetchAll(true);
+    const id = setInterval(() => {
+      void fetchAll(false);
+    }, POLL_INTERVAL);
     return () => clearInterval(id);
   }, [fetchAll]);
 
@@ -116,6 +137,12 @@ export default function HomePageClient() {
   return (
     <>
       <PageHeader titleKey="home.title" />
+
+      {engineConnectionError ? (
+        <div className="mb-4">
+          <EngineConnectionError onRetry={() => void fetchAll(true)} />
+        </div>
+      ) : null}
 
       {criticalError && <div className="mb-4"><ErrorBanner message={criticalError} /></div>}
 

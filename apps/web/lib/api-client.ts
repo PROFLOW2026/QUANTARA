@@ -1,29 +1,12 @@
-const LOCAL_ENGINE = "http://localhost:8000";
-const LIVE_TUNNEL_FALLBACK =
-  "https://afternoon-details-occasional-undergraduate.trycloudflare.com";
+import {
+  ENGINE_PROXY_TIMEOUT_MS,
+  resolveServerApiKey,
+  resolveServerEngineUrl,
+} from "./engine-server";
 
-function resolveEngineUrl(): string {
-  const configured = (
-    process.env.NEXT_PUBLIC_ENGINE_URL ?? LOCAL_ENGINE
-  )
-    .trim()
-    .replace(/\/$/, "");
+const BROWSER_PROXY_PREFIX = "/api/engine";
 
-  if (typeof window !== "undefined") {
-    const { hostname } = window.location;
-    const onHostedWeb =
-      hostname.endsWith(".vercel.app") || hostname.includes("quantara");
-    if (onHostedWeb && /localhost|127\.0\.0\.1/.test(configured)) {
-      return LIVE_TUNNEL_FALLBACK;
-    }
-  }
-
-  return configured || LOCAL_ENGINE;
-}
-
-function resolveApiKey(): string {
-  return process.env.NEXT_PUBLIC_API_KEY ?? "dev-api-key";
-}
+export const API_FETCH_TIMEOUT_MS = ENGINE_PROXY_TIMEOUT_MS;
 
 export class ApiError extends Error {
   constructor(
@@ -35,55 +18,89 @@ export class ApiError extends Error {
   }
 }
 
+export function isEngineConnectionError(err: unknown): boolean {
+  if (err instanceof DOMException && err.name === "AbortError") return true;
+  if (err instanceof ApiError) {
+    return [408, 502, 503, 504, 499].includes(err.status) || err.status >= 500;
+  }
+  return false;
+}
+
+function buildFetchUrl(path: string): string {
+  const enginePath = path.startsWith("/") ? path : `/${path}`;
+
+  if (typeof window !== "undefined") {
+    return `${BROWSER_PROXY_PREFIX}${enginePath}`;
+  }
+
+  return `${resolveServerEngineUrl()}/api/v1${enginePath}`;
+}
+
+function buildHeaders(options: RequestInit): HeadersInit {
+  if (typeof window !== "undefined") {
+    return {
+      Accept: "application/json",
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...options.headers,
+    };
+  }
+
+  const apiKey = resolveServerApiKey();
+  return {
+    Accept: "application/json",
+    ...(options.body ? { "Content-Type": "application/json" } : {}),
+    ...(apiKey ? { "X-API-Key": apiKey } : {}),
+    ...options.headers,
+  };
+}
+
 export async function apiFetch<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const url = `${resolveEngineUrl()}/api/v1${path.startsWith("/") ? path : `/${path}`}`;
+  const url = buildFetchUrl(path);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_FETCH_TIMEOUT_MS);
 
-  const headers: HeadersInit = {
-    Accept: "application/json",
-    ...(options.body ? { "Content-Type": "application/json" } : {}),
-    ...(resolveApiKey() ? { "X-API-Key": resolveApiKey() } : {}),
-    ...options.headers,
-  };
+  try {
+    const res = await fetch(url, {
+      ...options,
+      headers: buildHeaders(options),
+      cache: "no-store",
+      signal: controller.signal,
+    });
 
-  const res = await fetch(url, {
-    ...options,
-    headers,
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    throw new ApiError(res.status, `API ${res.status}: ${path}`);
-  }
-
-  if (res.status === 204) {
-    return undefined as T;
-  }
-
-  return res.json() as Promise<T>;
-}
-
-/** Same-origin proxy for browser calls (avoids CORS / missing public env on client). */
-export async function apiFetchAppRoute<T>(path: string): Promise<T> {
-  const res = await fetch(path, {
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    let detail = `App route ${res.status}: ${path}`;
-    try {
-      const payload = (await res.json()) as { error?: string; detail?: string };
-      if (payload.error) detail = payload.error;
-    } catch {
-      // ignore parse errors
+    if (!res.ok) {
+      let detail = `API ${res.status}: ${path}`;
+      try {
+        const payload = (await res.json()) as {
+          error?: string;
+          message?: string;
+          detail?: string;
+        };
+        if (payload.message) detail = payload.message;
+        else if (payload.error) detail = payload.error;
+        else if (payload.detail) detail = payload.detail;
+      } catch {
+        // ignore JSON parse errors
+      }
+      throw new ApiError(res.status, detail);
     }
-    throw new ApiError(res.status, detail);
-  }
 
-  return res.json() as Promise<T>;
+    if (res.status === 204) {
+      return undefined as T;
+    }
+
+    return res.json() as Promise<T>;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError(504, "upstream_timeout");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // --- Types (display-only, from Engine API) ---
@@ -461,14 +478,7 @@ export const api = {
   getBacktestTrades: (id: string) =>
     apiFetch<Trade[]>(`/backtests/${id}/trades`),
   getExperiments: () => apiFetch<Experiment[]>("/experiments"),
-  getCompetition: async () => {
-    try {
-      return await apiFetch<CompetitionResponse>("/competition");
-    } catch (err) {
-      if (typeof window === "undefined") throw err;
-      return apiFetchAppRoute<CompetitionResponse>("/api/competition");
-    }
-  },
+  getCompetition: () => apiFetch<CompetitionResponse>("/competition"),
   getPortfolios: () => apiFetch<PortfolioListItem[]>("/portfolios"),
   getAnalyticsPortfolio: (portfolioId?: string) =>
     apiFetch<AnalyticsPortfolio>(`/analytics/portfolio${portfolioQs(portfolioId)}`),
