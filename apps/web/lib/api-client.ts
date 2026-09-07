@@ -118,6 +118,14 @@ export interface Portfolio {
   risk_profile: string;
   mode: string;
   initial_capital?: number;
+  timeframe?: string;
+  competition?: {
+    timeframe: string;
+    timeframe_he: string;
+    risk_slug: string;
+    risk_name_he: string;
+    risk_per_trade_pct: number;
+  };
 }
 
 export interface RiskStatus {
@@ -283,11 +291,25 @@ export interface WorkerStatus {
 }
 
 export interface TodayActivity {
-  scope: "paper";
-  portfolio_id: string;
-  strategy_instance_id: string | null;
-  trades_count: number;
-  decisions_count: number;
+  scope: "paper" | "competition";
+  portfolio_id?: string;
+  strategy_instance_id?: string | null;
+  trades_count?: number;
+  decisions_count?: number;
+  market_checks_today?: number;
+  entry_signals_today?: number;
+  trades_opened_today?: number;
+  trades_closed_today?: number;
+  portfolio_count?: number;
+  combined_equity?: number;
+  leader?: {
+    portfolio_id: string;
+    name: string;
+    return_pct: number;
+    timeframe?: string;
+    timeframe_he?: string;
+  };
+  leading_timeframe?: TimeframeComparisonRow | null;
 }
 
 export interface PortfolioSnapshot {
@@ -362,13 +384,52 @@ export interface PortfolioListItem {
   kind: "legacy" | "competition";
   risk_slug?: string;
   risk_per_trade_pct?: number;
+  timeframe?: string;
+  timeframe_he?: string;
+  sort_order?: number;
   initial_capital: number;
   equity: number;
+}
+
+export interface CompetitionLeaderboardRow {
+  rank: number;
+  portfolio_id: string;
+  name: string;
+  timeframe?: string;
+  timeframe_he?: string;
+  return_pct: number;
+  max_drawdown_pct: number;
+  realized_pnl: number;
+  trades_count: number;
+  win_rate?: number | null;
+  return_vs_drawdown: number | null;
+}
+
+export interface TimeframeComparisonRow {
+  timeframe: string;
+  timeframe_he: string;
+  title_he: string;
+  portfolio_count: number;
+  average_return_pct: number;
+  best_return_pct: number;
+  total_trades: number;
+  average_drawdown_pct: number;
+  max_drawdown_pct: number;
+  combined_equity: number;
+}
+
+export interface CompetitionTimeframeGroup {
+  timeframe: string;
+  timeframe_he: string;
+  title_he: string;
+  portfolios: CompetitionPortfolioSummary[];
 }
 
 export interface CompetitionPortfolioSummary {
   id: string;
   name: string;
+  timeframe?: string;
+  timeframe_he?: string;
   risk_slug: string;
   risk_name_he: string;
   risk_per_trade_pct: number;
@@ -420,24 +481,22 @@ export interface CompetitionResponse {
     portfolio_id: string;
     name: string;
     return_pct: number;
+    timeframe?: string;
+    timeframe_he?: string;
   };
+  leading_timeframe?: TimeframeComparisonRow | null;
   portfolios?: CompetitionPortfolioSummary[];
-  leaderboard?: Array<{
-    rank: number;
-    portfolio_id: string;
-    name: string;
-    return_pct: number;
-    max_drawdown_pct: number;
-    realized_pnl: number;
-    trades_count: number;
-    return_vs_drawdown: number | null;
-  }>;
+  timeframe_groups?: CompetitionTimeframeGroup[];
+  leaderboard?: CompetitionLeaderboardRow[];
+  leaderboards_by_timeframe?: Record<string, CompetitionLeaderboardRow[]>;
+  timeframe_comparison?: TimeframeComparisonRow[];
   equity_curves?: Record<string, Array<{ date: string; equity: number }>>;
   activity?: Array<{
     timestamp: string;
     kind: string;
     message: string;
     portfolio_name?: string;
+    timeframe?: string;
   }>;
 }
 

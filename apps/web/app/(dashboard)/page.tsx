@@ -213,18 +213,30 @@ export default function HomePageClient() {
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {competition?.active && competition.leader ? (
+        {competition?.active ? (
           <Card>
             <CardHeader><CardTitle>{t("home.competition_card_title")}</CardTitle></CardHeader>
             <CardContent className="space-y-1 text-sm">
               <p>
-                <span className="text-muted">{t("home.competition_leader")}: </span>
-                {competition.leader.name} ({formatPercent(competition.leader.return_pct)})
+                <span className="text-muted">{t("home.competition_initial_capital")}: </span>
+                {formatCurrency(competition.experiment?.total_initial_capital ?? 30000)}
               </p>
               <p>
                 <span className="text-muted">{t("home.competition_combined_equity")}: </span>
                 {formatCurrency(competition.combined?.current_equity ?? 0)}
               </p>
+              {competition.leader ? (
+                <p>
+                  <span className="text-muted">{t("home.competition_leader")}: </span>
+                  {competition.leader.name} ({formatPercent(competition.leader.return_pct)})
+                </p>
+              ) : null}
+              {competition.leading_timeframe ? (
+                <p>
+                  <span className="text-muted">{t("home.competition_leading_timeframe")}: </span>
+                  {competition.leading_timeframe.title_he ?? competition.leading_timeframe.timeframe_he}
+                </p>
+              ) : null}
               <p>
                 <span className="text-muted">{t("home.competition_open_positions")}: </span>
                 {competition.combined?.open_positions_total ?? 0}
@@ -267,8 +279,19 @@ export default function HomePageClient() {
         <Card>
           <CardHeader><CardTitle>{t("home.today_activity")}</CardTitle></CardHeader>
           <CardContent className="space-y-1 text-sm">
-            <p>{t("home.trades_today")}: {today?.trades_count ?? 0}</p>
-            <p>{t("home.decisions_today")}: {today?.decisions_count ?? 0}</p>
+            {today?.scope === "competition" ? (
+              <>
+                <p>{t("home.market_checks_today")}: {today.market_checks_today ?? 0}</p>
+                <p>{t("home.entry_signals_today")}: {today.entry_signals_today ?? 0}</p>
+                <p>{t("home.trades_opened_today")}: {today.trades_opened_today ?? 0}</p>
+                <p>{t("home.trades_closed_today")}: {today.trades_closed_today ?? 0}</p>
+              </>
+            ) : (
+              <>
+                <p>{t("home.trades_today")}: {today?.trades_count ?? 0}</p>
+                <p>{t("home.decisions_today")}: {today?.decisions_count ?? 0}</p>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>

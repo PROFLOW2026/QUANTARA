@@ -34,7 +34,7 @@ from quantara_engine.domain.types import (
     StrategyInstance,
     Trade,
 )
-from quantara_engine.competition.constants import COMPETITION_PORTFOLIOS
+from quantara_engine.competition.constants import ACTIVE_COMPETITION_PORTFOLIOS, PORTFOLIO_DEF_BY_ID
 from quantara_engine.execution.fill_calculator import FillResult
 from quantara_engine.models.enums import (
     BacktestStatus,
@@ -371,7 +371,7 @@ class TradingStore:
         if not exp_id:
             return []
 
-        order_map = {p.portfolio_id: p.sort_order for p in COMPETITION_PORTFOLIOS}
+        order_map = {p.portfolio_id: p.sort_order for p in ACTIVE_COMPETITION_PORTFOLIOS}
         stmt = (
             select(OrmStrategyInstance, OrmPortfolio, OrmRiskProfile)
             .join(OrmPortfolio, OrmStrategyInstance.portfolio_id == OrmPortfolio.id)
@@ -1167,6 +1167,114 @@ class TradingStore:
         if paper_only:
             stmt = stmt.where(OrmTrade.backtest_run_id.is_(None))
         return self.session.scalar(stmt) or 0
+
+    def has_decision_for_candle(
+        self,
+        strategy_instance_id: str,
+        candle_timestamp: datetime,
+    ) -> bool:
+        row = self.session.scalar(
+            select(OrmDecision.id)
+            .where(
+                OrmDecision.strategy_instance_id == _uuid(strategy_instance_id),
+                OrmDecision.candle_timestamp == candle_timestamp,
+            )
+            .limit(1)
+        )
+        return row is not None
+
+    def timeframe_group_already_processed(
+        self,
+        instance_ids: list[str],
+        candle_timestamp: datetime,
+    ) -> bool:
+        if not instance_ids:
+            return True
+        count = self.session.scalar(
+            select(func.count())
+            .select_from(OrmDecision)
+            .where(
+                OrmDecision.strategy_instance_id.in_([_uuid(i) for i in instance_ids]),
+                OrmDecision.candle_timestamp == candle_timestamp,
+            )
+        ) or 0
+        return count >= len(instance_ids)
+
+    def get_competition_today_stats(self) -> dict[str, int]:
+        """Aggregate meaningful competition activity for Home (not raw HOLD spam)."""
+        today_start = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        instance_ids = self.list_competition_instance_ids()
+        portfolio_ids = [e["portfolio"].id for e in self.list_competition_entries()]
+        if not instance_ids:
+            return {
+                "market_checks_today": 0,
+                "entry_signals_today": 0,
+                "trades_opened_today": 0,
+                "trades_closed_today": 0,
+            }
+
+        inst_uuids = [_uuid(i) for i in instance_ids]
+        port_uuids = [_uuid(i) for i in portfolio_ids]
+
+        signal_types = [
+            OrmDecisionType.BUY_SIGNAL,
+            OrmDecisionType.SELL_SIGNAL,
+            OrmDecisionType.NO_SETUP,
+            OrmDecisionType.CLOSE_SIGNAL,
+        ]
+        market_checks = self.session.scalar(
+            select(func.count())
+            .select_from(OrmDecision)
+            .where(
+                OrmDecision.strategy_instance_id.in_(inst_uuids),
+                OrmDecision.created_at >= today_start,
+                OrmDecision.decision_type.in_(signal_types),
+            )
+        ) or 0
+
+        entry_signals = self.session.scalar(
+            select(func.count())
+            .select_from(OrmDecision)
+            .where(
+                OrmDecision.strategy_instance_id.in_(inst_uuids),
+                OrmDecision.created_at >= today_start,
+                OrmDecision.decision_type.in_(
+                    [OrmDecisionType.BUY_SIGNAL, OrmDecisionType.SELL_SIGNAL]
+                ),
+            )
+        ) or 0
+
+        from quantara_engine.models.trading import Position as OrmPosition
+        from quantara_engine.models.enums import PositionStatus as OrmPositionStatus
+
+        trades_opened = self.session.scalar(
+            select(func.count())
+            .select_from(OrmPosition)
+            .where(
+                OrmPosition.portfolio_id.in_(port_uuids),
+                OrmPosition.opened_at >= today_start,
+                OrmPosition.status == OrmPositionStatus.OPEN,
+            )
+        ) or 0
+
+        trades_closed = self.session.scalar(
+            select(func.count())
+            .select_from(OrmTrade)
+            .where(
+                OrmTrade.portfolio_id.in_(port_uuids),
+                OrmTrade.closed_at >= today_start,
+                OrmTrade.backtest_run_id.is_(None),
+            )
+        ) or 0
+
+        return {
+            "market_checks_today": int(market_checks),
+            "entry_signals_today": int(entry_signals),
+            "trades_opened_today": int(trades_opened),
+            "trades_closed_today": int(trades_closed),
+        }
 
     # ------------------------------------------------------------------ Worker
 

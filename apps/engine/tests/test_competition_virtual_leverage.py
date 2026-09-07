@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 
-from quantara_engine.competition.constants import COMPETITION_PORTFOLIOS
+from quantara_engine.competition.constants import ACTIVE_COMPETITION_PORTFOLIOS
 from quantara_engine.competition.leverage import is_competition_portfolio
 from quantara_engine.domain.types import Instrument, Mode, Portfolio
 from quantara_engine.risk.profiles import get_risk_profile
@@ -28,9 +28,11 @@ INSTRUMENT = Instrument(
 )
 
 
-def test_competition_portfolio_ids_registered():
-    assert len(COMPETITION_PORTFOLIOS) == 5
-    assert is_competition_portfolio(COMPETITION_PORTFOLIOS[0].portfolio_id)
+def test_active_competition_portfolio_ids_registered():
+    assert len(ACTIVE_COMPETITION_PORTFOLIOS) == 15
+    timeframes = {p.timeframe for p in ACTIVE_COMPETITION_PORTFOLIOS}
+    assert timeframes == {"1h", "15m", "5m"}
+    assert is_competition_portfolio(ACTIVE_COMPETITION_PORTFOLIOS[0].portfolio_id)
 
 
 def test_legacy_cap_collapses_higher_tiers():
@@ -72,8 +74,9 @@ def test_legacy_cap_collapses_higher_tiers():
 
 
 def test_competition_virtual_leverage_differentiates_tiers():
+    one_hour = [p for p in ACTIVE_COMPETITION_PORTFOLIOS if p.timeframe == "1h"]
     results: list[tuple[Decimal, Decimal]] = []
-    for entry in COMPETITION_PORTFOLIOS:
+    for entry in one_hour:
         portfolio = Portfolio(
             id=entry.portfolio_id,
             name=entry.name_he,

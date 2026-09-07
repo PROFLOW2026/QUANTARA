@@ -39,7 +39,31 @@ export default async function PortfolioPage({
       <PortfolioScopeBanner
         portfolioId={portfolioId}
         portfolioName={portfolio?.name}
+        competition={portfolio?.competition}
       />
+
+      {portfolio?.competition ? (
+        <Card className="mb-4">
+          <CardContent className="grid gap-2 pt-6 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <p className="text-muted">{t("portfolio.timeframe_label")}</p>
+              <p>{portfolio.competition.timeframe_he}</p>
+            </div>
+            <div>
+              <p className="text-muted">{t("portfolio.risk_level_label")}</p>
+              <p>{portfolio.competition.risk_name_he}</p>
+            </div>
+            <div>
+              <p className="text-muted">{t("portfolio.risk_per_trade_label")}</p>
+              <p>{portfolio.competition.risk_per_trade_pct.toFixed(2)}%</p>
+            </div>
+            <div>
+              <p className="text-muted">{t("portfolio.initial_capital")}</p>
+              <p>{formatCurrency(portfolio.initial_capital ?? 0)}</p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
       {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
 
       <Card className="mb-4">

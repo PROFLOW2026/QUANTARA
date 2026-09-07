@@ -7,7 +7,16 @@ from decimal import Decimal
 from typing import Any
 
 from quantara_engine.analytics.service import AnalyticsService
-from quantara_engine.competition.constants import COMPETITION_TOTAL_INITIAL, RISK_SLUG_HE
+from quantara_engine.competition.constants import (
+    COMPETITION_NAME_HE,
+    COMPETITION_SUBTITLE_HE,
+    COMPETITION_TOTAL_INITIAL,
+    PORTFOLIO_DEF_BY_ID,
+    RISK_SLUG_HE,
+    TIMEFRAME_GROUP_TITLE_HE,
+    TIMEFRAME_HE,
+    TIMEFRAME_ORDER,
+)
 from quantara_engine.competition.leverage import compute_sizing_metrics
 from quantara_engine.persistence.store import TradingStore
 
@@ -27,6 +36,9 @@ def _drawdown_pct(equity: Decimal, peak: Decimal) -> float:
 def _portfolio_summary(store: TradingStore, entry: dict[str, Any]) -> dict[str, Any]:
     portfolio = entry["portfolio"]
     risk = entry["risk_profile"]
+    instance = entry["instance"]
+    portfolio_def = PORTFOLIO_DEF_BY_ID.get(portfolio.id)
+    timeframe = instance.timeframe
     realized = store.sum_realized_pnl(portfolio.id)
     trades_count = store.count_trades_for_portfolio(portfolio.id)
     win_rate = store.portfolio_win_rate(portfolio.id)
@@ -56,11 +68,16 @@ def _portfolio_summary(store: TradingStore, entry: dict[str, Any]) -> dict[str, 
         virtual_leverage = float(metrics["virtual_leverage"])
         notional_exposure = float(metrics["notional"])
 
+    risk_name_he = RISK_SLUG_HE.get(risk.slug, portfolio.name)
+    display_name = portfolio_def.name_he if portfolio_def else portfolio.name
+
     return {
         "id": portfolio.id,
-        "name": portfolio.name,
+        "name": display_name,
+        "timeframe": timeframe,
+        "timeframe_he": TIMEFRAME_HE.get(timeframe, timeframe),
         "risk_slug": risk.slug,
-        "risk_name_he": RISK_SLUG_HE.get(risk.slug, portfolio.name),
+        "risk_name_he": risk_name_he,
         "risk_per_trade_pct": float(risk.risk_per_trade_pct),
         "initial_capital": float(portfolio.initial_capital),
         "equity": float(portfolio.equity),
@@ -82,77 +99,136 @@ def _portfolio_summary(store: TradingStore, entry: dict[str, Any]) -> dict[str, 
         "open_position": len(open_positions) > 0,
         "open_positions_count": len(open_positions),
         "status": portfolio.status.value,
-        "strategy_instance_id": entry["instance"].id,
+        "strategy_instance_id": instance.id,
         "sort_order": entry["sort_order"],
     }
 
 
-def _build_activity(store: TradingStore, limit: int = 20) -> list[dict[str, Any]]:
-    decisions = store.list_competition_decisions(limit=limit * 3)
-    activity: list[dict[str, Any]] = []
-    seen_signal_candles: set[str] = set()
+def _leaderboard_rows(portfolios: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = sorted(
+        [
+            {
+                "rank": 0,
+                "portfolio_id": p["id"],
+                "name": p["name"],
+                "timeframe": p["timeframe"],
+                "timeframe_he": p["timeframe_he"],
+                "return_pct": p["return_pct"],
+                "max_drawdown_pct": p["max_drawdown_pct"],
+                "realized_pnl": p["realized_pnl"],
+                "trades_count": p["trades_count"],
+                "win_rate": p["win_rate"],
+                "return_vs_drawdown": (
+                    round(p["return_pct"] / p["max_drawdown_pct"], 2)
+                    if p["max_drawdown_pct"] > 0
+                    else None
+                ),
+            }
+            for p in portfolios
+        ],
+        key=lambda x: x["return_pct"],
+        reverse=True,
+    )
+    for i, row in enumerate(rows, start=1):
+        row["rank"] = i
+    return rows
 
-    portfolio_names = {
-        e["portfolio"].id: e["portfolio"].name for e in store.list_competition_entries()
+
+def _timeframe_comparison(portfolios: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summary: list[dict[str, Any]] = []
+    for timeframe in TIMEFRAME_ORDER:
+        group = [p for p in portfolios if p["timeframe"] == timeframe]
+        if not group:
+            continue
+        returns = [p["return_pct"] for p in group]
+        drawdowns = [p["max_drawdown_pct"] for p in group]
+        trades = sum(p["trades_count"] for p in group)
+        summary.append(
+            {
+                "timeframe": timeframe,
+                "timeframe_he": TIMEFRAME_HE.get(timeframe, timeframe),
+                "title_he": TIMEFRAME_GROUP_TITLE_HE.get(timeframe, timeframe),
+                "portfolio_count": len(group),
+                "average_return_pct": round(sum(returns) / len(group), 2),
+                "best_return_pct": max(returns),
+                "total_trades": trades,
+                "average_drawdown_pct": round(sum(drawdowns) / len(group), 2),
+                "max_drawdown_pct": max(drawdowns) if drawdowns else 0.0,
+                "combined_equity": round(sum(p["equity"] for p in group), 2),
+            }
+        )
+    return summary
+
+
+def _build_activity(store: TradingStore, limit: int = 24) -> list[dict[str, Any]]:
+    decisions = store.list_competition_decisions(limit=limit * 4)
+    activity: list[dict[str, Any]] = []
+
+    entries = store.list_competition_entries()
+    instance_meta: dict[str, dict[str, str]] = {}
+    for entry in entries:
+        p = entry["portfolio"]
+        portfolio_def = PORTFOLIO_DEF_BY_ID.get(p.id)
+        tf = entry["instance"].timeframe
+        instance_meta[entry["instance"].id] = {
+            "name": portfolio_def.name_he if portfolio_def else p.name,
+            "timeframe_he": TIMEFRAME_HE.get(tf, tf),
+            "risk_he": RISK_SLUG_HE.get(entry["risk_profile"].slug, p.name),
+        }
+
+    meaningful = {
+        "buy_signal",
+        "sell_signal",
+        "risk_approved",
+        "risk_denied",
+        "sl_triggered",
+        "tp_triggered",
+        "position_open",
     }
 
     for decision in decisions:
-        ts = decision.candle_timestamp.isoformat()
         dtype = decision.decision_type.value
-
-        if dtype in ("buy_signal", "sell_signal"):
-            key = f"{dtype}:{ts}"
-            if key not in seen_signal_candles:
-                seen_signal_candles.add(key)
-                direction = "קנייה" if dtype == "buy_signal" else "מכירה"
-                activity.append(
-                    {
-                        "timestamp": ts,
-                        "kind": "signal_all",
-                        "message": f"כל 5 התיקים קיבלו איתות {direction}",
-                    }
-                )
+        if dtype not in meaningful:
             continue
 
-        instance_portfolio = next(
-            (
-                e["portfolio"]
-                for e in store.list_competition_entries()
-                if e["instance"].id == decision.strategy_instance_id
-            ),
-            None,
-        )
-        name = instance_portfolio.name if instance_portfolio else "תיק"
+        meta = instance_meta.get(decision.strategy_instance_id, {})
+        label = meta.get("name") or meta.get("risk_he") or "תיק"
+        tf_he = meta.get("timeframe_he", "")
+        prefix = f"{tf_he} / {label}" if tf_he else label
 
-        if dtype == "risk_approved":
-            activity.append(
-                {
-                    "timestamp": ts,
-                    "kind": "risk_approved",
-                    "portfolio_name": name,
-                    "message": decision.message,
-                }
-            )
-        elif dtype in ("sl_triggered", "tp_triggered"):
-            label = "סטופ" if dtype == "sl_triggered" else "יעד"
-            activity.append(
-                {
-                    "timestamp": ts,
-                    "kind": dtype,
-                    "portfolio_name": name,
-                    "message": f"תיק {name} — {label} ({decision.message})",
-                }
-            )
+        if dtype == "buy_signal":
+            message = f"{prefix} — איתות קנייה"
+            kind = "buy_signal"
+        elif dtype == "sell_signal":
+            message = f"{prefix} — איתות מכירה"
+            kind = "sell_signal"
+        elif dtype == "risk_approved":
+            message = f"{prefix} — {decision.message}"
+            kind = "risk_approved"
         elif dtype == "risk_denied":
-            activity.append(
-                {
-                    "timestamp": ts,
-                    "kind": "risk_denied",
-                    "portfolio_name": name,
-                    "message": f"{name} — סיכון נדחה",
-                }
-            )
+            message = f"{prefix} — סיכון נדחה"
+            kind = "risk_denied"
+        elif dtype == "sl_triggered":
+            message = f"{prefix} — סטופ ({decision.message})"
+            kind = "sl_triggered"
+        elif dtype == "tp_triggered":
+            message = f"{prefix} — יעד ({decision.message})"
+            kind = "tp_triggered"
+        elif dtype == "position_open":
+            message = f"{prefix} — פוזיציה נפתחה"
+            kind = "position_open"
+        else:
+            continue
 
+        activity.append(
+            {
+                "timestamp": decision.candle_timestamp.isoformat(),
+                "kind": kind,
+                "portfolio_name": label,
+                "timeframe": meta.get("timeframe_he"),
+                "message": message,
+            }
+        )
         if len(activity) >= limit:
             break
 
@@ -173,29 +249,21 @@ def build_competition_response(store: TradingStore) -> dict[str, Any]:
     combined_equity = sum(p["equity"] for p in portfolios)
     combined_pnl = combined_equity - float(COMPETITION_TOTAL_INITIAL)
 
-    leaderboard = sorted(
-        [
-            {
-                "rank": 0,
-                "portfolio_id": p["id"],
-                "name": p["name"],
-                "return_pct": p["return_pct"],
-                "max_drawdown_pct": p["max_drawdown_pct"],
-                "realized_pnl": p["realized_pnl"],
-                "trades_count": p["trades_count"],
-                "return_vs_drawdown": (
-                    round(p["return_pct"] / p["max_drawdown_pct"], 2)
-                    if p["max_drawdown_pct"] > 0
-                    else None
-                ),
-            }
-            for p in portfolios
-        ],
-        key=lambda x: x["return_pct"],
-        reverse=True,
-    )
-    for i, row in enumerate(leaderboard, start=1):
-        row["rank"] = i
+    leaderboard = _leaderboard_rows(portfolios)
+    leaderboards_by_timeframe = {
+        tf: _leaderboard_rows([p for p in portfolios if p["timeframe"] == tf])
+        for tf in TIMEFRAME_ORDER
+    }
+
+    timeframe_groups = [
+        {
+            "timeframe": tf,
+            "timeframe_he": TIMEFRAME_HE.get(tf, tf),
+            "title_he": TIMEFRAME_GROUP_TITLE_HE.get(tf, tf),
+            "portfolios": [p for p in portfolios if p["timeframe"] == tf],
+        }
+        for tf in TIMEFRAME_ORDER
+    ]
 
     equity_curves: dict[str, list[dict[str, Any]]] = {}
     for entry in entries:
@@ -218,18 +286,25 @@ def build_competition_response(store: TradingStore) -> dict[str, Any]:
     leader = leaderboard[0] if leaderboard else None
     open_positions_total = sum(p["open_positions_count"] for p in portfolios)
 
+    timeframe_comparison = _timeframe_comparison(portfolios)
+    leading_timeframe = None
+    if timeframe_comparison:
+        leading_timeframe = max(
+            timeframe_comparison, key=lambda row: row["average_return_pct"]
+        )
+
     return {
         "active": True,
         "experiment": {
             "id": exp_id,
-            "name": "השוואת 5 תיקים אוטומטיים",
-            "subtitle": "אותה אסטרטגיה ואותם נתוני שוק — רמות סיכון שונות",
+            "name": COMPETITION_NAME_HE,
+            "subtitle": COMPETITION_SUBTITLE_HE,
             "started_at": started_at.isoformat() if started_at else None,
             "status": "running",
             "strategy_name": "Gold Trend Pullback",
             "strategy_version": "1.0.0",
             "instrument": "XAU/USD",
-            "timeframe": "1h",
+            "timeframe": "multi",
             "total_initial_capital": float(COMPETITION_TOTAL_INITIAL),
             "portfolio_initial_capital": float(entries[0]["portfolio"].initial_capital),
             "portfolio_count": len(portfolios),
@@ -244,11 +319,17 @@ def build_competition_response(store: TradingStore) -> dict[str, Any]:
             "portfolio_id": leader["portfolio_id"],
             "name": leader["name"],
             "return_pct": leader["return_pct"],
+            "timeframe": leader["timeframe"],
+            "timeframe_he": leader["timeframe_he"],
         }
         if leader
         else None,
+        "leading_timeframe": leading_timeframe,
         "portfolios": portfolios,
+        "timeframe_groups": timeframe_groups,
         "leaderboard": leaderboard,
+        "leaderboards_by_timeframe": leaderboards_by_timeframe,
+        "timeframe_comparison": timeframe_comparison,
         "equity_curves": equity_curves,
         "activity": _build_activity(store),
     }

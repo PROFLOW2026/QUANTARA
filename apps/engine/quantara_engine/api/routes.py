@@ -14,6 +14,12 @@ from quantara_engine.analytics.service import AnalyticsService
 from quantara_engine.api.deps import get_store, verify_api_key
 from quantara_engine.api.state import runtime_cache
 from quantara_engine.backtesting.runner import BacktestRun, BacktestRunner
+from quantara_engine.competition.constants import (
+    PORTFOLIO_DEF_BY_ID,
+    RISK_SLUG_HE,
+    TIMEFRAME_GROUP_TITLE_HE,
+    TIMEFRAME_HE,
+)
 from quantara_engine.competition.service import build_competition_response
 from quantara_engine.core.config import settings
 from quantara_engine.domain.types import ExecutionAssumptions, Mode, PortfolioStatus
@@ -57,10 +63,12 @@ def _portfolio_ui(store: TradingStore, portfolio_ref: str = "paper-main") -> dic
     risk_slug = store.get_portfolio_risk_slug(portfolio.id) or settings.get(
         "default_risk_profile", "balanced"
     )
+    portfolio_def = PORTFOLIO_DEF_BY_ID.get(portfolio.id)
+    instance = store.get_paper_strategy_instance(portfolio.id)
 
-    return {
+    payload = {
         "id": portfolio.id,
-        "name": portfolio.name,
+        "name": portfolio_def.name_he if portfolio_def else portfolio.name,
         "equity": float(portfolio.equity),
         "cash_balance": float(portfolio.balance),
         "unrealized_pnl": float(portfolio.unrealized_pnl),
@@ -72,6 +80,21 @@ def _portfolio_ui(store: TradingStore, portfolio_ref: str = "paper-main") -> dic
         "mode": portfolio.mode.value,
         "initial_capital": float(portfolio.initial_capital),
     }
+    if portfolio_def:
+        payload["competition"] = {
+            "timeframe": portfolio_def.timeframe,
+            "timeframe_he": TIMEFRAME_HE.get(portfolio_def.timeframe, portfolio_def.timeframe),
+            "risk_slug": portfolio_def.risk_slug,
+            "risk_name_he": RISK_SLUG_HE.get(portfolio_def.risk_slug, portfolio.name),
+            "risk_per_trade_pct": float(
+                store.get_risk_profile_by_slug(portfolio_def.risk_slug).risk_per_trade_pct
+                if store.get_risk_profile_by_slug(portfolio_def.risk_slug)
+                else 0
+            ),
+        }
+    elif instance:
+        payload["timeframe"] = instance.timeframe
+    return payload
 
 
 def _strategy_label(store: TradingStore, strategy_version_id: str) -> tuple[str, str]:
@@ -378,15 +401,19 @@ def portfolios_list(store: StoreDep):
     ]
     for entry in entries:
         p = entry["portfolio"]
+        portfolio_def = PORTFOLIO_DEF_BY_ID.get(p.id)
         items.append(
             {
                 "id": p.id,
-                "name": p.name,
+                "name": portfolio_def.name_he if portfolio_def else p.name,
                 "kind": "competition",
+                "timeframe": entry["instance"].timeframe,
+                "timeframe_he": TIMEFRAME_HE.get(entry["instance"].timeframe, entry["instance"].timeframe),
                 "risk_slug": entry["risk_profile"].slug,
                 "risk_per_trade_pct": float(entry["risk_profile"].risk_per_trade_pct),
                 "initial_capital": float(p.initial_capital),
                 "equity": float(p.equity),
+                "sort_order": entry["sort_order"],
             }
         )
     return items
@@ -730,6 +757,58 @@ def analytics_competition(store: StoreDep):
 @router.get("/analytics/today")
 def analytics_today(store: StoreDep, portfolio_id: str = "paper-main"):
     """Today's paper-trading activity for the Home dashboard (not backtest-wide)."""
+    if store.list_competition_entries():
+        stats = store.get_competition_today_stats()
+        entries = store.list_competition_entries()
+        portfolios = [e["portfolio"] for e in entries]
+        combined_equity = sum(float(p.equity) for p in portfolios)
+        summaries = [
+            {
+                "id": e["portfolio"].id,
+                "name": PORTFOLIO_DEF_BY_ID.get(e["portfolio"].id).name_he
+                if PORTFOLIO_DEF_BY_ID.get(e["portfolio"].id)
+                else e["portfolio"].name,
+                "return_pct": round(
+                    float(
+                        (e["portfolio"].equity - e["portfolio"].initial_capital)
+                        / e["portfolio"].initial_capital
+                        * 100
+                    )
+                    if e["portfolio"].initial_capital > 0
+                    else 0,
+                    2,
+                ),
+                "timeframe": e["instance"].timeframe,
+                "timeframe_he": TIMEFRAME_HE.get(e["instance"].timeframe, e["instance"].timeframe),
+            }
+            for e in entries
+        ]
+        leader_row = max(summaries, key=lambda row: row["return_pct"], default=None)
+        tf_groups: dict[str, list[float]] = {}
+        for row in summaries:
+            tf_groups.setdefault(row["timeframe"], []).append(row["return_pct"])
+        leading_timeframe = None
+        if tf_groups:
+            best_tf = max(tf_groups.items(), key=lambda item: sum(item[1]) / len(item[1]))
+            leading_timeframe = {
+                "timeframe": best_tf[0],
+                "timeframe_he": TIMEFRAME_HE.get(best_tf[0], best_tf[0]),
+                "title_he": TIMEFRAME_GROUP_TITLE_HE.get(best_tf[0], best_tf[0]),
+                "average_return_pct": round(sum(best_tf[1]) / len(best_tf[1]), 2),
+            }
+        open_positions_total = sum(
+            len(store.list_positions(e["portfolio"].id, open_only=True)) for e in entries
+        )
+        return {
+            "scope": "competition",
+            "portfolio_count": len(entries),
+            **stats,
+            "combined_equity": round(combined_equity, 2),
+            "open_positions_total": open_positions_total,
+            "leader": leader_row,
+            "leading_timeframe": leading_timeframe,
+        }
+
     portfolio = store.resolve_paper_portfolio(portfolio_id)
     instance = store.get_paper_strategy_instance(portfolio.id)
     return {

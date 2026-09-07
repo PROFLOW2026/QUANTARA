@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Seed the 5-portfolio paper risk competition (does not touch legacy open positions)."""
+"""Seed the active 15-portfolio multi-timeframe competition experiment.
+
+Preserves the legacy 5-portfolio experiment (archived, not deleted).
+Does not touch legacy Paper Main open positions or trade history.
+"""
 
 from __future__ import annotations
 
@@ -16,11 +20,14 @@ sys.path.insert(0, str(ENGINE_PATH))
 from sqlalchemy import text  # noqa: E402
 
 from quantara_engine.competition.constants import (  # noqa: E402
+    ACTIVE_COMPETITION_EXPERIMENT_ID,
+    ACTIVE_COMPETITION_PORTFOLIOS,
     COMPETITION_DESCRIPTION,
-    COMPETITION_EXPERIMENT_ID,
     COMPETITION_INITIAL_CAPITAL,
     COMPETITION_NAME_HE,
-    COMPETITION_PORTFOLIOS,
+    COMPETITION_SUBTITLE_HE,
+    LEGACY_COMPETITION_EXPERIMENT_ID,
+    LEGACY_COMPETITION_PORTFOLIOS,
     LEGACY_PAPER_INSTANCE_ID,
     OWNER_ID,
 )
@@ -57,6 +64,31 @@ def seed_competition() -> None:
             sys.exit(1)
         strategy_version_id = strategy_version[0]
 
+        # Archive legacy 5-portfolio experiment (preserve rows).
+        conn.execute(
+            text(
+                """
+                UPDATE experiments
+                SET status = 'completed', end_date = COALESCE(end_date, NOW())
+                WHERE id = :id
+                """
+            ),
+            {"id": uuid.UUID(LEGACY_COMPETITION_EXPERIMENT_ID)},
+        )
+
+        for entry in LEGACY_COMPETITION_PORTFOLIOS:
+            conn.execute(
+                text(
+                    """
+                    UPDATE strategy_instances
+                    SET is_active = false
+                    WHERE id = :id
+                    """
+                ),
+                {"id": uuid.UUID(entry.instance_id)},
+            )
+
+        # Active 15-portfolio experiment — always a fresh start timestamp.
         conn.execute(
             text(
                 """
@@ -69,19 +101,20 @@ def seed_competition() -> None:
                   name = EXCLUDED.name,
                   description = EXCLUDED.description,
                   status = 'running',
-                  start_date = COALESCE(experiments.start_date, EXCLUDED.start_date)
+                  start_date = EXCLUDED.start_date,
+                  end_date = NULL
                 """
             ),
             {
-                "id": uuid.UUID(COMPETITION_EXPERIMENT_ID),
+                "id": uuid.UUID(ACTIVE_COMPETITION_EXPERIMENT_ID),
                 "name": COMPETITION_NAME_HE,
-                "description": COMPETITION_DESCRIPTION,
+                "description": f"{COMPETITION_SUBTITLE_HE}. {COMPETITION_DESCRIPTION}",
                 "instrument_id": instrument_id,
                 "start_date": started_at,
             },
         )
 
-        for entry in COMPETITION_PORTFOLIOS:
+        for entry in ACTIVE_COMPETITION_PORTFOLIOS:
             risk_row = conn.execute(
                 text("SELECT id FROM risk_profiles WHERE slug = :slug"),
                 {"slug": entry.risk_slug},
@@ -101,7 +134,9 @@ def seed_competition() -> None:
                       :id, :owner_id, :name, 'paper', :initial_capital, :initial_capital, 0,
                       :initial_capital, 0, 0, 'USD', 'active', :initial_capital
                     )
-                    ON CONFLICT (id) DO NOTHING
+                    ON CONFLICT (id) DO UPDATE SET
+                      name = EXCLUDED.name,
+                      status = 'active'
                     """
                 ),
                 {
@@ -120,12 +155,13 @@ def seed_competition() -> None:
                       timeframe, risk_profile_id, parameter_overrides, is_active, experiment_id
                     ) VALUES (
                       :id, :portfolio_id, :strategy_version_id, :instrument_id,
-                      '1h', :risk_profile_id, '{}', true, :experiment_id
+                      :timeframe, :risk_profile_id, '{}', true, :experiment_id
                     )
                     ON CONFLICT (id) DO UPDATE SET
                       is_active = true,
                       experiment_id = EXCLUDED.experiment_id,
-                      risk_profile_id = EXCLUDED.risk_profile_id
+                      risk_profile_id = EXCLUDED.risk_profile_id,
+                      timeframe = EXCLUDED.timeframe
                     """
                 ),
                 {
@@ -133,11 +169,14 @@ def seed_competition() -> None:
                     "portfolio_id": uuid.UUID(entry.portfolio_id),
                     "strategy_version_id": strategy_version_id,
                     "instrument_id": instrument_id,
+                    "timeframe": entry.timeframe,
                     "risk_profile_id": risk_profile_id,
-                    "experiment_id": uuid.UUID(COMPETITION_EXPERIMENT_ID),
+                    "experiment_id": uuid.UUID(ACTIVE_COMPETITION_EXPERIMENT_ID),
                 },
             )
-            print(f"  Portfolio {entry.portfolio_id} risk={entry.risk_slug}")
+            print(
+                f"  Portfolio {entry.portfolio_id} tf={entry.timeframe} risk={entry.risk_slug}"
+            )
 
         conn.execute(
             text(
@@ -153,13 +192,13 @@ def seed_competition() -> None:
         for key, value, description in [
             (
                 "competition_experiment_id",
-                COMPETITION_EXPERIMENT_ID,
-                "Active 5-portfolio risk competition experiment UUID",
+                ACTIVE_COMPETITION_EXPERIMENT_ID,
+                "Active multi-timeframe competition experiment UUID",
             ),
             (
                 "competition_started_at",
                 started_at.isoformat(),
-                "Competition experiment start timestamp (UTC ISO)",
+                "Active competition experiment start timestamp (UTC ISO)",
             ),
         ]:
             conn.execute(
@@ -168,11 +207,7 @@ def seed_competition() -> None:
                     INSERT INTO settings (id, key, value, description)
                     VALUES (:id, :key, :value, :description)
                     ON CONFLICT (key) DO UPDATE SET
-                      value = CASE
-                        WHEN :key = 'competition_started_at' AND settings.value IS NOT NULL
-                        THEN settings.value
-                        ELSE EXCLUDED.value
-                      END,
+                      value = EXCLUDED.value,
                       description = EXCLUDED.description,
                       updated_at = NOW()
                     """
@@ -186,9 +221,12 @@ def seed_competition() -> None:
             )
 
     print("Competition seed completed.")
-    print(f"  Experiment: {COMPETITION_EXPERIMENT_ID}")
-    print(f"  Start: {started_at.isoformat()}")
-    print(f"  Portfolios: {len(COMPETITION_PORTFOLIOS)} × ${COMPETITION_INITIAL_CAPITAL}")
+    print(f"  Legacy experiment archived: {LEGACY_COMPETITION_EXPERIMENT_ID}")
+    print(f"  Active experiment: {ACTIVE_COMPETITION_EXPERIMENT_ID}")
+    print(f"  Common start: {started_at.isoformat()}")
+    print(
+        f"  Portfolios: {len(ACTIVE_COMPETITION_PORTFOLIOS)} × ${COMPETITION_INITIAL_CAPITAL}"
+    )
     print("  Legacy Paper Main instance deactivated for new auto trades (history preserved).")
 
 

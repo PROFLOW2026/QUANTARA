@@ -3,17 +3,23 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { PageHeader, ErrorBanner, EngineConnectionError } from "@/components/layout/PageHeader";
+import {
+  PageHeader,
+  ErrorBanner,
+  EngineConnectionError,
+} from "@/components/layout/PageHeader";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { loadCompetitionView } from "@/lib/competition-client";
 import {
   ApiError,
   isEngineConnectionError,
+  type CompetitionLeaderboardRow,
   type CompetitionPortfolioSummary,
   type CompetitionResponse,
+  type CompetitionTimeframeGroup,
 } from "@/lib/api-client";
+import { loadCompetitionFull, loadCompetitionView } from "@/lib/competition-client";
 import { translateRiskProfile } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
 import {
@@ -39,34 +45,145 @@ const MultiEquityCurveChart = dynamic(
 );
 
 const POLL_INTERVAL = 60_000;
-
-function normalizeCompetitionResponse(
-  raw: CompetitionResponse | null | undefined
-): CompetitionResponse | null {
-  if (!raw || typeof raw !== "object") return null;
-  return {
-    ...raw,
-    active: Boolean(raw.active),
-    portfolios: Array.isArray(raw.portfolios) ? raw.portfolios : [],
-    leaderboard: Array.isArray(raw.leaderboard) ? raw.leaderboard : [],
-    activity: Array.isArray(raw.activity) ? raw.activity : [],
-    equity_curves:
-      raw.equity_curves && typeof raw.equity_curves === "object"
-        ? raw.equity_curves
-        : {},
-    combined: raw.combined ?? {
-      initial_equity: 0,
-      current_equity: 0,
-      combined_pnl: 0,
-      open_positions_total: 0,
-    },
-    experiment: raw.experiment,
-  };
-}
+const TIMEFRAME_ORDER = ["1h", "15m", "5m"] as const;
 
 function portfolioRiskLabel(p: CompetitionPortfolioSummary): string {
   const pct = Number(p.risk_per_trade_pct ?? p.target_risk_pct ?? 0);
   return `${pct.toFixed(2)}%`;
+}
+
+function LeaderboardTable({ rows }: { rows: CompetitionLeaderboardRow[] }) {
+  if (!rows.length) {
+    return <p className="text-sm text-muted">{t("common.no_data")}</p>;
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border text-muted">
+            <th className="py-2 text-right">{t("competition.rank")}</th>
+            <th className="py-2 text-right">{t("common.name")}</th>
+            <th className="py-2 text-right">{t("competition.timeframe")}</th>
+            <th className="py-2 text-right">{t("competition.return_pct")}</th>
+            <th className="py-2 text-right">{t("competition.max_drawdown")}</th>
+            <th className="py-2 text-right">{t("competition.trades")}</th>
+            <th className="py-2 text-right">{t("competition.win_rate")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.portfolio_id} className="border-b border-border/50">
+              <td className="py-2 font-mono">{row.rank}</td>
+              <td className="py-2">{row.name}</td>
+              <td className="py-2">{row.timeframe_he ?? row.timeframe}</td>
+              <td className="py-2 font-mono">{formatPercent(row.return_pct)}</td>
+              <td className="py-2 font-mono text-loss">
+                {formatPercent(-row.max_drawdown_pct)}
+              </td>
+              <td className="py-2">{row.trades_count}</td>
+              <td className="py-2">
+                {row.win_rate != null ? `${row.win_rate.toFixed(1)}%` : "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PortfolioCard({ p }: { p: CompetitionPortfolioSummary }) {
+  return (
+    <Card className="flex flex-col">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">{p.name}</CardTitle>
+        <p className="text-xs text-muted">
+          {p.timeframe_he ?? p.timeframe} · {translateRiskProfile(p.risk_slug)} ·{" "}
+          {t("competition.risk_per_trade")}: {portfolioRiskLabel(p)}
+        </p>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col gap-2 text-sm">
+        <div className="flex justify-between">
+          <span className="text-muted">{t("competition.current_equity")}</span>
+          <span className="font-mono">{formatCurrency(Number(p.equity ?? 0))}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted">{t("portfolio.initial_capital")}</span>
+          <span className="font-mono">
+            {formatCurrency(Number(p.initial_capital ?? 2000))}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted">{t("competition.pnl")}</span>
+          <PnLDisplay value={Number(p.total_pnl ?? 0)} size="sm" />
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted">{t("competition.return_pct")}</span>
+          <span className={(p.return_pct ?? 0) >= 0 ? "text-profit" : "text-loss"}>
+            {formatPercent(Number(p.return_pct ?? 0))}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted">{t("competition.open_position")}</span>
+          <span>
+            {p.open_position ? t("competition.open_position") : t("competition.no_position")}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted">{t("competition.trades")}</span>
+          <span>{p.trades_count ?? 0}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted">{t("competition.win_rate")}</span>
+          <span>
+            {p.win_rate != null ? `${Number(p.win_rate).toFixed(1)}%` : "—"}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted">{t("competition.max_drawdown")}</span>
+          <span className="text-loss">
+            {formatPercent(-Number(p.max_drawdown_pct ?? 0))}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted">{t("competition.exposure")}</span>
+          <span>{Number(p.exposure_pct ?? 0).toFixed(1)}%</span>
+        </div>
+        {p.virtual_leverage != null && p.virtual_leverage > 1 ? (
+          <div className="flex justify-between">
+            <span className="text-muted">{t("competition.virtual_leverage")}</span>
+            <span>{Number(p.virtual_leverage).toFixed(2)}×</span>
+          </div>
+        ) : null}
+        {p.actual_risk_pct != null ? (
+          <div className="flex justify-between">
+            <span className="text-muted">{t("competition.actual_risk_label")}</span>
+            <span>{Number(p.actual_risk_pct).toFixed(2)}%</span>
+          </div>
+        ) : null}
+        <Link
+          href={`/portfolio?portfolio_id=${encodeURIComponent(p.id)}`}
+          className="mt-auto pt-2 text-sm text-accent hover:underline"
+        >
+          {t("competition.view_portfolio")} →
+        </Link>
+      </CardContent>
+    </Card>
+  );
+}
+
+function TimeframeSection({ group }: { group: CompetitionTimeframeGroup }) {
+  return (
+    <section className="mb-6">
+      <h2 className="mb-3 text-lg font-semibold">{group.title_he}</h2>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
+        {group.portfolios.map((p) => (
+          <PortfolioCard key={p.id} p={p} />
+        ))}
+      </div>
+    </section>
+  );
 }
 
 export default function PortfolioComparisonPage() {
@@ -79,19 +196,28 @@ export default function PortfolioComparisonPage() {
     if (showLoading) setLoading(true);
 
     try {
-      const res = normalizeCompetitionResponse(await loadCompetitionView());
-      if (!res?.active || !res.experiment) {
+      let res: CompetitionResponse;
+      try {
+        res = await loadCompetitionFull();
+      } catch (fullErr) {
+        if (!isEngineConnectionError(fullErr)) {
+          res = await loadCompetitionView();
+        } else {
+          throw fullErr;
+        }
+      }
+
+      if (!res?.active || !res.experiment || !res.portfolios?.length) {
         setData(res);
         setConnectionError(false);
-        setError(t("competition.load_error_inactive"));
+        setError(
+          !res?.active
+            ? t("competition.load_error_inactive")
+            : t("competition.load_error_empty")
+        );
         return;
       }
-      if (!res.portfolios?.length) {
-        setData(res);
-        setConnectionError(false);
-        setError(t("competition.load_error_empty"));
-        return;
-      }
+
       setData(res);
       setError(null);
       setConnectionError(false);
@@ -100,13 +226,12 @@ export default function PortfolioComparisonPage() {
       if (isEngineConnectionError(e)) {
         setConnectionError(true);
         setError(t("common.engine_connection_error"));
+      } else if (e instanceof ApiError) {
+        setConnectionError(false);
+        setError(`${t("competition.load_error_api")} (${e.status})`);
       } else {
         setConnectionError(false);
-        if (e instanceof ApiError) {
-          setError(`${t("competition.load_error_api")} (${e.status})`);
-        } else {
-          setError(t("competition.load_error_generic"));
-        }
+        setError(t("competition.load_error_generic"));
       }
     } finally {
       setLoading(false);
@@ -149,6 +274,15 @@ export default function PortfolioComparisonPage() {
     data: data.equity_curves?.[p.id] ?? [],
   }));
 
+  const timeframeGroups =
+    data.timeframe_groups ??
+    TIMEFRAME_ORDER.map((timeframe) => ({
+      timeframe,
+      timeframe_he: timeframe,
+      title_he: timeframe,
+      portfolios: data.portfolios?.filter((p) => p.timeframe === timeframe) ?? [],
+    })).filter((group) => group.portfolios.length > 0);
+
   return (
     <>
       <PageHeader titleKey="competition.title" subtitleKey="competition.subtitle" />
@@ -175,7 +309,7 @@ export default function PortfolioComparisonPage() {
           </div>
           <div>
             <p className="text-muted">{t("competition.total_initial")}</p>
-            <p>{formatCurrency(data.experiment.total_initial_capital ?? 10000)}</p>
+            <p>{formatCurrency(data.experiment.total_initial_capital ?? 30000)}</p>
           </div>
           <div>
             <p className="text-muted">{t("competition.portfolios_split")}</p>
@@ -194,128 +328,72 @@ export default function PortfolioComparisonPage() {
         </CardContent>
       </Card>
 
-      <div className="mb-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
-        {data.portfolios.map((p) => (
-          <Card key={p.id} className="flex flex-col">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">{p.name}</CardTitle>
-              <p className="text-xs text-muted">
-                {translateRiskProfile(p.risk_slug)} · {t("competition.risk_per_trade")}:{" "}
-                {portfolioRiskLabel(p)}
-              </p>
-            </CardHeader>
-            <CardContent className="flex flex-1 flex-col gap-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted">{t("competition.current_equity")}</span>
-                <span className="font-mono">{formatCurrency(Number(p.equity ?? 0))}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted">{t("portfolio.initial_capital")}</span>
-                <span className="font-mono">
-                  {formatCurrency(Number(p.initial_capital ?? 2000))}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted">{t("competition.pnl")}</span>
-                <PnLDisplay value={Number(p.total_pnl ?? 0)} size="sm" />
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted">{t("competition.return_pct")}</span>
-                <span className={(p.return_pct ?? 0) >= 0 ? "text-profit" : "text-loss"}>
-                  {formatPercent(Number(p.return_pct ?? 0))}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted">{t("competition.open_position")}</span>
-                <span>
-                  {p.open_position
-                    ? t("competition.open_position")
-                    : t("competition.no_position")}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted">{t("competition.trades")}</span>
-                <span>{p.trades_count ?? 0}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted">{t("competition.win_rate")}</span>
-                <span>
-                  {p.win_rate != null ? `${Number(p.win_rate).toFixed(1)}%` : "—"}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted">{t("competition.max_drawdown")}</span>
-                <span className="text-loss">
-                  {formatPercent(-Number(p.max_drawdown_pct ?? 0))}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted">{t("competition.exposure")}</span>
-                <span>{Number(p.exposure_pct ?? 0).toFixed(1)}%</span>
-              </div>
-              {p.virtual_leverage != null && p.virtual_leverage > 1 ? (
-                <div className="flex justify-between">
-                  <span className="text-muted">{t("competition.virtual_leverage")}</span>
-                  <span>{Number(p.virtual_leverage).toFixed(2)}×</span>
-                </div>
-              ) : null}
-              {p.actual_risk_pct != null ? (
-                <div className="flex justify-between">
-                  <span className="text-muted">{t("competition.actual_risk_label")}</span>
-                  <span>{Number(p.actual_risk_pct).toFixed(2)}%</span>
-                </div>
-              ) : null}
-              <Link
-                href={`/portfolio?portfolio_id=${encodeURIComponent(p.id)}`}
-                className="mt-auto pt-2 text-sm text-accent hover:underline"
-              >
-                {t("competition.view_portfolio")} →
-              </Link>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {timeframeGroups.map((group) => (
+        <TimeframeSection key={group.timeframe} group={group} />
+      ))}
 
       <Card className="mb-4">
         <CardHeader>
-          <CardTitle>{t("competition.leaderboard")}</CardTitle>
+          <CardTitle>{t("competition.leaderboard_overall")}</CardTitle>
           <p className="text-xs text-muted">{t("competition.leader_return")}</p>
         </CardHeader>
+        <CardContent>
+          <LeaderboardTable rows={data.leaderboard ?? []} />
+        </CardContent>
+      </Card>
+
+      {TIMEFRAME_ORDER.map((timeframe) => {
+        const rows = data.leaderboards_by_timeframe?.[timeframe] ?? [];
+        if (!rows.length) return null;
+        const title =
+          timeframe === "1h"
+            ? t("competition.leaderboard_1h")
+            : timeframe === "15m"
+              ? t("competition.leaderboard_15m")
+              : t("competition.leaderboard_5m");
+        return (
+          <Card key={timeframe} className="mb-4">
+            <CardHeader>
+              <CardTitle>{title}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <LeaderboardTable rows={rows} />
+            </CardContent>
+          </Card>
+        );
+      })}
+
+      <Card className="mb-4">
+        <CardHeader>
+          <CardTitle>{t("competition.timeframe_comparison")}</CardTitle>
+        </CardHeader>
         <CardContent className="overflow-x-auto">
-          {(data.leaderboard?.length ?? 0) === 0 ? (
+          {!data.timeframe_comparison?.length ? (
             <p className="text-sm text-muted">{t("common.no_data")}</p>
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-muted">
-                  <th className="py-2 text-right">{t("competition.rank")}</th>
-                  <th className="py-2 text-right">{t("common.name")}</th>
-                  <th className="py-2 text-right">{t("competition.return_pct")}</th>
-                  <th className="py-2 text-right">{t("competition.max_drawdown")}</th>
-                  <th className="py-2 text-right">{t("competition.realized_pnl")}</th>
+                  <th className="py-2 text-right">{t("competition.timeframe")}</th>
+                  <th className="py-2 text-right">{t("competition.avg_return")}</th>
                   <th className="py-2 text-right">{t("competition.trades")}</th>
-                  <th className="py-2 text-right">{t("competition.return_vs_drawdown")}</th>
+                  <th className="py-2 text-right">{t("competition.avg_drawdown")}</th>
+                  <th className="py-2 text-right">{t("competition.max_drawdown")}</th>
                 </tr>
               </thead>
               <tbody>
-                {data.leaderboard?.map((row) => (
-                  <tr key={row.portfolio_id} className="border-b border-border/50">
-                    <td className="py-2 font-mono">{row.rank}</td>
-                    <td className="py-2">{row.name}</td>
+                {data.timeframe_comparison.map((row) => (
+                  <tr key={row.timeframe} className="border-b border-border/50">
+                    <td className="py-2">{row.title_he}</td>
                     <td className="py-2 font-mono">
-                      {formatPercent(Number(row.return_pct ?? 0))}
+                      {formatPercent(row.average_return_pct)}
+                    </td>
+                    <td className="py-2">{row.total_trades}</td>
+                    <td className="py-2 font-mono text-loss">
+                      {formatPercent(-row.average_drawdown_pct)}
                     </td>
                     <td className="py-2 font-mono text-loss">
-                      {formatPercent(-Number(row.max_drawdown_pct ?? 0))}
-                    </td>
-                    <td className="py-2 font-mono">
-                      {formatCurrency(Number(row.realized_pnl ?? 0))}
-                    </td>
-                    <td className="py-2">{row.trades_count ?? 0}</td>
-                    <td className="py-2 font-mono">
-                      {row.return_vs_drawdown != null
-                        ? Number(row.return_vs_drawdown).toFixed(2)
-                        : "—"}
+                      {formatPercent(-row.max_drawdown_pct)}
                     </td>
                   </tr>
                 ))}
