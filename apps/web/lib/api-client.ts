@@ -26,11 +26,6 @@ export function isEngineConnectionError(err: unknown): boolean {
   return false;
 }
 
-/** Heavy optional routes can time out while the engine is still reachable. */
-export function isUpstreamTimeout(err: unknown): boolean {
-  return err instanceof ApiError && (err.status === 504 || err.status === 408);
-}
-
 function buildFetchUrl(path: string): string {
   const enginePath = path.startsWith("/") ? path : `/${path}`;
 
