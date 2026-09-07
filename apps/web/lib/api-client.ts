@@ -42,6 +42,27 @@ export async function apiFetch<T>(
   return res.json() as Promise<T>;
 }
 
+/** Same-origin proxy for browser calls (avoids CORS / missing public env on client). */
+export async function apiFetchAppRoute<T>(path: string): Promise<T> {
+  const res = await fetch(path, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    let detail = `App route ${res.status}: ${path}`;
+    try {
+      const payload = (await res.json()) as { error?: string; detail?: string };
+      if (payload.error) detail = payload.error;
+    } catch {
+      // ignore parse errors
+    }
+    throw new ApiError(res.status, detail);
+  }
+
+  return res.json() as Promise<T>;
+}
+
 // --- Types (display-only, from Engine API) ---
 
 export interface Portfolio {
@@ -417,7 +438,10 @@ export const api = {
   getBacktestTrades: (id: string) =>
     apiFetch<Trade[]>(`/backtests/${id}/trades`),
   getExperiments: () => apiFetch<Experiment[]>("/experiments"),
-  getCompetition: () => apiFetch<CompetitionResponse>("/competition"),
+  getCompetition: () =>
+    typeof window === "undefined"
+      ? apiFetch<CompetitionResponse>("/competition")
+      : apiFetchAppRoute<CompetitionResponse>("/api/competition"),
   getPortfolios: () => apiFetch<PortfolioListItem[]>("/portfolios"),
   getAnalyticsPortfolio: (portfolioId?: string) =>
     apiFetch<AnalyticsPortfolio>(`/analytics/portfolio${portfolioQs(portfolioId)}`),

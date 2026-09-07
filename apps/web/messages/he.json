@@ -173,6 +173,7 @@
     "snapshots": "היסטוריית שווי",
     "snapshot_time": "זמן",
     "equity": "שווי",
+    "initial_capital": "הון התחלתי",
     "viewing": "מציג תיק",
     "switch": "החלף תיק",
     "select": "בחר תיק",
@@ -357,7 +358,12 @@
     "virtual_leverage": "מינוף וירטואלי",
     "target_risk_label": "סיכון יעד",
     "actual_risk_label": "סיכון בפועל",
-    "realized_pnl": "רווח/הפסד ממומש"
+    "realized_pnl": "רווח/הפסד ממומש",
+    "load_error_generic": "שגיאה בטעינת נתוני ההשוואה",
+    "load_error_api": "שגיאה בחיבור למנוע הנתונים",
+    "load_error_timeout": "תם הזמן לטעינת נתוני ההשוואה — בדוק חיבור למנוע",
+    "load_error_inactive": "ניסוי ההשוואה לא פעיל או לא הוגדר",
+    "load_error_empty": "לא נמצאו תיקי ניסוי להשוואה"
   },
   "settings": {
     "title": "הגדרות",
