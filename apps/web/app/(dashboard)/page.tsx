@@ -20,6 +20,7 @@ import {
   type WorkerStatus,
   type TodayActivity,
 } from "@/lib/api-client";
+import { loadCompetitionView } from "@/lib/competition-client";
 import { translateRiskProfile } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
 import { formatPercent, formatRelativeTime, formatCurrency } from "@/lib/utils";
@@ -35,7 +36,7 @@ export default function HomePageClient() {
   const [today, setToday] = useState<TodayActivity | null>(null);
   const [workers, setWorkers] = useState<WorkerStatus | null>(null);
   const [competition, setCompetition] = useState<Awaited<
-    ReturnType<typeof api.getCompetition>
+    ReturnType<typeof loadCompetitionView>
   > | null>(null);
   const [criticalError, setCriticalError] = useState<string | null>(null);
   const [engineConnectionError, setEngineConnectionError] = useState(false);
@@ -53,7 +54,7 @@ export default function HomePageClient() {
         api.getRiskStatus(),
         api.getAnalyticsToday(),
         api.getWorkersStatus(),
-        api.getCompetition(),
+        loadCompetitionView(),
       ]);
 
       let connectionError = false;

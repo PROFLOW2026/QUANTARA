@@ -7,8 +7,8 @@ import { PageHeader, ErrorBanner, EngineConnectionError } from "@/components/lay
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { loadCompetitionView } from "@/lib/competition-client";
 import {
-  api,
   ApiError,
   isEngineConnectionError,
   type CompetitionPortfolioSummary,
@@ -79,7 +79,7 @@ export default function PortfolioComparisonPage() {
     if (showLoading) setLoading(true);
 
     try {
-      const res = normalizeCompetitionResponse(await api.getCompetition());
+      const res = normalizeCompetitionResponse(await loadCompetitionView());
       if (!res?.active || !res.experiment) {
         setData(res);
         setConnectionError(false);
