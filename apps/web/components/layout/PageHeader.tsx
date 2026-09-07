@@ -4,13 +4,19 @@ import { Card, CardContent } from "@/components/ui/card";
 
 interface PageHeaderProps {
   titleKey: string;
+  subtitleKey?: string;
   action?: React.ReactNode;
 }
 
-export function PageHeader({ titleKey, action }: PageHeaderProps) {
+export function PageHeader({ titleKey, subtitleKey, action }: PageHeaderProps) {
   return (
     <div className="mb-6 flex items-center justify-between">
-      <h1 className="text-2xl font-bold text-slate-100">{t(titleKey)}</h1>
+      <div>
+        <h1 className="text-2xl font-bold text-slate-100">{t(titleKey)}</h1>
+        {subtitleKey ? (
+          <p className="mt-1 text-sm text-muted">{t(subtitleKey)}</p>
+        ) : null}
+      </div>
       {action}
     </div>
   );

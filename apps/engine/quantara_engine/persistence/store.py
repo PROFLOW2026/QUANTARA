@@ -34,6 +34,7 @@ from quantara_engine.domain.types import (
     StrategyInstance,
     Trade,
 )
+from quantara_engine.competition.constants import COMPETITION_PORTFOLIOS
 from quantara_engine.execution.fill_calculator import FillResult
 from quantara_engine.models.enums import (
     BacktestStatus,
@@ -345,6 +346,139 @@ class TradingStore:
         )
         return self._risk_profile_to_domain(row) if row else None
 
+    def get_risk_profile_by_id(self, profile_id: str) -> RiskProfile | None:
+        row = self.session.get(OrmRiskProfile, _uuid(profile_id))
+        return self._risk_profile_to_domain(row) if row else None
+
+    def get_competition_experiment_id(self) -> str | None:
+        settings = self.get_settings_dict()
+        exp_id = settings.get("competition_experiment_id")
+        return str(exp_id) if exp_id else None
+
+    def get_competition_started_at(self) -> datetime | None:
+        settings = self.get_settings_dict()
+        raw = settings.get("competition_started_at")
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    def list_competition_entries(self) -> list[dict[str, Any]]:
+        """Active competition portfolios with strategy instance and risk profile."""
+        exp_id = self.get_competition_experiment_id()
+        if not exp_id:
+            return []
+
+        order_map = {p.portfolio_id: p.sort_order for p in COMPETITION_PORTFOLIOS}
+        stmt = (
+            select(OrmStrategyInstance, OrmPortfolio, OrmRiskProfile)
+            .join(OrmPortfolio, OrmStrategyInstance.portfolio_id == OrmPortfolio.id)
+            .join(OrmRiskProfile, OrmStrategyInstance.risk_profile_id == OrmRiskProfile.id)
+            .join(
+                OrmStrategyVersion,
+                OrmStrategyInstance.strategy_version_id == OrmStrategyVersion.id,
+            )
+            .join(OrmStrategy, OrmStrategyVersion.strategy_id == OrmStrategy.id)
+            .where(
+                OrmStrategyInstance.experiment_id == _uuid(exp_id),
+                OrmStrategyInstance.is_active.is_(True),
+                OrmStrategy.slug == "gold-trend-pullback",
+            )
+        )
+        rows = self.session.execute(stmt).all()
+        entries: list[dict[str, Any]] = []
+        for instance_row, portfolio_row, risk_row in rows:
+            slug = risk_row.slug.value if hasattr(risk_row.slug, "value") else str(risk_row.slug)
+            entries.append(
+                {
+                    "portfolio": self._portfolio_to_domain(portfolio_row),
+                    "instance": self._strategy_instance_to_domain(
+                        instance_row, "gold-trend-pullback"
+                    ),
+                    "risk_profile": self._risk_profile_to_domain(risk_row),
+                    "sort_order": order_map.get(_str_id(portfolio_row.id), 99),
+                }
+            )
+        entries.sort(key=lambda e: e["sort_order"])
+        return entries
+
+    def list_competition_instance_ids(self) -> list[str]:
+        return [e["instance"].id for e in self.list_competition_entries()]
+
+    def list_decisions_for_portfolio(
+        self,
+        portfolio_id: str,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[DecisionLogEntry]:
+        instance_ids = [
+            e["instance"].id
+            for e in self.list_competition_entries()
+            if e["portfolio"].id == portfolio_id
+        ]
+        if not instance_ids:
+            instance = self.get_paper_strategy_instance(portfolio_id)
+            if instance:
+                instance_ids = [instance.id]
+            else:
+                return []
+        stmt = (
+            select(OrmDecision)
+            .where(OrmDecision.strategy_instance_id.in_([_uuid(i) for i in instance_ids]))
+            .order_by(OrmDecision.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        rows = self.session.scalars(stmt).all()
+        return [self._decision_to_domain(row) for row in rows]
+
+    def list_competition_decisions(self, limit: int = 30) -> list[DecisionLogEntry]:
+        instance_ids = self.list_competition_instance_ids()
+        if not instance_ids:
+            return []
+        stmt = (
+            select(OrmDecision)
+            .where(OrmDecision.strategy_instance_id.in_([_uuid(i) for i in instance_ids]))
+            .order_by(OrmDecision.created_at.desc())
+            .limit(limit)
+        )
+        rows = self.session.scalars(stmt).all()
+        return [self._decision_to_domain(row) for row in rows]
+
+    def count_trades_for_portfolio(self, portfolio_id: str) -> int:
+        return self.session.scalar(
+            select(func.count())
+            .select_from(OrmTrade)
+            .where(
+                OrmTrade.portfolio_id == _uuid(portfolio_id),
+                OrmTrade.backtest_run_id.is_(None),
+            )
+        ) or 0
+
+    def portfolio_win_rate(self, portfolio_id: str) -> float | None:
+        rows = self.session.scalars(
+            select(OrmTrade).where(
+                OrmTrade.portfolio_id == _uuid(portfolio_id),
+                OrmTrade.backtest_run_id.is_(None),
+            )
+        ).all()
+        if not rows:
+            return None
+        wins = sum(1 for t in rows if t.realized_pnl > 0)
+        return wins / len(rows) * 100
+
+    def get_portfolio_risk_slug(self, portfolio_id: str) -> str | None:
+        instance = self.get_paper_strategy_instance(portfolio_id)
+        if not instance:
+            for entry in self.list_competition_entries():
+                if entry["portfolio"].id == portfolio_id:
+                    return entry["risk_profile"].slug
+            return None
+        profile = self.get_risk_profile_by_id(instance.risk_profile_id)
+        return profile.slug if profile else None
+
     def get_strategy_by_slug(self, slug: str) -> dict[str, Any] | None:
         row = self.session.scalar(select(OrmStrategy).where(OrmStrategy.slug == slug))
         if not row:
@@ -497,6 +631,24 @@ class TradingStore:
         rows = self.session.scalars(stmt).all()
         return [self._candle_to_domain(row) for row in rows]
 
+    def list_recent_candles(
+        self,
+        instrument_id: str,
+        timeframe: str,
+        limit: int = 50,
+    ) -> list[DomainCandle]:
+        stmt = (
+            select(OrmCandle)
+            .where(
+                OrmCandle.instrument_id == _uuid(instrument_id),
+                OrmCandle.timeframe == timeframe,
+            )
+            .order_by(OrmCandle.timestamp.desc())
+            .limit(limit)
+        )
+        rows = self.session.scalars(stmt).all()
+        return [self._candle_to_domain(row) for row in reversed(rows)]
+
     def count_candles(self, instrument_id: str, timeframe: str) -> int:
         return self.session.scalar(
             select(func.count())
@@ -590,6 +742,40 @@ class TradingStore:
         if rejection_reason:
             row.rejection_reason = rejection_reason
         self.session.flush()
+
+    def list_pending_order_intents(
+        self,
+        portfolio_id: str,
+        strategy_instance_id: str,
+    ) -> list[OrderIntent]:
+        rows = self.session.scalars(
+            select(OrmOrderIntent)
+            .where(
+                OrmOrderIntent.portfolio_id == _uuid(portfolio_id),
+                OrmOrderIntent.strategy_instance_id == _uuid(strategy_instance_id),
+                OrmOrderIntent.status == OrderIntentStatus.PENDING_EXECUTION,
+                OrmOrderIntent.backtest_run_id.is_(None),
+            )
+            .order_by(OrmOrderIntent.execution_candle_timestamp)
+        ).all()
+        return [self._order_intent_to_domain(row) for row in rows]
+
+    def find_pending_intent_for_signal_candle(
+        self,
+        strategy_instance_id: str,
+        signal_candle_timestamp: datetime,
+    ) -> OrderIntent | None:
+        row = self.session.scalar(
+            select(OrmOrderIntent)
+            .where(
+                OrmOrderIntent.strategy_instance_id == _uuid(strategy_instance_id),
+                OrmOrderIntent.signal_candle_timestamp == signal_candle_timestamp,
+                OrmOrderIntent.status == OrderIntentStatus.PENDING_EXECUTION,
+                OrmOrderIntent.backtest_run_id.is_(None),
+            )
+            .limit(1)
+        )
+        return self._order_intent_to_domain(row) if row else None
 
     def save_order(
         self,
@@ -925,6 +1111,24 @@ class TradingStore:
         ).all()
         return [self._snapshot_to_domain(row) for row in rows]
 
+    def get_start_of_day_equity(
+        self,
+        portfolio_id: str,
+        day_start: datetime,
+    ) -> Decimal | None:
+        row = self.session.scalar(
+            select(OrmPortfolioSnapshot.equity)
+            .where(
+                OrmPortfolioSnapshot.portfolio_id == _uuid(portfolio_id),
+                OrmPortfolioSnapshot.timestamp >= day_start,
+                OrmPortfolioSnapshot.backtest_run_id.is_(None),
+                OrmPortfolioSnapshot.mode == PortfolioMode.PAPER,
+            )
+            .order_by(OrmPortfolioSnapshot.timestamp.asc())
+            .limit(1)
+        )
+        return Decimal(str(row)) if row is not None else None
+
     def count_decisions_today(
         self,
         strategy_instance_id: str | None = None,
@@ -1162,6 +1366,26 @@ class TradingStore:
             volume=row.volume,
             source=row.source,
             is_complete=row.is_complete,
+        )
+
+    def _order_intent_to_domain(self, row: OrmOrderIntent) -> OrderIntent:
+        return OrderIntent(
+            id=_str_id(row.id),
+            signal_id=_str_id(row.signal_id),
+            strategy_instance_id=_str_id(row.strategy_instance_id),
+            portfolio_id=_str_id(row.portfolio_id),
+            direction=Direction(row.direction.value),
+            quantity=row.quantity,
+            stop_loss=row.stop_loss,
+            take_profit=row.take_profit,
+            target_risk_amount=row.target_risk_amount,
+            actual_risk_amount=row.actual_risk_amount,
+            signal_candle_timestamp=row.signal_candle_timestamp,
+            execution_candle_timestamp=row.execution_candle_timestamp,
+            risk_profile_id=_str_id(row.risk_profile_id),
+            status=IntentStatus(row.status.value),
+            entry_type=row.entry_type.value,
+            limit_price=row.limit_price,
         )
 
     def _position_to_domain(self, row: OrmPosition) -> Position:

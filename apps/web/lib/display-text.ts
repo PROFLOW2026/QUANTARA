@@ -39,9 +39,11 @@ const EXIT_REASON_KEYS: Record<string, string> = {
 };
 
 const RISK_PROFILE_KEYS: Record<string, string> = {
+  very_conservative: "display.risk.very_conservative",
   conservative: "display.risk.conservative",
   balanced: "display.risk.balanced",
   aggressive: "display.risk.aggressive",
+  very_aggressive: "display.risk.very_aggressive",
 };
 
 const TIMEFRAME_KEYS: Record<string, string> = {

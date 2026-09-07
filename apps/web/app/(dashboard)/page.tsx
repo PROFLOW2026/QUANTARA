@@ -21,7 +21,7 @@ import {
 } from "@/lib/api-client";
 import { translateRiskProfile } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
-import { formatPercent, formatRelativeTime } from "@/lib/utils";
+import { formatPercent, formatRelativeTime, formatCurrency } from "@/lib/utils";
 
 const POLL_INTERVAL = 60_000;
 
@@ -33,6 +33,9 @@ export default function HomePageClient() {
   const [risk, setRisk] = useState<RiskStatus | null>(null);
   const [today, setToday] = useState<TodayActivity | null>(null);
   const [workers, setWorkers] = useState<WorkerStatus | null>(null);
+  const [competition, setCompetition] = useState<Awaited<
+    ReturnType<typeof api.getCompetition>
+  > | null>(null);
   const [criticalError, setCriticalError] = useState<string | null>(null);
   const [goldError, setGoldError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,6 +50,7 @@ export default function HomePageClient() {
         api.getRiskStatus(),
         api.getAnalyticsToday(),
         api.getWorkersStatus(),
+        api.getCompetition(),
       ]);
 
       const failed = results.filter((r) => r.status === "rejected");
@@ -86,8 +90,11 @@ export default function HomePageClient() {
       if (results[6].status === "fulfilled") setWorkers(results[6].value);
       else setWorkers(null);
 
+      if (results[7].status === "fulfilled") setCompetition(results[7].value);
+      else setCompetition(null);
+
       const criticalFailed = results.some(
-        (result, index) => index !== 1 && result.status === "rejected"
+        (result, index) => index !== 1 && index !== 7 && result.status === "rejected"
       );
       setCriticalError(criticalFailed ? t("common.error") : null);
     } catch (e) {
@@ -178,6 +185,32 @@ export default function HomePageClient() {
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {competition?.active && competition.leader ? (
+          <Card>
+            <CardHeader><CardTitle>{t("home.competition_card_title")}</CardTitle></CardHeader>
+            <CardContent className="space-y-1 text-sm">
+              <p>
+                <span className="text-muted">{t("home.competition_leader")}: </span>
+                {competition.leader.name} ({formatPercent(competition.leader.return_pct)})
+              </p>
+              <p>
+                <span className="text-muted">{t("home.competition_combined_equity")}: </span>
+                {formatCurrency(competition.combined?.current_equity ?? 0)}
+              </p>
+              <p>
+                <span className="text-muted">{t("home.competition_open_positions")}: </span>
+                {competition.combined?.open_positions_total ?? 0}
+              </p>
+              <Link
+                href="/portfolio-comparison"
+                className="mt-3 inline-block text-sm text-accent hover:underline"
+              >
+                {t("home.competition_view")} →
+              </Link>
+            </CardContent>
+          </Card>
+        ) : null}
+
         <Card>
           <CardHeader><CardTitle>{t("home.open_positions")}</CardTitle></CardHeader>
           <CardContent>

@@ -5,16 +5,28 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow, EmptyState,
 } from "@/components/ui/table";
+import { PortfolioScopeBanner } from "@/components/trading/PortfolioScopeBanner";
 import { api, ApiError } from "@/lib/api-client";
 import { t } from "@/lib/i18n";
 import { formatDateTime, formatPrice } from "@/lib/utils";
 
-export default async function PositionsPage() {
+export default async function PositionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ portfolio_id?: string }>;
+}) {
+  const params = await searchParams;
+  const portfolioId = params.portfolio_id ?? "00000000-0000-0000-0000-000000000010";
+
   let positions = null;
+  let portfolio = null;
   let error: string | null = null;
 
   try {
-    positions = await api.getPositions("open");
+    [positions, portfolio] = await Promise.all([
+      api.getPositions("open", portfolioId),
+      api.getPortfolio(portfolioId),
+    ]);
   } catch (e) {
     error = e instanceof ApiError ? e.message : t("common.error");
   }
@@ -22,6 +34,7 @@ export default async function PositionsPage() {
   return (
     <>
       <PageHeader titleKey="positions.title" />
+      <PortfolioScopeBanner portfolioId={portfolioId} portfolioName={portfolio?.name} />
       {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
 
       <Card>

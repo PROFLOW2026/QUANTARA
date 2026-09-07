@@ -1,5 +1,6 @@
 import { PageHeader, ErrorBanner, ChartPlaceholder } from "@/components/layout/PageHeader";
 import { MetricCardCurrency } from "@/components/trading/MetricCard";
+import { PortfolioScopeBanner } from "@/components/trading/PortfolioScopeBanner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow, EmptyState,
@@ -9,15 +10,24 @@ import { api, ApiError } from "@/lib/api-client";
 import { t } from "@/lib/i18n";
 import { formatCurrency, formatDateTime, formatPercent } from "@/lib/utils";
 
-export default async function PortfolioPage() {
+const DEFAULT_PORTFOLIO = "00000000-0000-0000-0000-000000000010";
+
+export default async function PortfolioPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ portfolio_id?: string }>;
+}) {
+  const params = await searchParams;
+  const portfolioId = params.portfolio_id ?? DEFAULT_PORTFOLIO;
+
   let portfolio = null;
   let snapshots = null;
   let error: string | null = null;
 
   try {
     [portfolio, snapshots] = await Promise.all([
-      api.getPortfolio(),
-      api.getSnapshots(),
+      api.getPortfolio(portfolioId),
+      api.getSnapshots(portfolioId),
     ]);
   } catch (e) {
     error = e instanceof ApiError ? e.message : t("common.error");
@@ -26,6 +36,10 @@ export default async function PortfolioPage() {
   return (
     <>
       <PageHeader titleKey="portfolio.title" />
+      <PortfolioScopeBanner
+        portfolioId={portfolioId}
+        portfolioName={portfolio?.name}
+      />
       {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
 
       <Card className="mb-4">

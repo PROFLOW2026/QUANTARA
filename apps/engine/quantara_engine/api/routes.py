@@ -14,9 +14,16 @@ from quantara_engine.analytics.service import AnalyticsService
 from quantara_engine.api.deps import get_store, verify_api_key
 from quantara_engine.api.state import runtime_cache
 from quantara_engine.backtesting.runner import BacktestRun, BacktestRunner
+from quantara_engine.competition.service import build_competition_response
 from quantara_engine.core.config import settings
 from quantara_engine.domain.types import ExecutionAssumptions, Mode, PortfolioStatus
 from quantara_engine.market_data.factory import get_market_data_provider
+from quantara_engine.market_data.spot_price import (
+    read_spot_snapshot,
+    resolve_spot_snapshot,
+    spot_age_minutes,
+    spot_response_fields,
+)
 from quantara_engine.persistence.store import TradingStore
 from quantara_engine.strategies.registry import get, list_all
 
@@ -31,19 +38,29 @@ def _drawdown_pct(equity: Decimal, peak_equity: Decimal) -> float:
     return float((peak_equity - equity) / peak_equity * 100)
 
 
+def _daily_pnl_paper(store: TradingStore, portfolio_id: str, current_equity: Decimal) -> Decimal:
+    """Monetary P&L since UTC day start from paper snapshots only."""
+    today_start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    start_equity = store.get_start_of_day_equity(portfolio_id, today_start)
+    if start_equity is None:
+        return Decimal("0")
+    return (current_equity - start_equity).quantize(Decimal("0.01"))
+
+
 def _portfolio_ui(store: TradingStore, portfolio_ref: str = "paper-main") -> dict:
     portfolio = store.resolve_paper_portfolio(portfolio_ref)
     settings = store.get_settings_dict()
     realized = store.sum_realized_pnl(portfolio.id)
-    daily = Decimal("0")
-    snaps = store.list_snapshots(portfolio.id, limit=30)
-    if snaps:
-        today = datetime.now(timezone.utc).date()
-        today_snaps = [s for s in snaps if s.timestamp.date() == today]
-        if len(today_snaps) >= 2:
-            daily = today_snaps[-1].equity - today_snaps[0].equity
+    daily = _daily_pnl_paper(store, portfolio.id, portfolio.equity)
+    risk_slug = store.get_portfolio_risk_slug(portfolio.id) or settings.get(
+        "default_risk_profile", "balanced"
+    )
 
     return {
+        "id": portfolio.id,
+        "name": portfolio.name,
         "equity": float(portfolio.equity),
         "cash_balance": float(portfolio.balance),
         "unrealized_pnl": float(portfolio.unrealized_pnl),
@@ -51,8 +68,9 @@ def _portfolio_ui(store: TradingStore, portfolio_ref: str = "paper-main") -> dic
         "daily_pnl": float(daily),
         "peak_equity": float(portfolio.peak_equity),
         "current_drawdown_pct": _drawdown_pct(portfolio.equity, portfolio.peak_equity),
-        "risk_profile": settings.get("default_risk_profile", "balanced"),
+        "risk_profile": risk_slug,
         "mode": portfolio.mode.value,
+        "initial_capital": float(portfolio.initial_capital),
     }
 
 
@@ -137,13 +155,21 @@ def candles_latest(
     if not inst:
         raise HTTPException(404, "Instrument not found")
 
-    rows = store.list_candles(inst.id, timeframe, limit=50)
+    spot = resolve_spot_snapshot(store, allow_fetch=True)
+    if spot:
+        fields = spot_response_fields(spot)
+        return {
+            "instrument": instrument,
+            **fields,
+        }
+
+    rows = store.list_recent_candles(inst.id, timeframe, limit=50)
     if len(rows) < 2 and settings.market_data_provider == "mock":
         provider = get_market_data_provider("mock")
         generated = provider.generate_candles(inst.id, timeframe, 50)
         for candle in generated:
             store.upsert_candle(candle)
-        rows = store.list_candles(inst.id, timeframe, limit=50)
+        rows = store.list_recent_candles(inst.id, timeframe, limit=50)
     if len(rows) < 1:
         raise HTTPException(404, "No candle data available")
 
@@ -151,10 +177,14 @@ def candles_latest(
     if len(rows) >= 2:
         prev = rows[-2]
         change = float(last.close - prev.close)
-        change_pct = float(change / prev.close * 100) if prev.close else 0
+        change_pct = (change / float(prev.close) * 100) if prev.close else 0.0
     else:
         change = 0.0
         change_pct = 0.0
+    age_minutes = max(
+        0.0,
+        (datetime.now(timezone.utc) - last.timestamp).total_seconds() / 60,
+    )
     return {
         "instrument": instrument,
         "price": float(last.close),
@@ -162,6 +192,9 @@ def candles_latest(
         "change_pct": change_pct,
         "last_update": last.timestamp.isoformat(),
         "timeframe": timeframe,
+        "price_source": f"candle_{timeframe}",
+        "data_age_minutes": round(age_minutes, 1),
+        "is_stale": age_minutes > 60,
     }
 
 
@@ -171,22 +204,32 @@ def market_data_status(store: StoreDep):
     provider = settings.market_data_provider
     last_fetch = None
     stale = True
+    spot_stale = True
     counts: dict[str, int] = {}
+    spot = read_spot_snapshot(store)
     if inst:
         for tf in ("5m", "15m", "1h"):
             counts[tf] = store.count_candles(inst.id, tf)
-        last_fetch = store.latest_candle_timestamp(inst.id, "1h")
-        if last_fetch:
-            age_h = (datetime.now(timezone.utc) - last_fetch).total_seconds() / 3600
-            stale = age_h > 2 if provider == "twelvedata" else age_h > 24
+        if spot:
+            last_fetch = datetime.fromisoformat(
+                spot.get("fetched_at") or spot.get("updated_at")  # type: ignore[arg-type]
+            )
+            spot_stale = spot_age_minutes(spot) > 10
+        else:
+            last_fetch = store.latest_candle_timestamp(inst.id, "1h")
+            if last_fetch:
+                age_h = (datetime.now(timezone.utc) - last_fetch).total_seconds() / 3600
+                spot_stale = age_h > 2 if provider == "twelvedata" else age_h > 24
     return {
-        "healthy": not stale and (sum(counts.values()) > 0 if provider == "twelvedata" else True),
+        "healthy": not spot_stale and (sum(counts.values()) > 0 if provider == "twelvedata" else True),
         "provider": provider,
         "source": provider,
         "last_fetch": last_fetch.isoformat() if last_fetch else None,
         "candle_counts": counts,
         "gaps": 0,
-        "stale": stale,
+        "stale": spot_stale,
+        "spot_source": spot.get("source") if spot else None,
+        "spot_age_minutes": round(spot_age_minutes(spot), 1) if spot else None,
     }
 
 
@@ -199,13 +242,16 @@ def portfolio(store: StoreDep, portfolio_id: str = "paper-main"):
 def portfolio_risk_status(store: StoreDep, portfolio_id: str = "paper-main"):
     portfolio = store.resolve_paper_portfolio(portfolio_id)
     settings = store.get_settings_dict()
+    risk_slug = store.get_portfolio_risk_slug(portfolio.id) or settings.get(
+        "default_risk_profile", "balanced"
+    )
     exposure_pct = (
         float(portfolio.exposure_notional / portfolio.equity * 100)
         if portfolio.equity > 0
         else 0
     )
     return {
-        "profile": settings.get("default_risk_profile", "balanced"),
+        "profile": risk_slug,
         "halted": portfolio.status == PortfolioStatus.HALTED,
         "exposure_pct": round(exposure_pct, 2),
         "halt_reason": portfolio.halt_reason,
@@ -312,9 +358,54 @@ def trades(store: StoreDep, portfolio_id: str = "paper-main"):
     return result
 
 
+@router.get("/competition")
+def competition_summary(store: StoreDep):
+    return build_competition_response(store)
+
+
+@router.get("/portfolios")
+def portfolios_list(store: StoreDep):
+    entries = store.list_competition_entries()
+    legacy = store.resolve_paper_portfolio("paper-main")
+    items = [
+        {
+            "id": legacy.id,
+            "name": legacy.name,
+            "kind": "legacy",
+            "initial_capital": float(legacy.initial_capital),
+            "equity": float(legacy.equity),
+        }
+    ]
+    for entry in entries:
+        p = entry["portfolio"]
+        items.append(
+            {
+                "id": p.id,
+                "name": p.name,
+                "kind": "competition",
+                "risk_slug": entry["risk_profile"].slug,
+                "risk_per_trade_pct": float(entry["risk_profile"].risk_per_trade_pct),
+                "initial_capital": float(p.initial_capital),
+                "equity": float(p.equity),
+            }
+        )
+    return items
+
+
 @router.get("/decisions")
-def decisions(store: StoreDep, limit: int = 50):
-    items = store.list_decisions(limit=limit)
+def decisions(
+    store: StoreDep,
+    limit: int = 50,
+    portfolio_id: str | None = None,
+):
+    if portfolio_id:
+        items = store.list_decisions_for_portfolio(portfolio_id, limit=limit)
+    else:
+        competition = store.list_competition_instance_ids()
+        if competition:
+            items = store.list_competition_decisions(limit=limit)
+        else:
+            items = store.list_decisions(limit=limit)
     return [
         {
             "id": d.id,
@@ -323,6 +414,7 @@ def decisions(store: StoreDep, limit: int = 50):
             "message": d.message,
             "instrument": "XAUUSD",
             "candle_time": d.candle_timestamp.isoformat(),
+            "strategy_instance_id": d.strategy_instance_id,
         }
         for d in items
     ]
@@ -618,6 +710,20 @@ def analytics_costs(store: StoreDep, portfolio_id: str = "paper-main"):
         "total_fees": float(fees),
         "total_slippage": float(slip),
         "spread_impact": float(spread),
+    }
+
+
+@router.get("/analytics/competition")
+def analytics_competition(store: StoreDep):
+    payload = build_competition_response(store)
+    if not payload.get("active"):
+        raise HTTPException(404, "Competition not configured")
+    return {
+        "equity_curves": payload["equity_curves"],
+        "portfolios": payload["portfolios"],
+        "leaderboard": payload["leaderboard"],
+        "combined": payload["combined"],
+        "experiment": payload["experiment"],
     }
 
 

@@ -6,16 +6,28 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow, EmptyState,
 } from "@/components/ui/table";
 import { translateExitReason } from "@/lib/display-text";
+import { PortfolioScopeBanner } from "@/components/trading/PortfolioScopeBanner";
 import { api, ApiError } from "@/lib/api-client";
 import { t } from "@/lib/i18n";
 import { formatDateTime, formatPrice } from "@/lib/utils";
 
-export default async function JournalPage() {
+export default async function JournalPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ portfolio_id?: string }>;
+}) {
+  const params = await searchParams;
+  const portfolioId = params.portfolio_id ?? "00000000-0000-0000-0000-000000000010";
+
   let trades = null;
+  let portfolio = null;
   let error: string | null = null;
 
   try {
-    trades = await api.getTrades({ status: "closed" });
+    [trades, portfolio] = await Promise.all([
+      api.getTrades({ portfolio_id: portfolioId }),
+      api.getPortfolio(portfolioId),
+    ]);
   } catch (e) {
     error = e instanceof ApiError ? e.message : t("common.error");
   }
@@ -23,6 +35,7 @@ export default async function JournalPage() {
   return (
     <>
       <PageHeader titleKey="journal.title" />
+      <PortfolioScopeBanner portfolioId={portfolioId} portfolioName={portfolio?.name} />
       {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
 
       <Card>

@@ -33,6 +33,8 @@ def compute_position_size(
     direction: str,
     open_positions: list[Position],
     mark_price: Decimal,
+    *,
+    allow_virtual_leverage: bool = False,
 ) -> tuple[Decimal, Decimal, Decimal, str | None]:
     """
     Returns (quantity, target_risk_amount, actual_risk_amount, denial_reason).
@@ -44,19 +46,20 @@ def compute_position_size(
 
     desired_quantity = target_risk / sl_distance
 
-    # Exposure cap
-    current_exposure = sum(p.quantity * mark_price for p in open_positions)
-    max_exposure = portfolio.equity * risk_profile.max_total_exposure_pct / Decimal("100")
-    remaining_headroom = max(Decimal("0"), max_exposure - current_exposure)
-    if mark_price > 0:
-        max_qty_by_exposure = remaining_headroom / mark_price
-        desired_quantity = min(desired_quantity, max_qty_by_exposure)
+    if not allow_virtual_leverage:
+        # Exposure cap (legacy / standard paper)
+        current_exposure = sum(p.quantity * mark_price for p in open_positions)
+        max_exposure = portfolio.equity * risk_profile.max_total_exposure_pct / Decimal("100")
+        remaining_headroom = max(Decimal("0"), max_exposure - current_exposure)
+        if mark_price > 0:
+            max_qty_by_exposure = remaining_headroom / mark_price
+            desired_quantity = min(desired_quantity, max_qty_by_exposure)
 
-    # Available capital cap (Phase 1: reserved = exposure)
-    available = portfolio.balance - portfolio.reserved_capital
-    if mark_price > 0 and available > 0:
-        max_qty_by_capital = available / mark_price
-        desired_quantity = min(desired_quantity, max_qty_by_capital)
+        # Available capital cap (Phase 1: reserved = exposure)
+        available = portfolio.balance - portfolio.reserved_capital
+        if mark_price > 0 and available > 0:
+            max_qty_by_capital = available / mark_price
+            desired_quantity = min(desired_quantity, max_qty_by_capital)
 
     actual_quantity = round_quantity(desired_quantity, instrument.quantity_step)
     actual_quantity = max(actual_quantity, Decimal("0"))

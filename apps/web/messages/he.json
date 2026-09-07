@@ -6,6 +6,7 @@
   "nav": {
     "home": "בית / היום",
     "portfolio": "תיק",
+    "portfolio_comparison": "השוואת תיקים",
     "positions": "פוזיציות פתוחות",
     "journal": "יומן מסחר",
     "decisions": "יומן החלטות",
@@ -87,9 +88,11 @@
       "end_of_backtest": "סוף בדיקה היסטורית"
     },
     "risk": {
+      "very_conservative": "זהיר מאוד",
       "conservative": "שמרני",
       "balanced": "מאוזן",
-      "aggressive": "אגרסיבי"
+      "aggressive": "אגרסיבי",
+      "very_aggressive": "אגרסיבי מאוד"
     },
     "execution": {
       "next_open": "בפתיחת הנר הבא"
@@ -150,7 +153,12 @@
     "pause_trading": "השהה מסחר",
     "resume_trading": "חדש מסחר",
     "view_decisions": "יומן החלטות",
-    "view_backtests": "בדיקות היסטוריות"
+    "view_backtests": "בדיקות היסטוריות",
+    "competition_card_title": "5 תיקי ניסוי פעילים",
+    "competition_leader": "מוביל כרגע",
+    "competition_combined_equity": "שווי משולב",
+    "competition_open_positions": "פוזיציות פתוחות בניסוי",
+    "competition_view": "הצג השוואה"
   },
   "portfolio": {
     "title": "תיק",
@@ -164,7 +172,11 @@
     "mode": "מצב",
     "snapshots": "היסטוריית שווי",
     "snapshot_time": "זמן",
-    "equity": "שווי"
+    "equity": "שווי",
+    "viewing": "מציג תיק",
+    "switch": "החלף תיק",
+    "select": "בחר תיק",
+    "legacy": "תיק היסטורי (Paper Main)"
   },
   "positions": {
     "title": "פוזיציות פתוחות",
@@ -313,6 +325,39 @@
     "stale_warning": "נתונים לא מעודכנים",
     "candle_counts": "נרות שמורים",
     "last_updated": "עודכן לאחרונה"
+  },
+  "competition": {
+    "title": "השוואת 5 תיקים אוטומטיים",
+    "subtitle": "אותה אסטרטגיה ואותם נתוני שוק — רמות סיכון שונות",
+    "experiment_start": "התחלת הניסוי",
+    "strategy": "אסטרטגיה",
+    "instrument": "מכשיר",
+    "total_initial": "סכום התחלתי כולל",
+    "portfolios_split": "5 תיקים × $2,000",
+    "status_active": "פעיל",
+    "risk_per_trade": "סיכון לעסקה",
+    "current_equity": "שווי נוכחי",
+    "pnl": "רווח/הפסד",
+    "return_pct": "תשואה",
+    "open_position": "פוזיציה פתוחה",
+    "no_position": "אין פוזיציה",
+    "trades": "עסקאות",
+    "win_rate": "אחוז הצלחה",
+    "max_drawdown": "ירידה מרבית מהשיא",
+    "exposure": "חשיפה נוכחית",
+    "leaderboard": "דירוג נוכחי",
+    "leader_return": "מוביל בתשואה כרגע",
+    "return_vs_drawdown": "תשואה ביחס לירידה מהשיא",
+    "combined_equity": "שווי משולב",
+    "combined_pnl": "רווח/הפסד משולב",
+    "activity": "פעילות אחרונה",
+    "view_portfolio": "פרטי תיק",
+    "equity_comparison": "השוואת עקומות שווי",
+    "rank": "דירוג",
+    "virtual_leverage": "מינוף וירטואלי",
+    "target_risk_label": "סיכון יעד",
+    "actual_risk_label": "סיכון בפועל",
+    "realized_pnl": "רווח/הפסד ממומש"
   },
   "settings": {
     "title": "הגדרות",

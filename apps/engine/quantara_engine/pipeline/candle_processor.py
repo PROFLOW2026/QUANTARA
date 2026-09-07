@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -26,6 +26,7 @@ from quantara_engine.domain.types import (
     new_id,
 )
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
+from quantara_engine.market_data.polling import timeframe_minutes
 from quantara_engine.portfolio.service import PortfolioState
 from quantara_engine.risk.engine import RiskEngine, RiskEvaluationInput
 from quantara_engine.strategies.base import BaseStrategy
@@ -176,7 +177,27 @@ class CandleProcessor:
         self.store.save_snapshot(snap)
         self._flush_store()
 
-    def process_candle(self, candle_index: int) -> PipelineResult:
+    def evaluate_signal(self, candle_index: int):
+        """Evaluate strategy once on candles up to index (no persistence)."""
+        candle = self.all_candles[candle_index]
+        visible = self.all_candles[: candle_index + 1]
+        strategy = self._strategy()
+        params = {**strategy.default_parameters(), **self.instance.parameter_overrides}
+        from quantara_engine.domain.types import StrategyContext
+
+        ctx = StrategyContext(
+            instrument_id=candle.instrument_id,
+            timeframe=candle.timeframe,
+            parameters=params,
+        )
+        return strategy.evaluate(visible, ctx), candle
+
+    def process_candle(
+        self,
+        candle_index: int,
+        *,
+        shared_signal=None,
+    ) -> PipelineResult:
         candle = self.all_candles[candle_index]
         key = f"{candle.instrument_id}:{candle.timeframe}:{candle.timestamp.isoformat()}"
         if key in self.processed_keys:
@@ -198,21 +219,36 @@ class CandleProcessor:
             self.store.update_portfolio(self.state.portfolio)
             self._flush_store()
 
-        # 4. Strategy evaluation on candles up to index (no future)
-        visible = self.all_candles[: candle_index + 1]
-        strategy = self._strategy()
-        params = {**strategy.default_parameters(), **self.instance.parameter_overrides}
-        from quantara_engine.domain.types import StrategyContext, Signal
+        from quantara_engine.domain.types import Signal
 
-        ctx = StrategyContext(
-            instrument_id=candle.instrument_id,
-            timeframe=candle.timeframe,
-            parameters=params,
-        )
-        signal: Signal = strategy.evaluate(visible, ctx)
+        if shared_signal is not None:
+            signal: Signal = shared_signal
+        else:
+            signal, _ = self.evaluate_signal(candle_index)
+
         signal_id = new_id()
         self._persist_signal(signal, signal_id, candle)
 
+        visible = self.all_candles[: candle_index + 1]
+        self._handle_signal_decisions(signal, candle, signal_id, visible)
+
+        # 6. Snapshot
+        snap = self.state.create_snapshot(candle.timestamp)
+        self._persist_snapshot(snap)
+
+        return PipelineResult(
+            decisions=self.decisions[-5:],
+            pending_intents=list(self.pending_intents),
+            processed_key=key,
+        )
+
+    def _handle_signal_decisions(
+        self,
+        signal,
+        candle: Candle,
+        signal_id: str,
+        visible: list,
+    ) -> None:
         if signal.action == SignalAction.HOLD:
             if signal.reason.startswith("NO_SETUP") or signal.reason.startswith("INSUFFICIENT"):
                 dtype = (
@@ -233,16 +269,6 @@ class CandleProcessor:
             self._log(candle, DecisionType.CLOSE_SIGNAL, signal.reason, signal_id)
             self._handle_close_signal(signal, candle, signal_id)
 
-        # 6. Snapshot
-        snap = self.state.create_snapshot(candle.timestamp)
-        self._persist_snapshot(snap)
-
-        return PipelineResult(
-            decisions=self.decisions[-5:],
-            pending_intents=list(self.pending_intents),
-            processed_key=key,
-        )
-
     def _execute_pending(self, candle: Candle) -> None:
         to_execute = [
             i
@@ -261,6 +287,7 @@ class CandleProcessor:
                     trade = self.state.close_position(
                         position, fill, ExitReason.STRATEGY, candle.timestamp
                     )
+                    intent.status = IntentStatus.EXECUTED
                     self._persist_execution(intent, order, fill, "exit", candle, position, trade)
             else:
                 open_for_instance = [
@@ -290,8 +317,8 @@ class CandleProcessor:
                     self.instrument.id,
                     candle.timestamp,
                 )
+                intent.status = IntentStatus.EXECUTED
                 self._persist_execution(intent, order, fill, "entry", candle, position)
-            intent.status = IntentStatus.EXECUTED
         self.pending_intents = [
             i for i in self.pending_intents if i.status == IntentStatus.PENDING_EXECUTION
         ]
@@ -375,19 +402,57 @@ class CandleProcessor:
                     self._flush_store()
             return
 
+        if self.store:
+            existing = self.store.find_pending_intent_for_signal_candle(
+                self.instance.id, candle.timestamp
+            )
+            if existing:
+                if all(i.id != existing.id for i in self.pending_intents):
+                    self.pending_intents.append(existing)
+                    self._persisted_intents.add(existing.id)
+                return
+
         intent = decision.intent
-        if candle_index := self._candle_index(candle):
-            if candle_index + 1 < len(self.all_candles):
-                intent.execution_candle_timestamp = self.all_candles[candle_index + 1].timestamp
-                self.pending_intents.append(intent)
-                self._persist_intent(intent)
-                self._log(
-                    candle,
-                    DecisionType.RISK_APPROVED,
-                    f"RISK_APPROVED: qty={intent.quantity}, target_risk=${intent.target_risk_amount}, "
-                    f"actual_risk=${intent.actual_risk_amount}, SL={intent.stop_loss}",
-                    signal_id,
-                )
+        candle_index = self._candle_index(candle)
+        if candle_index is None:
+            return
+
+        intent.execution_candle_timestamp = self._next_execution_timestamp(
+            candle, candle_index
+        )
+        self.pending_intents.append(intent)
+        self._persist_intent(intent)
+        from quantara_engine.competition.leverage import compute_sizing_metrics, is_competition_portfolio
+
+        metrics = compute_sizing_metrics(
+            intent.quantity,
+            candle.close,
+            self.state.portfolio.equity,
+            intent.target_risk_amount,
+            intent.actual_risk_amount,
+        )
+        msg = (
+            f"RISK_APPROVED: qty={intent.quantity}, target_risk=${intent.target_risk_amount}, "
+            f"actual_risk=${intent.actual_risk_amount}, SL={intent.stop_loss}"
+        )
+        if is_competition_portfolio(self.state.portfolio.id):
+            msg += (
+                f", exposure={metrics['exposure_pct']}%, "
+                f"virtual_leverage={metrics['virtual_leverage']}x"
+            )
+        self._log(
+            candle,
+            DecisionType.RISK_APPROVED,
+            msg,
+            signal_id,
+            metadata={
+                "target_risk_pct": str(metrics["target_risk_pct"]),
+                "actual_risk_pct": str(metrics["actual_risk_pct"]),
+                "exposure_pct": str(metrics["exposure_pct"]),
+                "virtual_leverage": str(metrics["virtual_leverage"]),
+                "notional": str(metrics["notional"]),
+            },
+        )
 
     def _handle_close_signal(self, signal, candle: Candle, signal_id: str) -> None:
         decision = self.risk_engine.evaluate(
@@ -404,10 +469,17 @@ class CandleProcessor:
         )
         if decision.approved and decision.intent:
             idx = self._candle_index(candle)
-            if idx is not None and idx + 1 < len(self.all_candles):
-                decision.intent.execution_candle_timestamp = self.all_candles[idx + 1].timestamp
+            if idx is not None:
+                decision.intent.execution_candle_timestamp = self._next_execution_timestamp(
+                    candle, idx
+                )
                 self.pending_intents.append(decision.intent)
                 self._persist_intent(decision.intent)
+
+    def _next_execution_timestamp(self, candle: Candle, candle_index: int) -> datetime:
+        if candle_index + 1 < len(self.all_candles):
+            return self.all_candles[candle_index + 1].timestamp
+        return candle.timestamp + timedelta(minutes=timeframe_minutes(candle.timeframe))
 
     def _candle_index(self, candle: Candle) -> int | None:
         for i, c in enumerate(self.all_candles):

@@ -22,6 +22,7 @@ from quantara_engine.domain.types import (
     new_id,
 )
 from quantara_engine.risk.sizing import compute_position_size
+from quantara_engine.competition.leverage import is_competition_portfolio
 
 
 @dataclass
@@ -119,20 +120,22 @@ class RiskEngine:
                 checks_failed=["max_positions"],
             )
 
-        # Exposure check
+        # Exposure check — legacy paper only; competition uses virtual leverage sizing
         mark = inp.current_candle.close
-        total_exposure = sum(p.quantity * mark for p in inp.open_positions)
-        exposure_pct = (
-            (total_exposure / inp.portfolio.equity * Decimal("100"))
-            if inp.portfolio.equity > 0
-            else Decimal("0")
-        )
-        if exposure_pct > inp.risk_profile.max_total_exposure_pct:
-            return RiskDecision(
-                approved=False,
-                denial_reason=f"MAX_EXPOSURE ({exposure_pct}% > {inp.risk_profile.max_total_exposure_pct}%)",
-                checks_failed=["max_exposure"],
+        virtual_leverage = is_competition_portfolio(inp.portfolio.id)
+        if not virtual_leverage:
+            total_exposure = sum(p.quantity * mark for p in inp.open_positions)
+            exposure_pct = (
+                (total_exposure / inp.portfolio.equity * Decimal("100"))
+                if inp.portfolio.equity > 0
+                else Decimal("0")
             )
+            if exposure_pct > inp.risk_profile.max_total_exposure_pct:
+                return RiskDecision(
+                    approved=False,
+                    denial_reason=f"MAX_EXPOSURE ({exposure_pct}% > {inp.risk_profile.max_total_exposure_pct}%)",
+                    checks_failed=["max_exposure"],
+                )
 
         # Drawdown check
         if inp.portfolio.peak_equity > 0:
@@ -199,6 +202,7 @@ class RiskEngine:
             direction=direction.value,
             open_positions=inp.open_positions,
             mark_price=mark,
+            allow_virtual_leverage=virtual_leverage,
         )
 
         if deny:

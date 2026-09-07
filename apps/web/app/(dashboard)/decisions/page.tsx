@@ -5,16 +5,33 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow, EmptyState,
 } from "@/components/ui/table";
 import { translateSignalReason } from "@/lib/display-text";
+import { PortfolioScopeBanner } from "@/components/trading/PortfolioScopeBanner";
 import { api, ApiError } from "@/lib/api-client";
 import { t } from "@/lib/i18n";
 import { formatDateTime } from "@/lib/utils";
 
-export default async function DecisionsPage() {
+export default async function DecisionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ portfolio_id?: string }>;
+}) {
+  const params = await searchParams;
+  const portfolioId = params.portfolio_id;
+
   let decisions = null;
+  let portfolio = null;
   let error: string | null = null;
 
   try {
-    decisions = await api.getDecisions();
+    const requests: Promise<unknown>[] = [
+      api.getDecisions(portfolioId ? { portfolio_id: portfolioId } : undefined),
+    ];
+    if (portfolioId) {
+      requests.push(api.getPortfolio(portfolioId));
+    }
+    const results = await Promise.all(requests);
+    decisions = results[0] as Awaited<ReturnType<typeof api.getDecisions>>;
+    portfolio = portfolioId ? (results[1] as Awaited<ReturnType<typeof api.getPortfolio>>) : null;
   } catch (e) {
     error = e instanceof ApiError ? e.message : t("common.error");
   }
@@ -22,6 +39,9 @@ export default async function DecisionsPage() {
   return (
     <>
       <PageHeader titleKey="decisions.title" />
+      {portfolioId ? (
+        <PortfolioScopeBanner portfolioId={portfolioId} portfolioName={portfolio?.name} />
+      ) : null}
       {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
 
       <Card>

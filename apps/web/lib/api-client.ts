@@ -45,6 +45,8 @@ export async function apiFetch<T>(
 // --- Types (display-only, from Engine API) ---
 
 export interface Portfolio {
+  id?: string;
+  name?: string;
   equity: number;
   cash_balance: number;
   unrealized_pnl: number;
@@ -54,6 +56,7 @@ export interface Portfolio {
   current_drawdown_pct: number;
   risk_profile: string;
   mode: string;
+  initial_capital?: number;
 }
 
 export interface RiskStatus {
@@ -292,14 +295,111 @@ export interface MarketProviderStatus {
   stale: boolean;
 }
 
+export interface PortfolioListItem {
+  id: string;
+  name: string;
+  kind: "legacy" | "competition";
+  risk_slug?: string;
+  risk_per_trade_pct?: number;
+  initial_capital: number;
+  equity: number;
+}
+
+export interface CompetitionPortfolioSummary {
+  id: string;
+  name: string;
+  risk_slug: string;
+  risk_name_he: string;
+  risk_per_trade_pct: number;
+  initial_capital: number;
+  equity: number;
+  balance: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  total_pnl: number;
+  return_pct: number;
+  trades_count: number;
+  win_rate: number | null;
+  max_drawdown_pct: number;
+  exposure_pct: number;
+  open_position: boolean;
+  open_positions_count: number;
+  status: string;
+  strategy_instance_id: string;
+  sort_order: number;
+  target_risk_pct?: number;
+  actual_risk_pct?: number | null;
+  virtual_leverage?: number | null;
+  notional_exposure?: number;
+}
+
+export interface CompetitionResponse {
+  active: boolean;
+  experiment?: {
+    id: string;
+    name: string;
+    subtitle: string;
+    started_at: string | null;
+    status: string;
+    strategy_name: string;
+    strategy_version: string;
+    instrument: string;
+    timeframe: string;
+    total_initial_capital: number;
+    portfolio_initial_capital: number;
+    portfolio_count: number;
+  };
+  combined?: {
+    initial_equity: number;
+    current_equity: number;
+    combined_pnl: number;
+    open_positions_total: number;
+  };
+  leader?: {
+    portfolio_id: string;
+    name: string;
+    return_pct: number;
+  };
+  portfolios?: CompetitionPortfolioSummary[];
+  leaderboard?: Array<{
+    rank: number;
+    portfolio_id: string;
+    name: string;
+    return_pct: number;
+    max_drawdown_pct: number;
+    realized_pnl: number;
+    trades_count: number;
+    return_vs_drawdown: number | null;
+  }>;
+  equity_curves?: Record<string, Array<{ date: string; equity: number }>>;
+  activity?: Array<{
+    timestamp: string;
+    kind: string;
+    message: string;
+    portfolio_name?: string;
+  }>;
+}
+
+function portfolioQs(portfolioId?: string, extra?: Record<string, string>): string {
+  const params = new URLSearchParams(extra);
+  if (portfolioId) params.set("portfolio_id", portfolioId);
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
 // --- API methods ---
 
 export const api = {
-  getPortfolio: () => apiFetch<Portfolio>("/portfolio"),
-  getRiskStatus: () => apiFetch<RiskStatus>("/portfolio/risk-status"),
-  getSnapshots: () => apiFetch<PortfolioSnapshot[]>("/portfolio/snapshots"),
-  getPositions: (status = "open") =>
-    apiFetch<Position[]>(`/positions?status=${status}`),
+  getPortfolio: (portfolioId?: string) =>
+    apiFetch<Portfolio>(`/portfolio${portfolioQs(portfolioId)}`),
+  getRiskStatus: (portfolioId?: string) =>
+    apiFetch<RiskStatus>(`/portfolio/risk-status${portfolioQs(portfolioId)}`),
+  getSnapshots: (portfolioId?: string) =>
+    apiFetch<PortfolioSnapshot[]>(`/portfolio/snapshots${portfolioQs(portfolioId)}`),
+  getPositions: (status = "open", portfolioId?: string) =>
+    apiFetch<Position[]>(
+      `/positions${portfolioQs(portfolioId, { status })}`
+    ),
   getTrades: (params?: Record<string, string>) => {
     const qs = params ? "?" + new URLSearchParams(params).toString() : "";
     return apiFetch<Trade[]>(`/trades${qs}`);
@@ -317,14 +417,26 @@ export const api = {
   getBacktestTrades: (id: string) =>
     apiFetch<Trade[]>(`/backtests/${id}/trades`),
   getExperiments: () => apiFetch<Experiment[]>("/experiments"),
-  getAnalyticsPortfolio: () =>
-    apiFetch<AnalyticsPortfolio>("/analytics/portfolio"),
+  getCompetition: () => apiFetch<CompetitionResponse>("/competition"),
+  getPortfolios: () => apiFetch<PortfolioListItem[]>("/portfolios"),
+  getAnalyticsPortfolio: (portfolioId?: string) =>
+    apiFetch<AnalyticsPortfolio>(`/analytics/portfolio${portfolioQs(portfolioId)}`),
+  getAnalyticsCompetition: () =>
+    apiFetch<{
+      equity_curves: Record<string, Array<{ date: string; equity: number }>>;
+      portfolios: CompetitionPortfolioSummary[];
+      leaderboard: CompetitionResponse["leaderboard"];
+      combined: CompetitionResponse["combined"];
+      experiment: CompetitionResponse["experiment"];
+    }>("/analytics/competition"),
   getAnalyticsStrategy: (params?: Record<string, string>) => {
     const qs = params ? "?" + new URLSearchParams(params).toString() : "";
     return apiFetch<AnalyticsStrategy>(`/analytics/strategy${qs}`);
   },
-  getAnalyticsCosts: () => apiFetch<AnalyticsCosts>("/analytics/costs"),
-  getAnalyticsToday: () => apiFetch<TodayActivity>("/analytics/today"),
+  getAnalyticsCosts: (portfolioId?: string) =>
+    apiFetch<AnalyticsCosts>(`/analytics/costs${portfolioQs(portfolioId)}`),
+  getAnalyticsToday: (portfolioId?: string) =>
+    apiFetch<TodayActivity>(`/analytics/today${portfolioQs(portfolioId)}`),
   getCandlesLatest: (instrument = "XAU/USD") =>
     apiFetch<CandleLatest>(`/candles/latest?instrument=${encodeURIComponent(instrument)}`),
   getCandles: (params: Record<string, string>) => {

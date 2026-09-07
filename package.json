@@ -12,6 +12,7 @@
     "start:web": "npm run start --workspace=@quantara/web",
     "db:migrate": "node scripts/migrate.mjs",
     "db:seed": "python scripts/seed.py",
+    "db:seed:competition": "python scripts/seed_competition.py",
     "demo": "python scripts/demo.py",
     "verify:db": "python scripts/verify_supabase_runtime.py",
     "verify:twelvedata": "python scripts/verify_twelvedata.py",

@@ -25,9 +25,11 @@ class StrategyStatus(str, enum.Enum):
 
 
 class RiskProfileSlug(str, enum.Enum):
+    VERY_CONSERVATIVE = "very_conservative"
     CONSERVATIVE = "conservative"
     BALANCED = "balanced"
     AGGRESSIVE = "aggressive"
+    VERY_AGGRESSIVE = "very_aggressive"
 
 
 class PortfolioMode(str, enum.Enum):

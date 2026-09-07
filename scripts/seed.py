@@ -66,6 +66,16 @@ GOLD_TREND_PULLBACK_PARAMETERS_SCHEMA = {
 
 RISK_PROFILES = [
     {
+        "slug": "very_conservative",
+        "name": "Very Conservative",
+        "risk_per_trade_pct": Decimal("0.25"),
+        "max_open_positions": 1,
+        "max_total_exposure_pct": Decimal("100"),
+        "daily_loss_limit_pct": Decimal("1.0"),
+        "max_drawdown_pct": Decimal("5"),
+        "is_default": False,
+    },
+    {
         "slug": "conservative",
         "name": "Conservative",
         "risk_per_trade_pct": Decimal("0.5"),
@@ -88,6 +98,16 @@ RISK_PROFILES = [
     {
         "slug": "aggressive",
         "name": "Aggressive",
+        "risk_per_trade_pct": Decimal("1.5"),
+        "max_open_positions": 3,
+        "max_total_exposure_pct": Decimal("100"),
+        "daily_loss_limit_pct": Decimal("5.0"),
+        "max_drawdown_pct": Decimal("15"),
+        "is_default": False,
+    },
+    {
+        "slug": "very_aggressive",
+        "name": "Very Aggressive",
         "risk_per_trade_pct": Decimal("2.0"),
         "max_open_positions": 3,
         "max_total_exposure_pct": Decimal("100"),
@@ -297,7 +317,7 @@ def seed() -> None:
                 ) VALUES (
                   :id, :strategy_id, :version, :version_major, :version_minor, :version_patch,
                   :parameters, :parameters_schema,
-                  ARRAY['conservative', 'balanced', 'aggressive']::risk_profile_slug[],
+                  ARRAY['very_conservative', 'conservative', 'balanced', 'aggressive', 'very_aggressive']::risk_profile_slug[],
                   :logic_hash, :changelog, :is_active
                 )
                 """

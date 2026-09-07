@@ -7,6 +7,7 @@ import { t } from "@/lib/i18n";
 
 const navItems = [
   { href: "/", labelKey: "nav.home", icon: "🏠" },
+  { href: "/portfolio-comparison", labelKey: "nav.portfolio_comparison", icon: "⚖️" },
   { href: "/portfolio", labelKey: "nav.portfolio", icon: "💼" },
   { href: "/positions", labelKey: "nav.positions", icon: "📊" },
   { href: "/journal", labelKey: "nav.journal", icon: "📓" },
@@ -66,7 +67,7 @@ export function Sidebar() {
 export function MobileBottomNav() {
   const pathname = usePathname();
   const mobileItems = navItems.filter((item) =>
-    ["/", "/positions", "/decisions", "/analytics", "/settings"].includes(item.href)
+    ["/", "/portfolio-comparison", "/positions", "/decisions", "/analytics", "/settings"].includes(item.href)
   );
 
   return (
