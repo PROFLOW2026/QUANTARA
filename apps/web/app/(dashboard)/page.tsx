@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { PageHeader, ErrorBanner, WorkerIndicator, EngineConnectionError } from "@/components/layout/PageHeader";
+import { PageHeader, WorkerIndicator, EngineConnectionError } from "@/components/layout/PageHeader";
 import { MetricCardCurrency } from "@/components/trading/MetricCard";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import { PriceDisplay } from "@/components/trading/PriceDisplay";
@@ -38,50 +38,46 @@ export default function HomePageClient() {
   const [competition, setCompetition] = useState<Awaited<
     ReturnType<typeof loadCompetitionView>
   > | null>(null);
-  const [criticalError, setCriticalError] = useState<string | null>(null);
   const [engineConnectionError, setEngineConnectionError] = useState(false);
   const [goldError, setGoldError] = useState<string | null>(null);
+  const [todayError, setTodayError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
     try {
       const results = await Promise.allSettled([
+        api.getWorkersStatus(),
         api.getPortfolio(),
         api.getCandlesLatest(),
         api.getLatestDecision(),
         api.getPositions("open"),
         api.getRiskStatus(),
         api.getAnalyticsToday(),
-        api.getWorkersStatus(),
         loadCompetitionView(),
       ]);
 
-      let connectionError = false;
+      const coreResult = results[0];
+      const coreFailed =
+        coreResult.status === "rejected" &&
+        isEngineConnectionError((coreResult as PromiseRejectedResult).reason);
+      setEngineConnectionError(coreFailed);
 
-      const failed = results.filter((r) => r.status === "rejected");
-      if (failed.length === results.length) {
-        const reason = (failed[0] as PromiseRejectedResult).reason;
-        if (isEngineConnectionError(reason)) {
-          connectionError = true;
-        } else {
-          throw reason instanceof ApiError ? reason : new Error(t("common.error"));
-        }
+      if (coreResult.status === "fulfilled") {
+        setWorkers(coreResult.value);
+      } else {
+        setWorkers(null);
       }
 
-      if (results[0].status === "fulfilled") setPortfolio(results[0].value);
-      else {
-        setPortfolio(null);
-        const reason = (results[0] as PromiseRejectedResult).reason;
-        if (isEngineConnectionError(reason)) connectionError = true;
-      }
+      if (results[1].status === "fulfilled") setPortfolio(results[1].value);
+      else setPortfolio(null);
 
-      if (results[1].status === "fulfilled") {
-        setGold(results[1].value);
+      if (results[2].status === "fulfilled") {
+        setGold(results[2].value);
         setGoldError(null);
       } else {
         setGold(null);
-        const reason = (results[1] as PromiseRejectedResult).reason;
+        const reason = (results[2] as PromiseRejectedResult).reason;
         setGoldError(
           reason instanceof ApiError
             ? `${t("home.gold_load_error")} (${reason.status})`
@@ -89,37 +85,29 @@ export default function HomePageClient() {
         );
       }
 
-      if (results[2].status === "fulfilled") setDecision(results[2].value);
+      if (results[3].status === "fulfilled") setDecision(results[3].value);
       else setDecision(null);
 
-      if (results[3].status === "fulfilled") setPositions(results[3].value);
+      if (results[4].status === "fulfilled") setPositions(results[4].value);
       else setPositions([]);
 
-      if (results[4].status === "fulfilled") setRisk(results[4].value);
+      if (results[5].status === "fulfilled") setRisk(results[5].value);
       else setRisk(null);
 
-      if (results[5].status === "fulfilled") setToday(results[5].value);
-      else setToday(null);
-
-      if (results[6].status === "fulfilled") setWorkers(results[6].value);
-      else setWorkers(null);
+      if (results[6].status === "fulfilled") {
+        setToday(results[6].value);
+        setTodayError(null);
+      } else {
+        setToday(null);
+        setTodayError(t("common.section_unavailable"));
+      }
 
       if (results[7].status === "fulfilled") setCompetition(results[7].value);
       else setCompetition(null);
-
-      const criticalFailed = results.some(
-        (result, index) => index !== 1 && index !== 7 && result.status === "rejected"
-      );
-      setEngineConnectionError(connectionError);
-      setCriticalError(
-        criticalFailed && !connectionError ? t("common.error") : null
-      );
     } catch (e) {
       setEngineConnectionError(isEngineConnectionError(e));
-      setCriticalError(
-        isEngineConnectionError(e) ? null : e instanceof Error ? e.message : t("common.error")
-      );
       setGoldError(null);
+      setTodayError(null);
     } finally {
       setLoading(false);
     }
@@ -144,8 +132,6 @@ export default function HomePageClient() {
           <EngineConnectionError onRetry={() => void fetchAll(true)} />
         </div>
       ) : null}
-
-      {criticalError && <div className="mb-4"><ErrorBanner message={criticalError} /></div>}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCardCurrency
@@ -279,7 +265,9 @@ export default function HomePageClient() {
         <Card>
           <CardHeader><CardTitle>{t("home.today_activity")}</CardTitle></CardHeader>
           <CardContent className="space-y-1 text-sm">
-            {today?.scope === "competition" ? (
+            {todayError ? (
+              <p className="text-muted">{todayError}</p>
+            ) : today?.scope === "competition" ? (
               <>
                 <p>{t("home.market_checks_today")}: {today.market_checks_today ?? 0}</p>
                 <p>{t("home.entry_signals_today")}: {today.entry_signals_today ?? 0}</p>

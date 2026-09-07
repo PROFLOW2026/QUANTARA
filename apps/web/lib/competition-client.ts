@@ -12,7 +12,7 @@ const COMPETITION_TOTAL_INITIAL = 30_000;
 const PORTFOLIO_INITIAL = 2_000;
 const TIMEFRAME_ORDER = ["1h", "15m", "5m"] as const;
 
-/** Full competition payload for comparison page. */
+/** Full competition payload (heavy — may exceed proxy timeout). */
 export async function loadCompetitionFull(): Promise<CompetitionResponse> {
   return api.getCompetition();
 }

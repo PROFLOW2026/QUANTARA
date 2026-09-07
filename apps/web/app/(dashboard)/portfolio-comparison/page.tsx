@@ -19,7 +19,10 @@ import {
   type CompetitionResponse,
   type CompetitionTimeframeGroup,
 } from "@/lib/api-client";
-import { loadCompetitionFull, loadCompetitionView } from "@/lib/competition-client";
+import {
+  loadCompetitionFull,
+  loadCompetitionView,
+} from "@/lib/competition-client";
 import { translateRiskProfile } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
 import {
@@ -191,36 +194,84 @@ export default function PortfolioComparisonPage() {
   const [error, setError] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [enrichmentLoading, setEnrichmentLoading] = useState(false);
+  const [enrichmentFailed, setEnrichmentFailed] = useState(false);
 
   const fetchData = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
 
     try {
-      let res: CompetitionResponse;
+      let core: CompetitionResponse;
       try {
-        res = await loadCompetitionFull();
-      } catch (fullErr) {
-        if (!isEngineConnectionError(fullErr)) {
-          res = await loadCompetitionView();
+        core = await loadCompetitionView();
+      } catch (coreErr) {
+        setData(null);
+        if (isEngineConnectionError(coreErr)) {
+          setConnectionError(true);
+          setError(t("common.engine_connection_error"));
+        } else if (coreErr instanceof ApiError) {
+          setConnectionError(false);
+          setError(`${t("competition.load_error_api")} (${coreErr.status})`);
         } else {
-          throw fullErr;
+          setConnectionError(false);
+          setError(t("competition.load_error_generic"));
         }
+        setEnrichmentFailed(false);
+        setEnrichmentLoading(false);
+        return;
       }
 
-      if (!res?.active || !res.experiment || !res.portfolios?.length) {
-        setData(res);
+      if (!core?.active || !core.experiment || !core.portfolios?.length) {
+        setData(core);
         setConnectionError(false);
+        setEnrichmentFailed(false);
+        setEnrichmentLoading(false);
         setError(
-          !res?.active
+          !core?.active
             ? t("competition.load_error_inactive")
             : t("competition.load_error_empty")
         );
         return;
       }
 
-      setData(res);
+      setData(core);
       setError(null);
       setConnectionError(false);
+      setLoading(false);
+      setEnrichmentLoading(true);
+      setEnrichmentFailed(false);
+
+      try {
+        const enriched = await loadCompetitionFull();
+        setData((prev) =>
+          prev
+            ? {
+                ...prev,
+                ...enriched,
+                experiment: { ...prev.experiment!, ...enriched.experiment! },
+                combined: enriched.combined ?? prev.combined,
+                portfolios: enriched.portfolios?.length
+                  ? enriched.portfolios
+                  : prev.portfolios,
+                timeframe_groups:
+                  enriched.timeframe_groups ?? prev.timeframe_groups,
+                leaderboard: enriched.leaderboard ?? prev.leaderboard,
+                leaderboards_by_timeframe:
+                  enriched.leaderboards_by_timeframe ??
+                  prev.leaderboards_by_timeframe,
+                timeframe_comparison:
+                  enriched.timeframe_comparison ?? prev.timeframe_comparison,
+                equity_curves: enriched.equity_curves ?? prev.equity_curves,
+                activity: enriched.activity ?? prev.activity,
+              }
+            : enriched
+        );
+        setEnrichmentFailed(false);
+      } catch {
+        setEnrichmentFailed(true);
+      } finally {
+        setEnrichmentLoading(false);
+      }
     } catch (e) {
       setData(null);
       if (isEngineConnectionError(e)) {
@@ -233,8 +284,10 @@ export default function PortfolioComparisonPage() {
         setConnectionError(false);
         setError(t("competition.load_error_generic"));
       }
+      setEnrichmentFailed(false);
+      setEnrichmentLoading(false);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, []);
 
@@ -246,7 +299,7 @@ export default function PortfolioComparisonPage() {
     return () => window.clearInterval(id);
   }, [fetchData]);
 
-  if (loading) {
+  if (loading && !data) {
     return (
       <>
         <PageHeader titleKey="competition.title" subtitleKey="competition.subtitle" />
@@ -283,9 +336,16 @@ export default function PortfolioComparisonPage() {
       portfolios: data.portfolios?.filter((p) => p.timeframe === timeframe) ?? [],
     })).filter((group) => group.portfolios.length > 0);
 
+  const secondaryUnavailable =
+    enrichmentFailed && !enrichmentLoading ? t("common.section_unavailable") : null;
+
   return (
     <>
       <PageHeader titleKey="competition.title" subtitleKey="competition.subtitle" />
+
+      {enrichmentLoading ? (
+        <p className="mb-4 text-xs text-muted">{t("common.loading")}</p>
+      ) : null}
 
       <Card className="mb-4">
         <CardContent className="grid gap-3 pt-6 text-sm sm:grid-cols-2 lg:grid-cols-4">
@@ -338,7 +398,11 @@ export default function PortfolioComparisonPage() {
           <p className="text-xs text-muted">{t("competition.leader_return")}</p>
         </CardHeader>
         <CardContent>
-          <LeaderboardTable rows={data.leaderboard ?? []} />
+          {secondaryUnavailable ? (
+            <p className="text-sm text-muted">{secondaryUnavailable}</p>
+          ) : (
+            <LeaderboardTable rows={data.leaderboard ?? []} />
+          )}
         </CardContent>
       </Card>
 
@@ -357,7 +421,11 @@ export default function PortfolioComparisonPage() {
               <CardTitle>{title}</CardTitle>
             </CardHeader>
             <CardContent>
-              <LeaderboardTable rows={rows} />
+              {secondaryUnavailable ? (
+                <p className="text-sm text-muted">{secondaryUnavailable}</p>
+              ) : (
+                <LeaderboardTable rows={rows} />
+              )}
             </CardContent>
           </Card>
         );
@@ -368,7 +436,9 @@ export default function PortfolioComparisonPage() {
           <CardTitle>{t("competition.timeframe_comparison")}</CardTitle>
         </CardHeader>
         <CardContent className="overflow-x-auto">
-          {!data.timeframe_comparison?.length ? (
+          {secondaryUnavailable ? (
+            <p className="text-sm text-muted">{secondaryUnavailable}</p>
+          ) : !data.timeframe_comparison?.length ? (
             <p className="text-sm text-muted">{t("common.no_data")}</p>
           ) : (
             <table className="w-full text-sm">
@@ -408,7 +478,11 @@ export default function PortfolioComparisonPage() {
           <CardTitle>{t("competition.equity_comparison")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <MultiEquityCurveChart series={chartSeries} />
+          {secondaryUnavailable ? (
+            <p className="text-sm text-muted">{secondaryUnavailable}</p>
+          ) : (
+            <MultiEquityCurveChart series={chartSeries} />
+          )}
         </CardContent>
       </Card>
 
@@ -417,7 +491,9 @@ export default function PortfolioComparisonPage() {
           <CardTitle>{t("competition.activity")}</CardTitle>
         </CardHeader>
         <CardContent>
-          {!data.activity?.length ? (
+          {secondaryUnavailable ? (
+            <p className="text-sm text-muted">{secondaryUnavailable}</p>
+          ) : !data.activity?.length ? (
             <p className="text-sm text-muted">{t("common.no_data")}</p>
           ) : (
             <ul className="space-y-2 text-sm">
