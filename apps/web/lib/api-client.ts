@@ -1,6 +1,29 @@
-const ENGINE_URL =
-  process.env.NEXT_PUBLIC_ENGINE_URL ?? "http://localhost:8000";
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
+const LOCAL_ENGINE = "http://localhost:8000";
+const LIVE_TUNNEL_FALLBACK =
+  "https://afternoon-details-occasional-undergraduate.trycloudflare.com";
+
+function resolveEngineUrl(): string {
+  const configured = (
+    process.env.NEXT_PUBLIC_ENGINE_URL ?? LOCAL_ENGINE
+  )
+    .trim()
+    .replace(/\/$/, "");
+
+  if (typeof window !== "undefined") {
+    const { hostname } = window.location;
+    const onHostedWeb =
+      hostname.endsWith(".vercel.app") || hostname.includes("quantara");
+    if (onHostedWeb && /localhost|127\.0\.0\.1/.test(configured)) {
+      return LIVE_TUNNEL_FALLBACK;
+    }
+  }
+
+  return configured || LOCAL_ENGINE;
+}
+
+function resolveApiKey(): string {
+  return process.env.NEXT_PUBLIC_API_KEY ?? "dev-api-key";
+}
 
 export class ApiError extends Error {
   constructor(
@@ -16,12 +39,12 @@ export async function apiFetch<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const url = `${ENGINE_URL}/api/v1${path.startsWith("/") ? path : `/${path}`}`;
+  const url = `${resolveEngineUrl()}/api/v1${path.startsWith("/") ? path : `/${path}`}`;
 
   const headers: HeadersInit = {
     Accept: "application/json",
     ...(options.body ? { "Content-Type": "application/json" } : {}),
-    ...(API_KEY ? { "X-API-Key": API_KEY } : {}),
+    ...(resolveApiKey() ? { "X-API-Key": resolveApiKey() } : {}),
     ...options.headers,
   };
 
@@ -438,10 +461,14 @@ export const api = {
   getBacktestTrades: (id: string) =>
     apiFetch<Trade[]>(`/backtests/${id}/trades`),
   getExperiments: () => apiFetch<Experiment[]>("/experiments"),
-  getCompetition: () =>
-    typeof window === "undefined"
-      ? apiFetch<CompetitionResponse>("/competition")
-      : apiFetchAppRoute<CompetitionResponse>("/api/competition"),
+  getCompetition: async () => {
+    try {
+      return await apiFetch<CompetitionResponse>("/competition");
+    } catch (err) {
+      if (typeof window === "undefined") throw err;
+      return apiFetchAppRoute<CompetitionResponse>("/api/competition");
+    }
+  },
   getPortfolios: () => apiFetch<PortfolioListItem[]>("/portfolios"),
   getAnalyticsPortfolio: (portfolioId?: string) =>
     apiFetch<AnalyticsPortfolio>(`/analytics/portfolio${portfolioQs(portfolioId)}`),
