@@ -204,6 +204,9 @@ export interface CandleLatest {
   change_pct: number;
   last_update: string;
   timeframe?: string;
+  price_source?: string;
+  data_age_minutes?: number;
+  is_stale?: boolean;
 }
 
 export interface WorkerStatus {

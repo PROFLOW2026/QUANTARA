@@ -162,6 +162,9 @@ export default function HomePageClient() {
                 <p className="mt-2 text-xs text-muted">
                   {t("home.last_update")}: {formatRelativeTime(gold.last_update)}
                 </p>
+                {gold.is_stale ? (
+                  <p className="mt-1 text-xs text-warning">{t("market.stale_warning")}</p>
+                ) : null}
               </>
             ) : goldError ? (
               <p className="text-sm text-warning">{goldError}</p>

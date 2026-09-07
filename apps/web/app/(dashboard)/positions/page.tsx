@@ -57,8 +57,22 @@ export default async function PositionsPage() {
                     </TableCell>
                     <TableCell className="font-mono">{formatPrice(p.current_price)}</TableCell>
                     <TableCell className="font-mono text-xs">
-                      {p.stop_loss != null ? formatPrice(p.stop_loss) : "—"} /{" "}
-                      {p.take_profit != null ? formatPrice(p.take_profit) : "—"}
+                      {p.stop_loss != null ? (
+                        <div className="space-y-0.5">
+                          <p>
+                            <span className="text-muted">{t("positions.stop")}: </span>
+                            {formatPrice(p.stop_loss)}
+                          </p>
+                          {p.take_profit != null ? (
+                            <p>
+                              <span className="text-muted">{t("positions.target")}: </span>
+                              {formatPrice(p.take_profit)}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : (
+                        "—"
+                      )}
                     </TableCell>
                     <TableCell>
                       <PnLDisplay value={p.unrealized_pnl} showPercent={p.unrealized_pnl_pct} size="sm" />

@@ -18,7 +18,7 @@ import {
 } from "@/lib/api-client";
 import { translateTimeframe } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
-import { cn, formatDateTime, formatPrice } from "@/lib/utils";
+import { cn, formatDateTime, formatPrice, formatRelativeTime } from "@/lib/utils";
 
 const TIMEFRAMES = [
   { id: "5m", labelKey: "market.timeframe_5m" },
@@ -103,12 +103,20 @@ export default function MarketGoldPage() {
           <CardHeader><CardTitle>{t("market.current_price")}</CardTitle></CardHeader>
           <CardContent>
             {latest ? (
-              <PriceDisplay
-                value={latest.price}
-                change={latest.change}
-                changePct={latest.change_pct}
-                size="xl"
-              />
+              <>
+                <PriceDisplay
+                  value={latest.price}
+                  change={latest.change}
+                  changePct={latest.change_pct}
+                  size="xl"
+                />
+                <p className="mt-2 text-xs text-muted">
+                  {t("home.last_update")}: {formatRelativeTime(latest.last_update)}
+                </p>
+                {latest.is_stale ? (
+                  <p className="mt-1 text-xs text-warning">{t("market.stale_warning")}</p>
+                ) : null}
+              </>
             ) : latestError ? (
               <p className="text-warning text-sm">{latestError}</p>
             ) : (
