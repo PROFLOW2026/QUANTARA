@@ -20,6 +20,7 @@ from quantara_engine.competition.constants import (  # noqa: E402
 )
 from quantara_engine.db.session import engine, session_scope  # noqa: E402
 from quantara_engine.persistence.store import TradingStore  # noqa: E402
+from quantara_engine.portfolio.reconciliation import reconcile_portfolio_peak_and_halt  # noqa: E402
 
 BTC_5M_PORTFOLIO_IDS = tuple(
     pid
@@ -215,11 +216,30 @@ def repair(*, dry_run: bool = True) -> dict:
     with session_scope() as session:
         store = TradingStore(session)
         now = datetime.now(timezone.utc)
+        peak_repair: list[dict] = []
         for pid in BTC_5M_PORTFOLIO_IDS:
             state = store.load_portfolio_state(pid)
+            entry = next(
+                e for e in store.list_competition_entries() if e["portfolio"].id == pid
+            )
+            repaired_pf, peak_result = reconcile_portfolio_peak_and_halt(
+                state.portfolio,
+                entry["risk_profile"],
+                state.snapshots,
+            )
+            state.portfolio = repaired_pf
             snap = state.create_snapshot(now)
             store.save_snapshot(snap)
             store.update_portfolio(state.portfolio)
+            peak_repair.append(
+                {
+                    "portfolio_id": pid,
+                    "peak_equity": float(repaired_pf.peak_equity),
+                    "status": repaired_pf.status.value,
+                    "unhalt_reason": peak_result.unhalt_reason,
+                }
+            )
+        report["peak_repair"] = peak_repair
 
     with engine.connect() as conn:
         report["after"] = _financial_summary(conn)
