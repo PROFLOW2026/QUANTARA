@@ -293,6 +293,27 @@ def build_competition_response(store: TradingStore) -> dict[str, Any]:
             timeframe_comparison, key=lambda row: row["average_return_pct"]
         )
 
+    open_positions_detail = []
+    for entry in entries:
+        for pos in store.list_positions(entry["portfolio"].id, open_only=True):
+            portfolio_def = PORTFOLIO_DEF_BY_ID.get(entry["portfolio"].id)
+            open_positions_detail.append(
+                {
+                    "portfolio_id": entry["portfolio"].id,
+                    "portfolio_name": portfolio_def.name_he if portfolio_def else entry["portfolio"].name,
+                    "timeframe_he": TIMEFRAME_HE.get(entry["instance"].timeframe, entry["instance"].timeframe),
+                    "direction": pos.direction.value,
+                    "entry_price": float(pos.entry_price),
+                    "current_price": float(pos.current_price),
+                    "stop_loss": float(pos.stop_loss),
+                    "take_profit": float(pos.take_profit) if pos.take_profit else None,
+                    "unrealized_pnl": float(pos.unrealized_pnl),
+                    "quantity": float(pos.quantity),
+                }
+            )
+
+    closed_trades = store.list_competition_trades(exp_id, limit=30)
+
     return {
         "active": True,
         "experiment": {
@@ -332,4 +353,7 @@ def build_competition_response(store: TradingStore) -> dict[str, Any]:
         "timeframe_comparison": timeframe_comparison,
         "equity_curves": equity_curves,
         "activity": _build_activity(store),
+        "open_positions": open_positions_detail,
+        "closed_trades": closed_trades,
+        "today_summary": store.get_competition_today_stats(),
     }

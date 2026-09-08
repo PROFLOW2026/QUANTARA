@@ -73,6 +73,7 @@ class IntentStatus(str, Enum):
     EXECUTED = "executed"
     REJECTED = "rejected"
     EXPIRED = "expired"
+    CANCELLED = "cancelled"
 
 
 class Mode(str, Enum):

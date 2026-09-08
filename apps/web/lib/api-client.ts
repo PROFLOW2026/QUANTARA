@@ -300,7 +300,10 @@ export interface TodayActivity {
   entry_signals_today?: number;
   trades_opened_today?: number;
   trades_closed_today?: number;
-  portfolio_count?: number;
+  sell_signals_today?: number;
+  realized_pnl_today?: number;
+  unrealized_pnl_total?: number;
+  open_positions_total?: number;
   combined_equity?: number;
   leader?: {
     portfolio_id: string;
@@ -505,6 +508,40 @@ export interface CompetitionResponse {
     portfolio_name?: string;
     timeframe?: string;
   }>;
+  open_positions?: Array<{
+    portfolio_id: string;
+    portfolio_name: string;
+    timeframe_he: string;
+    direction: string;
+    entry_price: number;
+    current_price: number;
+    stop_loss: number;
+    take_profit: number | null;
+    unrealized_pnl: number;
+    quantity: number;
+  }>;
+  closed_trades?: Array<{
+    trade_id: string;
+    portfolio_name: string;
+    timeframe_he: string;
+    direction: string;
+    entry_price: number;
+    exit_price: number;
+    quantity: number;
+    realized_pnl: number;
+    exit_reason: string;
+    opened_at: string | null;
+    closed_at: string | null;
+  }>;
+  today_summary?: {
+    market_checks_today?: number;
+    entry_signals_today?: number;
+    sell_signals_today?: number;
+    trades_opened_today?: number;
+    trades_closed_today?: number;
+    realized_pnl_today?: number;
+    unrealized_pnl_total?: number;
+  };
 }
 
 function portfolioQs(portfolioId?: string, extra?: Record<string, string>): string {

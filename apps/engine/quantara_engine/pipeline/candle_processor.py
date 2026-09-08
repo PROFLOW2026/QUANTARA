@@ -328,41 +328,28 @@ class CandleProcessor:
         ]
 
     def _check_sl_tp(self, candle: Candle) -> None:
+        from quantara_engine.execution.exit_triggers import detect_exit_trigger
+
         for position in list(self.state.open_positions()):
             if position.instrument_id != candle.instrument_id:
                 continue
-            sl_hit = tp_hit = False
-            if position.direction.value == "long":
-                sl_hit = candle.low <= position.stop_loss
-                tp_hit = position.take_profit is not None and candle.high >= position.take_profit
+            trigger = detect_exit_trigger(position, candle)
+            if not trigger:
+                continue
+            reason, trigger_price = trigger
+            order, fill = self.broker.execute_exit_at_trigger(
+                position.direction,
+                position.quantity,
+                candle,
+                trigger_price,
+                self.state.portfolio.id,
+            )
+            trade = self.state.close_position(position, fill, reason, candle.timestamp)
+            self._persist_execution(None, order, fill, "exit", candle, position, trade)
+            if reason == ExitReason.SL:
+                self._log(candle, DecisionType.SL_TRIGGERED, f"SL hit at {trigger_price}")
             else:
-                sl_hit = candle.high >= position.stop_loss
-                tp_hit = position.take_profit is not None and candle.low <= position.take_profit
-
-            if sl_hit:
-                trigger = position.stop_loss
-                order, fill = self.broker.execute_exit_at_trigger(
-                    position.direction,
-                    position.quantity,
-                    candle,
-                    trigger,
-                    self.state.portfolio.id,
-                )
-                trade = self.state.close_position(position, fill, ExitReason.SL, candle.timestamp)
-                self._persist_execution(None, order, fill, "exit", candle, position, trade)
-                self._log(candle, DecisionType.SL_TRIGGERED, f"SL hit at {trigger}")
-            elif tp_hit and position.take_profit is not None:
-                trigger = position.take_profit
-                order, fill = self.broker.execute_exit_at_trigger(
-                    position.direction,
-                    position.quantity,
-                    candle,
-                    trigger,
-                    self.state.portfolio.id,
-                )
-                trade = self.state.close_position(position, fill, ExitReason.TP, candle.timestamp)
-                self._persist_execution(None, order, fill, "exit", candle, position, trade)
-                self._log(candle, DecisionType.TP_TRIGGERED, f"TP hit at {trigger}")
+                self._log(candle, DecisionType.TP_TRIGGERED, f"TP hit at {trigger_price}")
 
     def _handle_trade_signal(self, signal, candle: Candle, signal_id: str, visible: list) -> None:
         if self.state.portfolio.status != PortfolioStatus.ACTIVE:

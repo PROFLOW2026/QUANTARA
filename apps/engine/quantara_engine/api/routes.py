@@ -845,16 +845,45 @@ def workers_status(store: StoreDep):
         elif cached.get("last_run"):
             last_run = cached["last_run"]
         status_val = cached.get("status", "idle")
-        if db_run:
+        if db_run and name != "strategy_runner":
             status_val = "healthy" if db_run.status.value == "success" else db_run.status.value
-        workers.append({
+        worker_payload = {
             "name": name,
-            "status": "running" if status_val in ("healthy", "running", "idle") else "stopped",
+            "status": "running" if status_val in ("healthy", "running", "idle", "catching_up") else "stopped",
             "last_run": last_run,
-        })
-    healthy = all(v.get("status") in ("healthy", "idle") for v in cache.values()) or all(
-        w["status"] == "running" for w in workers
-    )
+        }
+        if name == "strategy_runner":
+            worker_payload["execution_status"] = cached.get("status", status_val)
+            worker_payload["timeframes"] = cached.get("timeframes", {})
+            worker_payload["backlog"] = cached.get("jobs_pending", 0)
+        workers.append(worker_payload)
+
+    instrument = store.get_instrument_by_symbol("XAUUSD")
+    if instrument and store.list_competition_entries():
+        now = datetime.now(timezone.utc)
+        live_timeframes = {}
+        by_tf: dict[str, list[str]] = {}
+        for entry in store.list_competition_entries():
+            by_tf.setdefault(entry["instance"].timeframe, []).append(entry["instance"].id)
+        for tf, instance_ids in by_tf.items():
+            live_timeframes[tf] = store.get_timeframe_execution_status(
+                instrument.id, tf, instance_ids, now
+            )
+        for worker in workers:
+            if worker["name"] == "strategy_runner" and not worker.get("timeframes"):
+                worker["timeframes"] = live_timeframes
+                worker["backlog"] = sum(v.get("backlog", 0) for v in live_timeframes.values())
+                worker["execution_status"] = (
+                    "catching_up"
+                    if worker["backlog"] > 0
+                    else worker.get("execution_status", "healthy")
+                )
+
+    healthy = all(
+        w.get("execution_status", w["status"]) in ("healthy", "idle", "running")
+        for w in workers
+        if w["name"] == "strategy_runner"
+    ) or all(w["status"] == "running" for w in workers)
     return {"healthy": healthy, "workers": workers}
 
 

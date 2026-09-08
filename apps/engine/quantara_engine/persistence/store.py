@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -33,6 +33,7 @@ from quantara_engine.domain.types import (
     SignalAction,
     StrategyInstance,
     Trade,
+    new_id,
 )
 from quantara_engine.competition.constants import ACTIVE_COMPETITION_PORTFOLIOS, PORTFOLIO_DEF_BY_ID
 from quantara_engine.execution.fill_calculator import FillResult
@@ -102,9 +103,13 @@ def _mode_from_orm(mode: PortfolioMode) -> Mode:
 OWNER_ID = "00000000-0000-0000-0000-000000000001"
 
 
-def _intent_idempotency_key(signal_id: str, strategy_instance_id: str, intent_id: str) -> str:
-    """Stable key within VARCHAR(100) — three UUIDs with separators exceed 100 chars."""
-    raw = f"{signal_id}:{strategy_instance_id}:{intent_id}"
+def _intent_idempotency_key(
+    strategy_instance_id: str,
+    signal_candle_timestamp: datetime,
+    direction: str,
+) -> str:
+    """One pending intent per portfolio instance + signal candle + direction."""
+    raw = f"{strategy_instance_id}:{signal_candle_timestamp.isoformat()}:{direction}"
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
@@ -702,10 +707,18 @@ class TradingStore:
         )
         self.session.merge(row)
 
-    def save_order_intent(self, intent: OrderIntent) -> None:
+    def save_order_intent(self, intent: OrderIntent) -> OrderIntent:
         idempotency_key = _intent_idempotency_key(
-            intent.signal_id, intent.strategy_instance_id, intent.id
+            intent.strategy_instance_id,
+            intent.signal_candle_timestamp,
+            intent.direction.value,
         )
+        existing = self.session.scalar(
+            select(OrmOrderIntent).where(OrmOrderIntent.idempotency_key == idempotency_key)
+        )
+        if existing:
+            return self._order_intent_to_domain(existing)
+
         row = OrmOrderIntent(
             id=_uuid(intent.id),
             signal_id=_uuid(intent.signal_id),
@@ -728,6 +741,7 @@ class TradingStore:
             backtest_run_id=self._bt_uuid(),
         )
         self.session.merge(row)
+        return intent
 
     def update_order_intent_status(
         self,
@@ -1213,6 +1227,223 @@ class TradingStore:
         ) or 0
         return count >= len(instance_ids)
 
+    def get_timeframe_group_last_processed(
+        self,
+        instance_ids: list[str],
+    ) -> datetime | None:
+        """Latest candle timestamp fully processed by all instances in the group."""
+        if not instance_ids:
+            return None
+        inst_uuids = [_uuid(i) for i in instance_ids]
+        rows = self.session.execute(
+            select(OrmDecision.candle_timestamp, func.count())
+            .where(OrmDecision.strategy_instance_id.in_(inst_uuids))
+            .group_by(OrmDecision.candle_timestamp)
+            .having(func.count() >= len(instance_ids))
+        ).all()
+        if not rows:
+            return None
+        return max(row[0] for row in rows)
+
+    def list_decision_timestamps_for_group(
+        self,
+        instance_ids: list[str],
+    ) -> list[datetime]:
+        if not instance_ids:
+            return []
+        inst_uuids = [_uuid(i) for i in instance_ids]
+        rows = self.session.scalars(
+            select(OrmDecision.candle_timestamp).where(
+                OrmDecision.strategy_instance_id.in_(inst_uuids)
+            )
+        ).all()
+        return list(rows)
+
+    def get_timeframe_execution_status(
+        self,
+        instrument_id: str,
+        timeframe: str,
+        instance_ids: list[str],
+        now: datetime,
+    ) -> dict[str, Any]:
+        from quantara_engine.execution.catch_up import compute_backlog_status
+
+        candles = self.list_candles(instrument_id, timeframe)
+        last_processed = self.get_timeframe_group_last_processed(instance_ids)
+        return compute_backlog_status(
+            candles,
+            timeframe,
+            last_processed=last_processed,
+            now=now,
+        )
+
+    def persist_exit_execution(
+        self,
+        *,
+        order: Order,
+        fill: FillResult,
+        position: Position,
+        trade: Trade,
+        portfolio_state: PortfolioState,
+        strategy_instance_id: str,
+        filled_at: datetime,
+    ) -> None:
+        self.save_order(order, strategy_instance_id=strategy_instance_id, signal_id=None)
+        self.save_fill(
+            fill_id=new_id(),
+            order_id=order.id,
+            fill=fill,
+            side="exit",
+            filled_at=filled_at,
+            quantity=position.quantity,
+            position_id=position.id,
+        )
+        self.update_position_closed(position.id, filled_at, fill.fill_price)
+        self.save_trade(trade)
+        self.update_portfolio(portfolio_state.portfolio)
+
+    def cancel_pending_intent(self, intent_id: str, reason: str) -> None:
+        self.update_order_intent_status(intent_id, IntentStatus.EXPIRED, reason)
+
+    def cleanup_duplicate_pending_intents(
+        self,
+        experiment_id: str,
+    ) -> dict[str, int]:
+        """Cancel duplicate pending intents, keeping the oldest per instance+candle+direction."""
+        from quantara_engine.models.trading import OrderIntent as OrmOrderIntentModel
+
+        rows = self.session.scalars(
+            select(OrmOrderIntentModel)
+            .join(OrmStrategyInstance, OrmStrategyInstance.id == OrmOrderIntentModel.strategy_instance_id)
+            .where(
+                OrmStrategyInstance.experiment_id == _uuid(experiment_id),
+                OrmOrderIntentModel.status == OrderIntentStatus.PENDING_EXECUTION,
+                OrmOrderIntentModel.backtest_run_id.is_(None),
+            )
+            .order_by(OrmOrderIntentModel.created_at)
+        ).all()
+
+        seen: dict[tuple, str] = {}
+        cancelled = 0
+        kept = 0
+        for row in rows:
+            key = (
+                str(row.strategy_instance_id),
+                row.signal_candle_timestamp.isoformat(),
+                row.direction.value,
+            )
+            if key in seen:
+                row.status = OrderIntentStatus.REJECTED
+                row.rejection_reason = "duplicate_intent"
+                cancelled += 1
+            else:
+                seen[key] = str(row.id)
+                kept += 1
+        self.session.flush()
+        return {"kept": kept, "cancelled": cancelled, "before": len(rows)}
+
+    def cancel_stale_pending_intents(
+        self,
+        experiment_id: str,
+        now: datetime,
+    ) -> int:
+        """Cancel pending intents whose execution candle is complete but never filled."""
+        from quantara_engine.market_data.polling import is_bar_complete
+        from quantara_engine.models.trading import OrderIntent as OrmOrderIntentModel
+
+        rows = self.session.scalars(
+            select(OrmOrderIntentModel)
+            .join(OrmStrategyInstance, OrmStrategyInstance.id == OrmOrderIntentModel.strategy_instance_id)
+            .where(
+                OrmStrategyInstance.experiment_id == _uuid(experiment_id),
+                OrmOrderIntentModel.status == OrderIntentStatus.PENDING_EXECUTION,
+                OrmOrderIntentModel.backtest_run_id.is_(None),
+            )
+        ).all()
+
+        cancelled = 0
+        for row in rows:
+            instance = self.session.get(OrmStrategyInstance, row.strategy_instance_id)
+            if not instance:
+                continue
+            exec_ts = row.execution_candle_timestamp
+            if exec_ts and is_bar_complete(exec_ts, instance.timeframe, now):
+                row.status = OrderIntentStatus.EXPIRED
+                row.rejection_reason = "execution_window_passed"
+                cancelled += 1
+        self.session.flush()
+        return cancelled
+
+    def delete_invalid_competition_snapshots(
+        self,
+        experiment_id: str,
+        started_at: datetime,
+    ) -> int:
+        deleted = self.session.execute(
+            text(
+                """
+                DELETE FROM portfolio_snapshots ps
+                USING portfolios p, strategy_instances si
+                WHERE ps.portfolio_id = p.id
+                  AND si.portfolio_id = p.id
+                  AND si.experiment_id = :exp
+                  AND ps.timestamp >= :started_at
+                  AND (
+                    (ps.open_positions_count = 0 AND ps.equity <> p.initial_capital)
+                    OR (ps.open_positions_count > 0 AND ps.unrealized_pnl <= -1000)
+                  )
+                """
+            ),
+            {"exp": experiment_id, "started_at": started_at},
+        )
+        self.session.flush()
+        return deleted.rowcount or 0
+
+    def list_competition_trades(
+        self,
+        experiment_id: str,
+        *,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        from quantara_engine.competition.constants import PORTFOLIO_DEF_BY_ID, RISK_SLUG_HE, TIMEFRAME_HE
+
+        rows = self.session.execute(
+            select(OrmTrade, OrmStrategyInstance, OrmPortfolio, OrmRiskProfile)
+            .join(OrmStrategyInstance, OrmStrategyInstance.id == OrmTrade.strategy_instance_id)
+            .join(OrmPortfolio, OrmPortfolio.id == OrmTrade.portfolio_id)
+            .join(OrmRiskProfile, OrmRiskProfile.id == OrmStrategyInstance.risk_profile_id)
+            .where(
+                OrmStrategyInstance.experiment_id == _uuid(experiment_id),
+                OrmTrade.backtest_run_id.is_(None),
+            )
+            .order_by(OrmTrade.closed_at.desc())
+            .limit(limit)
+        ).all()
+
+        results: list[dict[str, Any]] = []
+        for trade, instance, portfolio, risk in rows:
+            portfolio_def = PORTFOLIO_DEF_BY_ID.get(str(portfolio.id))
+            results.append(
+                {
+                    "trade_id": str(trade.id),
+                    "portfolio_id": str(portfolio.id),
+                    "portfolio_name": portfolio_def.name_he if portfolio_def else portfolio.name,
+                    "timeframe": instance.timeframe,
+                    "timeframe_he": TIMEFRAME_HE.get(instance.timeframe, instance.timeframe),
+                    "risk_slug": risk.slug,
+                    "risk_name_he": RISK_SLUG_HE.get(risk.slug, portfolio.name),
+                    "direction": trade.direction.value,
+                    "entry_price": float(trade.entry_price),
+                    "exit_price": float(trade.exit_price),
+                    "quantity": float(trade.quantity),
+                    "realized_pnl": float(trade.realized_pnl),
+                    "exit_reason": trade.exit_reason.value,
+                    "opened_at": trade.opened_at.isoformat() if trade.opened_at else None,
+                    "closed_at": trade.closed_at.isoformat() if trade.closed_at else None,
+                }
+            )
+        return results
+
     def get_competition_today_stats(self) -> dict[str, int]:
         """Aggregate meaningful competition activity for Home (not raw HOLD spam)."""
         today_start = datetime.now(timezone.utc).replace(
@@ -1285,8 +1516,38 @@ class TradingStore:
         return {
             "market_checks_today": int(market_checks),
             "entry_signals_today": int(entry_signals),
+            "sell_signals_today": int(
+                self.session.scalar(
+                    select(func.count())
+                    .select_from(OrmDecision)
+                    .where(
+                        OrmDecision.strategy_instance_id.in_(inst_uuids),
+                        OrmDecision.created_at >= today_start,
+                        OrmDecision.decision_type == OrmDecisionType.SELL_SIGNAL,
+                    )
+                )
+                or 0
+            ),
             "trades_opened_today": int(trades_opened),
             "trades_closed_today": int(trades_closed),
+            "realized_pnl_today": float(
+                self.session.scalar(
+                    select(func.coalesce(func.sum(OrmTrade.realized_pnl), 0)).where(
+                        OrmTrade.portfolio_id.in_(port_uuids),
+                        OrmTrade.closed_at >= today_start,
+                        OrmTrade.backtest_run_id.is_(None),
+                    )
+                )
+                or 0
+            ),
+            "unrealized_pnl_total": float(
+                self.session.scalar(
+                    select(func.coalesce(func.sum(OrmPortfolio.unrealized_pnl), 0)).where(
+                        OrmPortfolio.id.in_(port_uuids)
+                    )
+                )
+                or 0
+            ),
         }
 
     # ------------------------------------------------------------------ Worker
@@ -1383,6 +1644,7 @@ class TradingStore:
                     backtest_run_id=self._bt_uuid(),
                 )
             )
+            self.session.flush()
 
         row = OrmOrderIntent(
             id=_uuid(intent_id),

@@ -283,6 +283,9 @@ export default function PortfolioComparisonPage() {
                   enriched.timeframe_comparison ?? prev.timeframe_comparison,
                 equity_curves: enriched.equity_curves ?? prev.equity_curves,
                 activity: enriched.activity ?? prev.activity,
+                open_positions: enriched.open_positions ?? prev.open_positions,
+                closed_trades: enriched.closed_trades ?? prev.closed_trades,
+                today_summary: enriched.today_summary ?? prev.today_summary,
               }
             : enriched
         );
@@ -489,6 +492,136 @@ export default function PortfolioComparisonPage() {
                 ))}
               </tbody>
             </table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="mb-4">
+        <CardHeader>
+          <CardTitle>{t("competition.today_summary")}</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">
+          {secondaryUnavailable ? (
+            <p className="text-muted">{secondaryUnavailable}</p>
+          ) : (
+            <>
+              <div>
+                <span className="text-muted">{t("competition.today_buy_signals")}</span>
+                <p className="font-mono">{data.today_summary?.entry_signals_today ?? 0}</p>
+              </div>
+              <div>
+                <span className="text-muted">{t("competition.today_sell_signals")}</span>
+                <p className="font-mono">{data.today_summary?.sell_signals_today ?? 0}</p>
+              </div>
+              <div>
+                <span className="text-muted">{t("competition.today_opened")}</span>
+                <p className="font-mono">{data.today_summary?.trades_opened_today ?? 0}</p>
+              </div>
+              <div>
+                <span className="text-muted">{t("competition.today_closed")}</span>
+                <p className="font-mono">{data.today_summary?.trades_closed_today ?? 0}</p>
+              </div>
+              <div>
+                <span className="text-muted">{t("competition.today_realized_pnl")}</span>
+                <PnLDisplay value={data.today_summary?.realized_pnl_today ?? 0} size="sm" />
+              </div>
+              <div>
+                <span className="text-muted">{t("competition.today_unrealized_pnl")}</span>
+                <PnLDisplay value={data.today_summary?.unrealized_pnl_total ?? 0} size="sm" />
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="mb-4">
+        <CardHeader>
+          <CardTitle>{t("competition.open_positions_now")}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {secondaryUnavailable ? (
+            <p className="text-sm text-muted">{secondaryUnavailable}</p>
+          ) : !data.open_positions?.length ? (
+            <p className="text-sm text-muted">{t("competition.no_position")}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-muted">
+                    <th className="py-2 text-right">{t("common.name")}</th>
+                    <th className="py-2 text-right">{t("competition.open_direction")}</th>
+                    <th className="py-2 text-right">{t("competition.entry_price")}</th>
+                    <th className="py-2 text-right">{t("market.current_price")}</th>
+                    <th className="py-2 text-right">{t("competition.stop_loss")}</th>
+                    <th className="py-2 text-right">{t("competition.take_profit")}</th>
+                    <th className="py-2 text-right">{t("competition.unrealized_pnl")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.open_positions.map((pos) => (
+                    <tr key={pos.portfolio_id} className="border-b border-border/50">
+                      <td className="py-2">{pos.portfolio_name}</td>
+                      <td className="py-2">{portfolioDirectionLabel(pos.direction)}</td>
+                      <td className="py-2 font-mono">{formatCurrency(pos.entry_price)}</td>
+                      <td className="py-2 font-mono">{formatCurrency(pos.current_price)}</td>
+                      <td className="py-2 font-mono">{formatCurrency(pos.stop_loss)}</td>
+                      <td className="py-2 font-mono">
+                        {pos.take_profit != null ? formatCurrency(pos.take_profit) : "—"}
+                      </td>
+                      <td className="py-2">
+                        <PnLDisplay value={pos.unrealized_pnl} size="sm" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="mb-4">
+        <CardHeader>
+          <CardTitle>{t("competition.closed_trades_section")}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {secondaryUnavailable ? (
+            <p className="text-sm text-muted">{secondaryUnavailable}</p>
+          ) : !data.closed_trades?.length ? (
+            <p className="text-sm text-muted">{t("common.no_data")}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-muted">
+                    <th className="py-2 text-right">{t("common.name")}</th>
+                    <th className="py-2 text-right">{t("competition.entry_price")}</th>
+                    <th className="py-2 text-right">{t("competition.exit_price")}</th>
+                    <th className="py-2 text-right">{t("competition.exit_reason")}</th>
+                    <th className="py-2 text-right">{t("competition.realized_pnl")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.closed_trades.map((trade) => (
+                    <tr key={trade.trade_id} className="border-b border-border/50">
+                      <td className="py-2">{trade.portfolio_name}</td>
+                      <td className="py-2 font-mono">{formatCurrency(trade.entry_price)}</td>
+                      <td className="py-2 font-mono">{formatCurrency(trade.exit_price)}</td>
+                      <td className="py-2">
+                        {trade.exit_reason === "sl"
+                          ? t("competition.exit_sl")
+                          : trade.exit_reason === "tp"
+                            ? t("competition.exit_tp")
+                            : trade.exit_reason}
+                      </td>
+                      <td className="py-2">
+                        <PnLDisplay value={trade.realized_pnl} size="sm" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardContent>
       </Card>

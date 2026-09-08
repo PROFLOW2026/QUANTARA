@@ -13,6 +13,7 @@ from quantara_engine.core.clock import BacktestClock
 from quantara_engine.core.config import settings
 from quantara_engine.db.session import session_scope
 from quantara_engine.domain.types import ExecutionAssumptions, Mode
+from quantara_engine.execution.catch_up import list_catchup_candle_indices
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
 from quantara_engine.market_data.factory import get_market_data_provider
 from quantara_engine.market_data.polling import STRATEGY_MIN_CANDLES, is_bar_complete
@@ -48,6 +49,23 @@ def _ensure_candles(s: TradingStore, instrument, timeframe: str, settings_dict: 
     return []
 
 
+def _catchup_indices(
+    s: TradingStore,
+    candles: list,
+    timeframe: str,
+    instance_ids: list[str],
+    now: datetime,
+) -> list[int]:
+    last_processed = s.get_timeframe_group_last_processed(instance_ids)
+    return list_catchup_candle_indices(
+        candles,
+        timeframe,
+        last_processed=last_processed,
+        now=now,
+        already_processed_fn=lambda ts: s.timeframe_group_already_processed(instance_ids, ts),
+    )
+
+
 def _process_timeframe_group(
     s: TradingStore,
     instrument,
@@ -56,60 +74,77 @@ def _process_timeframe_group(
     settings_dict: dict,
     started_at: datetime,
     broker: PaperBrokerAdapter,
-) -> tuple[int, int]:
-    """Evaluate one signal for timeframe and fan out to risk portfolios."""
+) -> tuple[int, int, dict]:
+    """Process all missed completed candles sequentially, oldest → newest."""
     candles = _ensure_candles(s, instrument, timeframe, settings_dict)
     if len(candles) < STRATEGY_MIN_CANDLES:
-        return 0, 0
-
-    candle_index = len(candles) - 1
-    candle = candles[candle_index]
-
-    if not is_bar_complete(candle.timestamp, timeframe, started_at):
-        return 0, 0
+        return 0, 0, s.get_timeframe_execution_status(
+            instrument.id, timeframe, [e["instance"].id for e in group], started_at
+        )
 
     instance_ids = [entry["instance"].id for entry in group]
-    if s.timeframe_group_already_processed(instance_ids, candle.timestamp):
-        return 0, 0
+    indices = _catchup_indices(s, candles, timeframe, instance_ids, started_at)
+    if not indices:
+        return 0, 0, s.get_timeframe_execution_status(
+            instrument.id, timeframe, instance_ids, started_at
+        )
 
+    total_decisions = 0
+    candles_processed = 0
     template = group[0]
-    eval_processor = CandleProcessor(
-        portfolio_state=s.load_portfolio_state(template["portfolio"].id),
-        strategy_instance=template["instance"],
-        instrument=instrument,
-        risk_profile=template["risk_profile"],
-        broker=broker,
-        clock=BacktestClock(),
-        store=None,
-        mode=Mode.PAPER,
-    )
-    eval_processor.all_candles = candles
-    shared_signal, _ = eval_processor.evaluate_signal(candle_index)
 
-    decisions = 0
-    for entry in group:
-        portfolio = entry["portfolio"]
-        instance = entry["instance"]
-        risk_profile = entry["risk_profile"]
-        state = s.load_portfolio_state(portfolio.id)
-        processor = CandleProcessor(
-            portfolio_state=state,
-            strategy_instance=instance,
+    for candle_index in indices:
+        candle = candles[candle_index]
+        if s.timeframe_group_already_processed(instance_ids, candle.timestamp):
+            continue
+
+        eval_processor = CandleProcessor(
+            portfolio_state=s.load_portfolio_state(template["portfolio"].id),
+            strategy_instance=template["instance"],
             instrument=instrument,
-            risk_profile=risk_profile,
+            risk_profile=template["risk_profile"],
             broker=broker,
             clock=BacktestClock(),
-            store=s,
+            store=None,
             mode=Mode.PAPER,
         )
-        processor.all_candles = candles
-        pending = s.list_pending_order_intents(portfolio.id, instance.id)
-        processor.pending_intents = pending
-        processor._persisted_intents = {intent.id for intent in pending}
-        processor.process_candle(candle_index, shared_signal=shared_signal)
-        decisions += len(processor.decisions)
+        eval_processor.all_candles = candles
+        shared_signal, _ = eval_processor.evaluate_signal(candle_index)
 
-    return len(group), decisions
+        for entry in group:
+            portfolio = entry["portfolio"]
+            instance = entry["instance"]
+            risk_profile = entry["risk_profile"]
+            state = s.load_portfolio_state(portfolio.id)
+            processor = CandleProcessor(
+                portfolio_state=state,
+                strategy_instance=instance,
+                instrument=instrument,
+                risk_profile=risk_profile,
+                broker=broker,
+                clock=BacktestClock(),
+                store=s,
+                mode=Mode.PAPER,
+            )
+            processor.all_candles = candles
+            pending = s.list_pending_order_intents(portfolio.id, instance.id)
+            processor.pending_intents = pending
+            processor._persisted_intents = {intent.id for intent in pending}
+            processor.process_candle(candle_index, shared_signal=shared_signal)
+            total_decisions += len(processor.decisions)
+
+        candles_processed += 1
+        logger.info(
+            "Processed %s candle %s (%d portfolios, backlog remaining)",
+            timeframe,
+            candle.timestamp.isoformat(),
+            len(group),
+        )
+
+    tf_status = s.get_timeframe_execution_status(
+        instrument.id, timeframe, instance_ids, started_at
+    )
+    return candles_processed, total_decisions, tf_status
 
 
 def _process_competition(s: TradingStore, started_at: datetime) -> int:
@@ -131,12 +166,13 @@ def _process_competition(s: TradingStore, started_at: datetime) -> int:
     total_decisions = 0
     groups_evaluated = 0
     portfolios_touched = 0
+    timeframe_status: dict[str, dict] = {}
 
     for timeframe in TIMEFRAME_ORDER:
         group = by_timeframe.get(timeframe, [])
         if not group:
             continue
-        touched, decisions = _process_timeframe_group(
+        candles_processed, decisions, tf_status = _process_timeframe_group(
             s,
             instrument,
             timeframe,
@@ -145,12 +181,25 @@ def _process_competition(s: TradingStore, started_at: datetime) -> int:
             started_at,
             broker,
         )
-        if touched:
+        timeframe_status[timeframe] = tf_status
+        if candles_processed:
             groups_evaluated += 1
-            portfolios_touched += touched
+            portfolios_touched += len(group) * candles_processed
             total_decisions += decisions
 
+    overall_backlog = sum(st.get("backlog", 0) for st in timeframe_status.values())
+    overall_status = "catching_up" if overall_backlog > 0 else "healthy"
+
     if groups_evaluated == 0:
+        for timeframe in TIMEFRAME_ORDER:
+            group = by_timeframe.get(timeframe, [])
+            if group:
+                timeframe_status[timeframe] = s.get_timeframe_execution_status(
+                    instrument.id,
+                    timeframe,
+                    [e["instance"].id for e in group],
+                    started_at,
+                )
         s.update_worker_status(
             "strategy_runner",
             {
@@ -158,6 +207,7 @@ def _process_competition(s: TradingStore, started_at: datetime) -> int:
                 "last_run": started_at.isoformat(),
                 "reason": "no_completed_bars",
                 "competition_portfolios": len(entries),
+                "timeframes": timeframe_status,
             },
         )
         return 0
@@ -165,12 +215,13 @@ def _process_competition(s: TradingStore, started_at: datetime) -> int:
     s.update_worker_status(
         "strategy_runner",
         {
-            "status": "healthy",
+            "status": overall_status,
             "last_run": started_at.isoformat(),
-            "jobs_pending": 0,
+            "jobs_pending": overall_backlog,
             "decisions": total_decisions,
             "competition_portfolios": len(entries),
             "timeframe_groups_evaluated": groups_evaluated,
+            "timeframes": timeframe_status,
         },
     )
     s.save_worker_run(
@@ -180,10 +231,11 @@ def _process_competition(s: TradingStore, started_at: datetime) -> int:
         jobs_processed=groups_evaluated,
     )
     logger.info(
-        "run_strategy competition fan-out completed (%d groups, %d portfolios, %d decisions)",
+        "run_strategy catch-up completed (%d candle-batches, %d portfolio-runs, %d decisions, backlog=%d)",
         groups_evaluated,
         portfolios_touched,
         total_decisions,
+        overall_backlog,
     )
     return portfolios_touched
 
@@ -217,6 +269,25 @@ def _process_legacy(s: TradingStore, started_at: datetime) -> None:
         )
         return
 
+    instance_ids = [instance.id]
+    indices = _catchup_indices(s, candles, instance.timeframe, instance_ids, started_at)
+    if not indices:
+        s.update_worker_status(
+            "strategy_runner",
+            {
+                "status": "healthy",
+                "last_run": started_at.isoformat(),
+                "jobs_pending": 0,
+                "decisions": 0,
+                "timeframes": {
+                    instance.timeframe: s.get_timeframe_execution_status(
+                        instrument.id, instance.timeframe, instance_ids, started_at
+                    )
+                },
+            },
+        )
+        return
+
     state = s.load_portfolio_state(portfolio.id)
     risk_profile = s.get_risk_profile_by_slug(
         settings_dict.get("default_risk_profile", "balanced")
@@ -228,38 +299,45 @@ def _process_legacy(s: TradingStore, started_at: datetime) -> None:
         return
 
     broker = PaperBrokerAdapter(instrument.id, ExecutionAssumptions())
-    processor = CandleProcessor(
-        portfolio_state=state,
-        strategy_instance=instance,
-        instrument=instrument,
-        risk_profile=risk_profile,
-        broker=broker,
-        clock=BacktestClock(),
-        store=s,
-        mode=Mode.PAPER,
-    )
-    processor.all_candles = candles
-    pending = s.list_pending_order_intents(portfolio.id, instance.id)
-    processor.pending_intents = pending
-    processor._persisted_intents = {intent.id for intent in pending}
-    processor.process_candle(len(candles) - 1)
+    total_decisions = 0
+    for candle_index in indices:
+        processor = CandleProcessor(
+            portfolio_state=s.load_portfolio_state(portfolio.id),
+            strategy_instance=instance,
+            instrument=instrument,
+            risk_profile=risk_profile,
+            broker=broker,
+            clock=BacktestClock(),
+            store=s,
+            mode=Mode.PAPER,
+        )
+        processor.all_candles = candles
+        pending = s.list_pending_order_intents(portfolio.id, instance.id)
+        processor.pending_intents = pending
+        processor._persisted_intents = {intent.id for intent in pending}
+        processor.process_candle(candle_index)
+        total_decisions += len(processor.decisions)
 
+    tf_status = s.get_timeframe_execution_status(
+        instrument.id, instance.timeframe, instance_ids, started_at
+    )
     s.update_worker_status(
         "strategy_runner",
         {
-            "status": "healthy",
+            "status": tf_status.get("status", "healthy"),
             "last_run": started_at.isoformat(),
-            "jobs_pending": 0,
-            "decisions": len(processor.decisions),
+            "jobs_pending": tf_status.get("backlog", 0),
+            "decisions": total_decisions,
+            "timeframes": {instance.timeframe: tf_status},
         },
     )
     s.save_worker_run(
         run_id=str(uuid.uuid4()),
         worker_name="strategy_runner",
         started_at=started_at,
-        jobs_processed=1,
+        jobs_processed=len(indices),
     )
-    logger.info("run_strategy legacy pipeline completed")
+    logger.info("run_strategy legacy catch-up completed (%d candles)", len(indices))
 
 
 def run_strategy_job(store: TradingStore | None = None) -> None:
