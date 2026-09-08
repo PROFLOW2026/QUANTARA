@@ -11,6 +11,7 @@ const COMPETITION_EXPERIMENT_ID = "00000000-0000-0000-0000-000000000200";
 const COMPETITION_TOTAL_INITIAL = 30_000;
 const PORTFOLIO_INITIAL = 2_000;
 const TIMEFRAME_ORDER = ["1h", "15m", "5m"] as const;
+const TIMEFRAME_DISPLAY_ORDER = ["5m", "15m", "1h"] as const;
 
 /** Full competition payload (heavy — may exceed proxy timeout). */
 export async function loadCompetitionFull(): Promise<CompetitionResponse> {
@@ -19,7 +20,11 @@ export async function loadCompetitionFull(): Promise<CompetitionResponse> {
 
 function toSummary(item: PortfolioListItem): CompetitionPortfolioSummary {
   const unrealizedPnl = Number(item.unrealized_pnl ?? 0);
-  const totalPnl = item.equity - item.initial_capital;
+  const realizedPnl =
+    item.realized_pnl != null
+      ? Number(item.realized_pnl)
+      : item.equity - item.initial_capital - unrealizedPnl;
+  const totalPnl = realizedPnl + unrealizedPnl;
   const returnPct =
     item.initial_capital > 0 ? (totalPnl / item.initial_capital) * 100 : 0;
   const openPositionsCount = item.open_positions_count ?? 0;
@@ -35,7 +40,7 @@ function toSummary(item: PortfolioListItem): CompetitionPortfolioSummary {
     initial_capital: item.initial_capital,
     equity: item.equity,
     balance: item.balance ?? item.equity,
-    realized_pnl: totalPnl - unrealizedPnl,
+    realized_pnl: realizedPnl,
     unrealized_pnl: unrealizedPnl,
     total_pnl: totalPnl,
     return_pct: returnPct,
@@ -82,6 +87,13 @@ function buildTimeframeComparison(
     if (!group.length) continue;
     const returns = group.map((p) => p.return_pct);
     const drawdowns = group.map((p) => p.max_drawdown_pct);
+    const closedTrades = group.reduce((sum, p) => sum + p.trades_count, 0);
+    const realizedPnl = group.reduce((sum, p) => sum + p.realized_pnl, 0);
+    const unrealizedPnl = group.reduce((sum, p) => sum + p.unrealized_pnl, 0);
+    const openPositions = group.reduce(
+      (sum, p) => sum + (p.open_positions_count ?? 0),
+      0
+    );
     rows.push({
       timeframe,
       timeframe_he: group[0].timeframe_he ?? timeframe,
@@ -95,7 +107,12 @@ function buildTimeframeComparison(
       average_return_pct:
         returns.reduce((sum, value) => sum + value, 0) / group.length,
       best_return_pct: Math.max(...returns),
-      total_trades: group.reduce((sum, p) => sum + p.trades_count, 0),
+      total_trades: closedTrades,
+      closed_trades: closedTrades,
+      realized_pnl: realizedPnl,
+      unrealized_pnl: unrealizedPnl,
+      total_pnl: realizedPnl + unrealizedPnl,
+      open_positions: openPositions,
       average_drawdown_pct:
         drawdowns.reduce((sum, value) => sum + value, 0) / group.length,
       max_drawdown_pct: Math.max(...drawdowns),
@@ -126,8 +143,21 @@ export async function loadCompetitionView(): Promise<CompetitionResponse> {
         timeframe_he: leaderboard[0].timeframe_he,
       }
     : undefined;
+  const worst = leaderboard.length
+    ? {
+        portfolio_id: leaderboard[leaderboard.length - 1].portfolio_id,
+        name: leaderboard[leaderboard.length - 1].name,
+        return_pct: leaderboard[leaderboard.length - 1].return_pct,
+        timeframe: leaderboard[leaderboard.length - 1].timeframe,
+        timeframe_he: leaderboard[leaderboard.length - 1].timeframe_he,
+      }
+    : undefined;
 
-  const timeframeComparison = buildTimeframeComparison(portfolios);
+  const timeframeComparison = buildTimeframeComparison(portfolios).sort(
+    (a, b) =>
+      TIMEFRAME_DISPLAY_ORDER.indexOf(a.timeframe as (typeof TIMEFRAME_DISPLAY_ORDER)[number]) -
+      TIMEFRAME_DISPLAY_ORDER.indexOf(b.timeframe as (typeof TIMEFRAME_DISPLAY_ORDER)[number])
+  );
   const leadingTimeframe = timeframeComparison.length
     ? [...timeframeComparison].sort(
         (a, b) => b.average_return_pct - a.average_return_pct
@@ -160,6 +190,7 @@ export async function loadCompetitionView(): Promise<CompetitionResponse> {
       ),
     },
     leader,
+    worst_performer: worst,
     leading_timeframe: leadingTimeframe,
     portfolios,
     timeframe_groups: TIMEFRAME_ORDER.map((timeframe) => ({

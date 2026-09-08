@@ -143,6 +143,9 @@ def _timeframe_comparison(portfolios: list[dict[str, Any]]) -> list[dict[str, An
         returns = [p["return_pct"] for p in group]
         drawdowns = [p["max_drawdown_pct"] for p in group]
         trades = sum(p["trades_count"] for p in group)
+        realized = sum(p["realized_pnl"] for p in group)
+        unrealized = sum(p["unrealized_pnl"] for p in group)
+        open_positions = sum(p.get("open_positions_count", 0) for p in group)
         summary.append(
             {
                 "timeframe": timeframe,
@@ -152,6 +155,11 @@ def _timeframe_comparison(portfolios: list[dict[str, Any]]) -> list[dict[str, An
                 "average_return_pct": round(sum(returns) / len(group), 2),
                 "best_return_pct": max(returns),
                 "total_trades": trades,
+                "closed_trades": trades,
+                "realized_pnl": round(realized, 2),
+                "unrealized_pnl": round(unrealized, 2),
+                "total_pnl": round(realized + unrealized, 2),
+                "open_positions": open_positions,
                 "average_drawdown_pct": round(sum(drawdowns) / len(group), 2),
                 "max_drawdown_pct": max(drawdowns) if drawdowns else 0.0,
                 "combined_equity": round(sum(p["equity"] for p in group), 2),

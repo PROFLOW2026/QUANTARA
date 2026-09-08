@@ -173,7 +173,11 @@
     "closed_trades": "עסקאות סגורות",
     "timeframe_summary": "סיכום לפי טווח זמן",
     "avg_return": "תשואה ממוצעת",
-    "combined_equity": "שווי משולב"
+    "combined_equity": "שווי משולב",
+    "worst_performer": "מפגר כרגע",
+    "worker_timeframes": "סטטוס לפי טווח זמן",
+    "worker_backlog": "פער נרות",
+    "worker_status_label": "סטטוס"
   },
   "portfolio": {
     "title": "תיק",

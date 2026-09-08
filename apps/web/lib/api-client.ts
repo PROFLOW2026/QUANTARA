@@ -281,12 +281,22 @@ export interface CandleLatest {
   is_stale?: boolean;
 }
 
+export interface WorkerTimeframeStatus {
+  last_completed_candle?: string | null;
+  last_processed_candle?: string | null;
+  backlog?: number;
+  status?: string;
+}
+
 export interface WorkerStatus {
   healthy: boolean;
   workers: Array<{
     name: string;
     status: "running" | "stopped" | "error";
     last_run?: string;
+    execution_status?: string;
+    backlog?: number;
+    timeframes?: Record<string, WorkerTimeframeStatus>;
   }>;
 }
 
@@ -394,6 +404,7 @@ export interface PortfolioListItem {
   balance?: number;
   equity: number;
   unrealized_pnl?: number;
+  realized_pnl?: number;
   open_positions_count?: number;
   open_position?: boolean;
   open_direction?: string | null;
@@ -422,6 +433,11 @@ export interface TimeframeComparisonRow {
   average_return_pct: number;
   best_return_pct: number;
   total_trades: number;
+  closed_trades?: number;
+  realized_pnl?: number;
+  unrealized_pnl?: number;
+  total_pnl?: number;
+  open_positions?: number;
   average_drawdown_pct: number;
   max_drawdown_pct: number;
   combined_equity: number;
@@ -488,6 +504,13 @@ export interface CompetitionResponse {
     open_positions_total: number;
   };
   leader?: {
+    portfolio_id: string;
+    name: string;
+    return_pct: number;
+    timeframe?: string;
+    timeframe_he?: string;
+  };
+  worst_performer?: {
     portfolio_id: string;
     name: string;
     return_pct: number;

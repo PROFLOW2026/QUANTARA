@@ -463,6 +463,7 @@ def portfolios_list(store: StoreDep):
                 "initial_capital": float(p.initial_capital),
                 "balance": float(p.balance),
                 "equity": float(p.equity),
+                "realized_pnl": float(store.sum_realized_pnl(p.id)),
                 "unrealized_pnl": float(p.unrealized_pnl),
                 "open_positions_count": len(open_positions),
                 "open_position": len(open_positions) > 0,

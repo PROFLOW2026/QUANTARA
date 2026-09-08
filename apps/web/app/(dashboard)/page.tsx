@@ -107,7 +107,7 @@ export default function HomePageClient() {
   const initialCapital = competition?.experiment?.total_initial_capital ?? 30_000;
   const combinedRealized = portfolios.reduce((sum, row) => sum + row.realized_pnl, 0);
   const combinedUnrealized = portfolios.reduce((sum, row) => sum + row.unrealized_pnl, 0);
-  const combinedTotalPnl = combinedEquity - initialCapital;
+  const combinedTotalPnl = combinedRealized + combinedUnrealized;
   const openPositions = competition?.combined?.open_positions_total ?? 0;
   const closedTrades = portfolios.reduce((sum, row) => sum + row.trades_count, 0);
   const portfolioCount = competition?.experiment?.portfolio_count ?? portfolios.length;
@@ -240,6 +240,17 @@ export default function HomePageClient() {
           </Card>
         ) : null}
 
+        {competition?.worst_performer &&
+        competition.worst_performer.portfolio_id !== competition.leader?.portfolio_id ? (
+          <Card>
+            <CardHeader><CardTitle>{t("home.worst_performer")}</CardTitle></CardHeader>
+            <CardContent className="text-sm">
+              <p>{competition.worst_performer.name}</p>
+              <p className="text-muted">{formatPercent(competition.worst_performer.return_pct)}</p>
+            </CardContent>
+          </Card>
+        ) : null}
+
         {competition?.leading_timeframe ? (
           <Card>
             <CardHeader><CardTitle>{t("home.competition_leading_timeframe")}</CardTitle></CardHeader>
@@ -280,19 +291,44 @@ export default function HomePageClient() {
               <div key={row.timeframe} className="rounded-md bg-surface-elevated p-3 text-sm">
                 <p className="font-medium">{row.title_he ?? row.timeframe_he}</p>
                 <p>
-                  <span className="text-muted">{t("home.avg_return")}: </span>
-                  {formatPercent(row.average_return_pct)}
+                  <span className="text-muted">{t("home.realized_pnl")}: </span>
+                  <PnLDisplay value={row.realized_pnl ?? 0} size="sm" />
                 </p>
                 <p>
-                  <span className="text-muted">{t("home.combined_equity")}: </span>
-                  {formatCurrency(row.combined_equity)}
+                  <span className="text-muted">{t("home.open_positions")}: </span>
+                  {row.open_positions ?? 0}
                 </p>
                 <p>
                   <span className="text-muted">{t("home.closed_trades")}: </span>
-                  {row.total_trades}
+                  {row.closed_trades ?? row.total_trades ?? 0}
                 </p>
               </div>
             ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {workers?.workers?.length ? (
+        <Card className="mt-4">
+          <CardHeader><CardTitle>{t("home.worker_timeframes")}</CardTitle></CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-3 text-sm">
+            {(["5m", "15m", "1h"] as const).map((timeframe) => {
+              const runner = workers.workers.find((w) => w.name === "strategy_runner");
+              const tf = runner?.timeframes?.[timeframe];
+              return (
+                <div key={timeframe} className="rounded-md bg-surface-elevated p-3">
+                  <p className="font-medium">{timeframe}</p>
+                  <p>
+                    <span className="text-muted">{t("home.worker_backlog")}: </span>
+                    {tf?.backlog ?? "—"}
+                  </p>
+                  <p>
+                    <span className="text-muted">{t("home.worker_status_label")}: </span>
+                    {tf?.status ?? runner?.status ?? "—"}
+                  </p>
+                </div>
+              );
+            })}
           </CardContent>
         </Card>
       ) : null}

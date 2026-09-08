@@ -262,8 +262,31 @@ class TradingStore:
         return Decimal(str(total or 0))
 
     def get_latest_decision(self) -> DecisionLogEntry | None:
+        skip_types = {
+            OrmDecisionType.HOLD,
+            OrmDecisionType.NO_SETUP,
+        }
+        competition_ids = self.list_competition_instance_ids()
+        if competition_ids:
+            row = self.session.scalar(
+                select(OrmDecision)
+                .where(
+                    OrmDecision.strategy_instance_id.in_(
+                        [_uuid(i) for i in competition_ids]
+                    ),
+                    OrmDecision.decision_type.not_in(skip_types),
+                )
+                .order_by(OrmDecision.created_at.desc())
+                .limit(1)
+            )
+            if row:
+                return self._decision_to_domain(row)
+
         row = self.session.scalar(
-            select(OrmDecision).order_by(OrmDecision.created_at.desc()).limit(1)
+            select(OrmDecision)
+            .where(OrmDecision.decision_type.not_in(skip_types))
+            .order_by(OrmDecision.created_at.desc())
+            .limit(1)
         )
         return self._decision_to_domain(row) if row else None
 
