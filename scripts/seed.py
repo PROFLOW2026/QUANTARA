@@ -19,8 +19,6 @@ from quantara_engine.db.session import engine  # noqa: E402
 from quantara_engine.core.config import settings  # noqa: E402
 
 OWNER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
-PAPER_PORTFOLIO_ID = uuid.UUID("00000000-0000-0000-0000-000000000010")
-PAPER_STRATEGY_INSTANCE_ID = uuid.UUID("00000000-0000-0000-0000-000000000020")
 
 GOLD_TREND_PULLBACK_PARAMETERS = {
     "ema_fast": 20,
@@ -145,63 +143,6 @@ def _json(value: object) -> str:
     return json.dumps(value)
 
 
-def _seed_paper_portfolio_and_instance(conn, instrument_id: uuid.UUID, strategy_version_id: uuid.UUID) -> None:
-    balanced = conn.execute(
-        text("SELECT id FROM risk_profiles WHERE slug = 'balanced'"),
-    ).first()
-    if not balanced:
-        print("  Warning: balanced risk profile not found — skipping paper portfolio seed")
-        return
-
-    balanced_id = balanced[0]
-    initial_capital = Decimal(str(settings.default_initial_capital))
-
-    conn.execute(
-        text(
-            """
-            INSERT INTO portfolios (
-              id, owner_id, name, mode, initial_capital, balance, unrealized_pnl,
-              equity, exposure_notional, reserved_capital, currency, status, peak_equity
-            ) VALUES (
-              :id, :owner_id, :name, 'paper', :initial_capital, :initial_capital, 0,
-              :initial_capital, 0, 0, 'USD', 'active', :initial_capital
-            )
-            ON CONFLICT (id) DO NOTHING
-            """
-        ),
-        {
-            "id": PAPER_PORTFOLIO_ID,
-            "owner_id": OWNER_ID,
-            "name": "Paper Main",
-            "initial_capital": initial_capital,
-        },
-    )
-
-    conn.execute(
-        text(
-            """
-            INSERT INTO strategy_instances (
-              id, portfolio_id, strategy_version_id, instrument_id,
-              timeframe, risk_profile_id, parameter_overrides, is_active
-            ) VALUES (
-              :id, :portfolio_id, :strategy_version_id, :instrument_id,
-              '1h', :risk_profile_id, '{}', true
-            )
-            ON CONFLICT (id) DO NOTHING
-            """
-        ),
-        {
-            "id": PAPER_STRATEGY_INSTANCE_ID,
-            "portfolio_id": PAPER_PORTFOLIO_ID,
-            "strategy_version_id": strategy_version_id,
-            "instrument_id": instrument_id,
-            "risk_profile_id": balanced_id,
-        },
-    )
-    print(f"  Paper portfolio: {PAPER_PORTFOLIO_ID} ($10000)")
-    print(f"  Strategy instance: gold-trend-pullback 1h balanced ({PAPER_STRATEGY_INSTANCE_ID})")
-
-
 def seed() -> None:
     instrument_id = uuid.uuid4()
     strategy_id = uuid.uuid4()
@@ -227,7 +168,6 @@ def seed() -> None:
             if sv:
                 strategy_version_id = sv[0]
             print("Seed reference data already present (XAUUSD exists).")
-            _seed_paper_portfolio_and_instance(conn, instrument_id, strategy_version_id)
             return
 
         conn.execute(
@@ -356,8 +296,6 @@ def seed() -> None:
                     "description": setting["description"],
                 },
             )
-
-        _seed_paper_portfolio_and_instance(conn, instrument_id, strategy_version_id)
 
     print("Seed completed successfully.")
     print(f"  Instrument: XAUUSD ({instrument_id})")

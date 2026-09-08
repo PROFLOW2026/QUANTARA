@@ -166,7 +166,14 @@
     "competition_initial_capital": "הון וירטואלי התחלתי",
     "competition_leading_timeframe": "טווח זמן מוביל",
     "competition_open_positions": "פוזיציות פתוחות בניסוי",
-    "competition_view": "הצג השוואה"
+    "competition_view": "הצג השוואה",
+    "experiment_portfolios": "תיקי ניסוי פעילים",
+    "realized_pnl": "רווח/הפסד ממומש",
+    "total_pnl": "רווח/הפסד כולל",
+    "closed_trades": "עסקאות סגורות",
+    "timeframe_summary": "סיכום לפי טווח זמן",
+    "avg_return": "תשואה ממוצעת",
+    "combined_equity": "שווי משולב"
   },
   "portfolio": {
     "title": "תיק",
@@ -187,8 +194,7 @@
     "risk_per_trade_label": "סיכון לעסקה",
     "viewing": "מציג תיק",
     "switch": "החלף תיק",
-    "select": "בחר תיק",
-    "legacy": "תיק היסטורי (Paper Main)"
+    "select": "בחר תיק"
   },
   "positions": {
     "title": "פוזיציות פתוחות",

@@ -22,8 +22,6 @@ from quantara_engine.persistence.store import TradingStore
 
 logger = logging.getLogger(__name__)
 
-OWNER_ID = "00000000-0000-0000-0000-000000000001"
-
 
 def _ensure_candles(s: TradingStore, instrument, timeframe: str, settings_dict: dict) -> list:
     candles = s.list_candles(instrument.id, timeframe)
@@ -240,106 +238,6 @@ def _process_competition(s: TradingStore, started_at: datetime) -> int:
     return portfolios_touched
 
 
-def _process_legacy(s: TradingStore, started_at: datetime) -> None:
-    settings_dict = s.get_settings_dict()
-    portfolio = s.get_or_create_paper_portfolio(
-        owner_id=OWNER_ID,
-        initial_capital=Decimal(str(settings_dict.get("default_initial_capital", 10000))),
-    )
-    instance = s.get_paper_strategy_instance(portfolio.id)
-    if not instance:
-        logger.warning("No active paper strategy instance — run seed first")
-        return
-
-    instrument = s.get_instrument_by_symbol("XAUUSD")
-    if not instrument:
-        logger.warning("XAUUSD instrument not found")
-        return
-
-    candles = _ensure_candles(s, instrument, instance.timeframe, settings_dict)
-    if len(candles) < STRATEGY_MIN_CANDLES:
-        s.update_worker_status(
-            "strategy_runner",
-            {
-                "status": "waiting",
-                "last_run": started_at.isoformat(),
-                "reason": "insufficient_candles",
-                "candle_count": len(candles),
-            },
-        )
-        return
-
-    instance_ids = [instance.id]
-    indices = _catchup_indices(s, candles, instance.timeframe, instance_ids, started_at)
-    if not indices:
-        s.update_worker_status(
-            "strategy_runner",
-            {
-                "status": "healthy",
-                "last_run": started_at.isoformat(),
-                "jobs_pending": 0,
-                "decisions": 0,
-                "timeframes": {
-                    instance.timeframe: s.get_timeframe_execution_status(
-                        instrument.id, instance.timeframe, instance_ids, started_at
-                    )
-                },
-            },
-        )
-        return
-
-    state = s.load_portfolio_state(portfolio.id)
-    risk_profile = s.get_risk_profile_by_slug(
-        settings_dict.get("default_risk_profile", "balanced")
-    )
-    if not risk_profile:
-        risk_profile = s.get_risk_profile_by_id(instance.risk_profile_id)
-    if not risk_profile:
-        logger.warning("Risk profile not found")
-        return
-
-    broker = PaperBrokerAdapter(instrument.id, ExecutionAssumptions())
-    total_decisions = 0
-    for candle_index in indices:
-        processor = CandleProcessor(
-            portfolio_state=s.load_portfolio_state(portfolio.id),
-            strategy_instance=instance,
-            instrument=instrument,
-            risk_profile=risk_profile,
-            broker=broker,
-            clock=BacktestClock(),
-            store=s,
-            mode=Mode.PAPER,
-        )
-        processor.all_candles = candles
-        pending = s.list_pending_order_intents(portfolio.id, instance.id)
-        processor.pending_intents = pending
-        processor._persisted_intents = {intent.id for intent in pending}
-        processor.process_candle(candle_index)
-        total_decisions += len(processor.decisions)
-
-    tf_status = s.get_timeframe_execution_status(
-        instrument.id, instance.timeframe, instance_ids, started_at
-    )
-    s.update_worker_status(
-        "strategy_runner",
-        {
-            "status": tf_status.get("status", "healthy"),
-            "last_run": started_at.isoformat(),
-            "jobs_pending": tf_status.get("backlog", 0),
-            "decisions": total_decisions,
-            "timeframes": {instance.timeframe: tf_status},
-        },
-    )
-    s.save_worker_run(
-        run_id=str(uuid.uuid4()),
-        worker_name="strategy_runner",
-        started_at=started_at,
-        jobs_processed=len(indices),
-    )
-    logger.info("run_strategy legacy catch-up completed (%d candles)", len(indices))
-
-
 def run_strategy_job(store: TradingStore | None = None) -> None:
     started_at = datetime.now(timezone.utc)
 
@@ -351,7 +249,7 @@ def run_strategy_job(store: TradingStore | None = None) -> None:
         if s.list_competition_entries():
             _process_competition(s, started_at)
         else:
-            _process_legacy(s, started_at)
+            logger.warning("No active competition portfolios — strategy runner idle")
 
     if store is not None:
         _run(store)

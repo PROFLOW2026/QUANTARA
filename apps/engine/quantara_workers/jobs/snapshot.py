@@ -11,8 +11,6 @@ from quantara_engine.persistence.store import TradingStore
 
 logger = logging.getLogger(__name__)
 
-OWNER_ID = "00000000-0000-0000-0000-000000000001"
-
 
 def _snapshot_one(s: TradingStore, portfolio_id: str, mark) -> None:
     state = s.load_portfolio_state(portfolio_id)
@@ -39,8 +37,8 @@ def snapshot_job(store: TradingStore | None = None) -> None:
         entries = s.list_competition_entries()
         portfolio_ids = [e["portfolio"].id for e in entries]
         if not portfolio_ids:
-            portfolio = s.get_or_create_paper_portfolio(owner_id=OWNER_ID)
-            portfolio_ids = [portfolio.id]
+            logger.warning("No active competition portfolios — snapshot job skipped")
+            return
 
         for portfolio_id in portfolio_ids:
             _snapshot_one(s, portfolio_id, mark)

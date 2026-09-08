@@ -41,9 +41,7 @@ export default async function PortfoliosPickerPage() {
               >
                 <p className="font-medium">{item.name}</p>
                 <p className="mt-1 text-xs text-muted">
-                  {item.kind === "legacy"
-                    ? t("portfolio.legacy")
-                    : translateRiskProfile(item.risk_slug)}
+                  {item.timeframe_he ?? item.timeframe ?? translateRiskProfile(item.risk_slug)}
                 </p>
                 <p className="mt-2 font-mono text-sm">{formatCurrency(item.equity)}</p>
               </Link>

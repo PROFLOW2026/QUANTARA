@@ -16,7 +16,7 @@ export default async function PositionsPage({
   searchParams: Promise<{ portfolio_id?: string }>;
 }) {
   const params = await searchParams;
-  const portfolioId = params.portfolio_id ?? "00000000-0000-0000-0000-000000000010";
+  const portfolioId = params.portfolio_id ?? "00000000-0000-0000-0000-00001101";
 
   let positions = null;
   let portfolio = null;

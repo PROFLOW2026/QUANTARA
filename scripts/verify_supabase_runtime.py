@@ -81,11 +81,12 @@ def main() -> int:
         if not instrument:
             return _fail("XAUUSD missing after seed")
         instrument_id = instrument.id
-        portfolio = store.resolve_paper_portfolio("paper-main")
+        portfolio = store.resolve_paper_portfolio("competition")
         portfolio_id = portfolio.id
-        instance = store.get_paper_strategy_instance(portfolio.id)
-        if not instance:
-            return _fail("Paper strategy instance missing after seed")
+        entries = store.list_competition_entries()
+        if not entries:
+            return _fail("Competition portfolios missing after seed_competition")
+        instance = entries[0]["instance"]
         instance_id = instance.id
         print(f"PASS  Reference data (XAUUSD, paper portfolio, instance {instance.id[:8]}...)")
 

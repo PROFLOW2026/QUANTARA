@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional
@@ -35,7 +36,13 @@ from quantara_engine.domain.types import (
     Trade,
     new_id,
 )
-from quantara_engine.competition.constants import ACTIVE_COMPETITION_PORTFOLIOS, PORTFOLIO_DEF_BY_ID
+from quantara_engine.competition.constants import (
+    ACTIVE_COMPETITION_EXPERIMENT_ID,
+    ACTIVE_COMPETITION_PORTFOLIOS,
+    COMPETITION_NAME_HE,
+    COMPETITION_TOTAL_INITIAL,
+    PORTFOLIO_DEF_BY_ID,
+)
 from quantara_engine.execution.fill_calculator import FillResult
 from quantara_engine.models.enums import (
     BacktestStatus,
@@ -137,29 +144,95 @@ class TradingStore:
             return _uuid(self.backtest_run_id)
         return None
 
-    def resolve_paper_portfolio(self, ref: str = "paper-main") -> Portfolio:
-        """Resolve paper portfolio by UUID, slugified name, or create default."""
+    def list_competition_portfolios(self) -> list[Portfolio]:
+        return [entry["portfolio"] for entry in self.list_competition_entries()]
+
+    def _competition_combined_portfolio(self, entries: list[dict[str, Any]] | None = None) -> Portfolio:
+        """Synthetic aggregate over active competition portfolios."""
+        entries = entries if entries is not None else self.list_competition_entries()
+        if not entries:
+            raise ValueError("No active competition portfolios")
+
+        portfolios = [entry["portfolio"] for entry in entries]
+        equity = sum((p.equity for p in portfolios), Decimal("0"))
+        balance = sum((p.balance for p in portfolios), Decimal("0"))
+        unrealized = sum((p.unrealized_pnl for p in portfolios), Decimal("0"))
+        exposure = sum((p.exposure_notional for p in portfolios), Decimal("0"))
+        peak = sum((p.peak_equity for p in portfolios), Decimal("0"))
+        status = (
+            PortfolioStatus.HALTED
+            if any(p.status == PortfolioStatus.HALTED for p in portfolios)
+            else PortfolioStatus.ACTIVE
+        )
+
+        return Portfolio(
+            id=ACTIVE_COMPETITION_EXPERIMENT_ID,
+            name=COMPETITION_NAME_HE,
+            mode=Mode.PAPER,
+            initial_capital=COMPETITION_TOTAL_INITIAL,
+            balance=balance,
+            unrealized_pnl=unrealized,
+            equity=equity,
+            exposure_notional=exposure,
+            reserved_capital=Decimal("0"),
+            currency="USD",
+            status=status,
+            peak_equity=peak,
+        )
+
+    def resolve_paper_portfolio(self, ref: str = "competition") -> Portfolio:
+        """Resolve a competition portfolio or the combined experiment aggregate."""
+        entries = self.list_competition_entries()
+        if not entries:
+            raise ValueError("No active competition portfolios")
+
+        slug = ref.lower().replace("_", "-")
+        if slug in ("competition", "paper-main", "paper", "combined"):
+            return self._competition_combined_portfolio(entries)
+
         try:
-            uid = _uuid(ref)
-            row = self.session.get(OrmPortfolio, uid)
-            if row:
-                return self._portfolio_to_domain(row)
+            uid = _str_id(_uuid(ref))
+            for entry in entries:
+                if entry["portfolio"].id == uid:
+                    return entry["portfolio"]
         except ValueError:
             pass
 
-        slug = ref.lower().replace("_", "-")
-        rows = self.session.scalars(
-            select(OrmPortfolio).where(OrmPortfolio.mode == PortfolioMode.PAPER)
-        ).all()
-        for row in rows:
-            name_slug = row.name.lower().replace(" ", "-")
-            if name_slug == slug or _str_id(row.id) == ref:
-                return self._portfolio_to_domain(row)
+        raise ValueError(f"Unknown portfolio ref: {ref}")
 
-        return self.get_or_create_paper_portfolio(
-            owner_id=OWNER_ID,
-            name="Paper Main" if slug in ("paper-main", "paper") else ref.replace("-", " ").title(),
-        )
+    def sum_competition_realized_pnl(self) -> Decimal:
+        total = Decimal("0")
+        for portfolio in self.list_competition_portfolios():
+            total += self.sum_realized_pnl(portfolio.id)
+        return total
+
+    def list_competition_positions(
+        self,
+        *,
+        open_only: bool = True,
+        status: str | None = None,
+    ) -> list[Position]:
+        positions: list[Position] = []
+        for portfolio in self.list_competition_portfolios():
+            positions.extend(
+                self.list_positions(
+                    portfolio.id,
+                    open_only=open_only,
+                    status=status,
+                )
+            )
+        return positions
+
+    def list_competition_trades_all(self, *, limit: int = 500) -> list[Trade]:
+        trades: list[Trade] = []
+        for portfolio in self.list_competition_portfolios():
+            trades.extend(self.list_trades(portfolio.id, limit=limit, paper_only=True))
+        trades.sort(key=lambda row: row.closed_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+        return trades[:limit]
+
+    def set_competition_portfolio_status(self, status: PortfolioStatus) -> None:
+        for portfolio in self.list_competition_portfolios():
+            self.update_portfolio(replace(portfolio, status=status))
 
     def list_instruments(self) -> list[Instrument]:
         rows = self.session.scalars(
@@ -511,7 +584,7 @@ class TradingStore:
     def get_or_create_paper_portfolio(
         self,
         owner_id: str,
-        name: str = "Paper Main",
+        name: str = "Backtest Scratch",
         initial_capital: Decimal = Decimal("10000"),
     ) -> Portfolio:
         existing = self.session.scalar(

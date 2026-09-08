@@ -2,7 +2,6 @@
 """Seed the active 15-portfolio multi-timeframe competition experiment.
 
 Preserves the legacy 5-portfolio experiment (archived, not deleted).
-Does not touch legacy Paper Main open positions or trade history.
 """
 
 from __future__ import annotations
@@ -28,7 +27,6 @@ from quantara_engine.competition.constants import (  # noqa: E402
     COMPETITION_SUBTITLE_HE,
     LEGACY_COMPETITION_EXPERIMENT_ID,
     LEGACY_COMPETITION_PORTFOLIOS,
-    LEGACY_PAPER_INSTANCE_ID,
     OWNER_ID,
 )
 from quantara_engine.db.session import engine  # noqa: E402
@@ -178,17 +176,6 @@ def seed_competition() -> None:
                 f"  Portfolio {entry.portfolio_id} tf={entry.timeframe} risk={entry.risk_slug}"
             )
 
-        conn.execute(
-            text(
-                """
-                UPDATE strategy_instances
-                SET is_active = false
-                WHERE id = :id
-                """
-            ),
-            {"id": uuid.UUID(LEGACY_PAPER_INSTANCE_ID)},
-        )
-
         for key, value, description in [
             (
                 "competition_experiment_id",
@@ -227,7 +214,6 @@ def seed_competition() -> None:
     print(
         f"  Portfolios: {len(ACTIVE_COMPETITION_PORTFOLIOS)} × ${COMPETITION_INITIAL_CAPITAL}"
     )
-    print("  Legacy Paper Main instance deactivated for new auto trades (history preserved).")
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ import { api, ApiError } from "@/lib/api-client";
 import { t } from "@/lib/i18n";
 import { formatCurrency, formatDateTime, formatPercent } from "@/lib/utils";
 
-const DEFAULT_PORTFOLIO = "00000000-0000-0000-0000-000000000010";
+const DEFAULT_PORTFOLIO = "00000000-0000-0000-0000-00001101";
 
 export default async function PortfolioPage({
   searchParams,

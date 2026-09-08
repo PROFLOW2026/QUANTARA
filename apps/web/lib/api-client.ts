@@ -384,7 +384,7 @@ export interface MarketProviderStatus {
 export interface PortfolioListItem {
   id: string;
   name: string;
-  kind: "legacy" | "competition";
+  kind: "competition";
   risk_slug?: string;
   risk_per_trade_pct?: number;
   timeframe?: string;

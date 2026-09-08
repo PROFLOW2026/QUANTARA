@@ -55,11 +55,31 @@ def _daily_pnl_paper(store: TradingStore, portfolio_id: str, current_equity: Dec
     return (current_equity - start_equity).quantize(Decimal("0.01"))
 
 
-def _portfolio_ui(store: TradingStore, portfolio_ref: str = "paper-main") -> dict:
-    portfolio = store.resolve_paper_portfolio(portfolio_ref)
+def _resolve_portfolio(store: TradingStore, portfolio_ref: str = "competition"):
+    try:
+        return store.resolve_paper_portfolio(portfolio_ref)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+def _is_combined_competition_portfolio(portfolio_id: str) -> bool:
+    from quantara_engine.competition.constants import ACTIVE_COMPETITION_EXPERIMENT_ID
+
+    return portfolio_id == ACTIVE_COMPETITION_EXPERIMENT_ID
+
+
+def _portfolio_ui(store: TradingStore, portfolio_ref: str = "competition") -> dict:
+    portfolio = _resolve_portfolio(store, portfolio_ref)
     settings = store.get_settings_dict()
-    realized = store.sum_realized_pnl(portfolio.id)
-    daily = _daily_pnl_paper(store, portfolio.id, portfolio.equity)
+    combined = _is_combined_competition_portfolio(portfolio.id)
+    if combined:
+        realized = store.sum_competition_realized_pnl()
+        daily = Decimal("0")
+        for entry in store.list_competition_entries():
+            daily += _daily_pnl_paper(store, entry["portfolio"].id, entry["portfolio"].equity)
+    else:
+        realized = store.sum_realized_pnl(portfolio.id)
+        daily = _daily_pnl_paper(store, portfolio.id, portfolio.equity)
     risk_slug = store.get_portfolio_risk_slug(portfolio.id) or settings.get(
         "default_risk_profile", "balanced"
     )
@@ -257,13 +277,27 @@ def market_data_status(store: StoreDep):
 
 
 @router.get("/portfolio")
-def portfolio(store: StoreDep, portfolio_id: str = "paper-main"):
+def portfolio(store: StoreDep, portfolio_id: str = "competition"):
     return _portfolio_ui(store, portfolio_id)
 
 
 @router.get("/portfolio/risk-status")
-def portfolio_risk_status(store: StoreDep, portfolio_id: str = "paper-main"):
-    portfolio = store.resolve_paper_portfolio(portfolio_id)
+def portfolio_risk_status(store: StoreDep, portfolio_id: str = "competition"):
+    portfolio = _resolve_portfolio(store, portfolio_id)
+    if _is_combined_competition_portfolio(portfolio.id):
+        entries = store.list_competition_entries()
+        exposure_pct = (
+            float(portfolio.exposure_notional / portfolio.equity * 100)
+            if portfolio.equity > 0
+            else 0
+        )
+        return {
+            "profile": "competition",
+            "halted": portfolio.status == PortfolioStatus.HALTED,
+            "exposure_pct": round(exposure_pct, 2),
+            "halt_reason": portfolio.halt_reason,
+            "portfolio_count": len(entries),
+        }
     settings = store.get_settings_dict()
     risk_slug = store.get_portfolio_risk_slug(portfolio.id) or settings.get(
         "default_risk_profile", "balanced"
@@ -284,10 +318,12 @@ def portfolio_risk_status(store: StoreDep, portfolio_id: str = "paper-main"):
 @router.get("/portfolio/snapshots")
 def portfolio_snapshots(
     store: StoreDep,
-    portfolio_id: str = "paper-main",
+    portfolio_id: str = "competition",
     limit: int = 30,
 ):
-    portfolio = store.resolve_paper_portfolio(portfolio_id)
+    portfolio = _resolve_portfolio(store, portfolio_id)
+    if _is_combined_competition_portfolio(portfolio.id):
+        return []
     snaps = store.list_snapshots(portfolio.id, limit=limit)
     return [
         {
@@ -305,11 +341,23 @@ def portfolio_snapshots(
 @router.get("/positions")
 def positions(
     store: StoreDep,
-    portfolio_id: str = "paper-main",
+    portfolio_id: str = "competition",
     status: str = "open",
 ):
-    portfolio = store.resolve_paper_portfolio(portfolio_id)
-    if status == "open":
+    portfolio = _resolve_portfolio(store, portfolio_id)
+    if _is_combined_competition_portfolio(portfolio.id) or portfolio_id in (
+        "competition",
+        "paper-main",
+        "paper",
+        "combined",
+    ):
+        if status == "open":
+            items = store.list_competition_positions(open_only=True)
+        elif status == "all":
+            items = store.list_competition_positions(open_only=False)
+        else:
+            items = store.list_competition_positions(open_only=False, status=status)
+    elif status == "open":
         items = store.list_positions(portfolio.id, open_only=True)
     elif status == "all":
         items = store.list_positions(portfolio.id, open_only=False)
@@ -351,9 +399,17 @@ def positions(
 
 
 @router.get("/trades")
-def trades(store: StoreDep, portfolio_id: str = "paper-main"):
-    portfolio = store.resolve_paper_portfolio(portfolio_id)
-    rows = store.list_trades(portfolio.id, limit=500, paper_only=True)
+def trades(store: StoreDep, portfolio_id: str = "competition"):
+    portfolio = _resolve_portfolio(store, portfolio_id)
+    if _is_combined_competition_portfolio(portfolio.id) or portfolio_id in (
+        "competition",
+        "paper-main",
+        "paper",
+        "combined",
+    ):
+        rows = store.list_competition_trades_all(limit=500)
+    else:
+        rows = store.list_trades(portfolio.id, limit=500, paper_only=True)
     result = []
     for t in rows:
         inst = store.get_instrument_by_symbol("XAUUSD")
@@ -389,16 +445,7 @@ def competition_summary(store: StoreDep):
 @router.get("/portfolios")
 def portfolios_list(store: StoreDep):
     entries = store.list_competition_entries()
-    legacy = store.resolve_paper_portfolio("paper-main")
-    items = [
-        {
-            "id": legacy.id,
-            "name": legacy.name,
-            "kind": "legacy",
-            "initial_capital": float(legacy.initial_capital),
-            "equity": float(legacy.equity),
-        }
-    ]
+    items = []
     for entry in entries:
         p = entry["portfolio"]
         portfolio_def = PORTFOLIO_DEF_BY_ID.get(p.id)
@@ -560,10 +607,11 @@ class BacktestRequest(BaseModel):
 
 @router.post("/backtests")
 def run_backtest(store: StoreDep, req: BacktestRequest):
-    portfolio = store.resolve_paper_portfolio()
-    instance = store.get_paper_strategy_instance(portfolio.id)
-    if not instance:
-        raise HTTPException(404, "Strategy instance not found — run seed and create instance")
+    entries = store.list_competition_entries()
+    if not entries:
+        raise HTTPException(404, "No active competition portfolios — run seed_competition first")
+    instance = entries[0]["instance"]
+    portfolio = entries[0]["portfolio"]
 
     instrument = store.get_instrument_by_symbol("XAUUSD")
     if not instrument:
@@ -675,8 +723,30 @@ def experiments_list(store: StoreDep):
 
 
 @router.get("/analytics/portfolio")
-def analytics_portfolio(store: StoreDep, portfolio_id: str = "paper-main"):
-    portfolio = store.resolve_paper_portfolio(portfolio_id)
+def analytics_portfolio(store: StoreDep, portfolio_id: str = "competition"):
+    portfolio = _resolve_portfolio(store, portfolio_id)
+    if _is_combined_competition_portfolio(portfolio.id):
+        payload = build_competition_response(store)
+        if not payload.get("active"):
+            raise HTTPException(404, "Competition not configured")
+        return {
+            "equity_curve": [],
+            "drawdown_curve": [],
+            "daily_returns": [],
+            "monthly_returns": [],
+            "summary": {
+                "total_return_pct": round(
+                    float(payload["combined"]["combined_pnl"])
+                    / float(payload["experiment"]["total_initial_capital"])
+                    * 100,
+                    2,
+                )
+                if payload["experiment"]["total_initial_capital"]
+                else 0,
+                "max_drawdown_pct": 0,
+                "win_rate": None,
+            },
+        }
     state = store.load_portfolio_state(portfolio.id)
     svc = AnalyticsService()
     metrics = svc.portfolio_analytics(
@@ -716,11 +786,8 @@ def analytics_strategy(store: StoreDep, strategy_version_id: str = "gtp-v1"):
     if not version:
         raise HTTPException(404, "Strategy version not found")
 
-    portfolio = store.resolve_paper_portfolio()
-    trades = [
-        t for t in store.list_trades(portfolio.id, limit=1000, paper_only=True)
-        if t.strategy_version_id == version["id"]
-    ]
+    trades = store.list_competition_trades_all(limit=1000)
+    trades = [t for t in trades if t.strategy_version_id == version["id"]]
     svc = AnalyticsService()
     stats = svc.strategy_analytics(trades, version["id"])
     return {
@@ -735,9 +802,12 @@ def analytics_strategy(store: StoreDep, strategy_version_id: str = "gtp-v1"):
 
 
 @router.get("/analytics/costs")
-def analytics_costs(store: StoreDep, portfolio_id: str = "paper-main"):
-    portfolio = store.resolve_paper_portfolio(portfolio_id)
-    rows = store.list_trades(portfolio.id, limit=1000, paper_only=True)
+def analytics_costs(store: StoreDep, portfolio_id: str = "competition"):
+    portfolio = _resolve_portfolio(store, portfolio_id)
+    if _is_combined_competition_portfolio(portfolio.id):
+        rows = store.list_competition_trades_all(limit=1000)
+    else:
+        rows = store.list_trades(portfolio.id, limit=1000, paper_only=True)
     fees = sum((t.fees_total for t in rows), Decimal("0"))
     slip = sum((t.slippage_total for t in rows), Decimal("0"))
     spread = sum((t.spread_total for t in rows), Decimal("0"))
@@ -763,7 +833,7 @@ def analytics_competition(store: StoreDep):
 
 
 @router.get("/analytics/today")
-def analytics_today(store: StoreDep, portfolio_id: str = "paper-main"):
+def analytics_today(store: StoreDep, portfolio_id: str = "competition"):
     """Today's paper-trading activity for the Home dashboard (not backtest-wide)."""
     if store.list_competition_entries():
         stats = store.get_competition_today_stats()
@@ -817,18 +887,7 @@ def analytics_today(store: StoreDep, portfolio_id: str = "paper-main"):
             "leading_timeframe": leading_timeframe,
         }
 
-    portfolio = store.resolve_paper_portfolio(portfolio_id)
-    instance = store.get_paper_strategy_instance(portfolio.id)
-    return {
-        "scope": "paper",
-        "portfolio_id": portfolio.id,
-        "strategy_instance_id": instance.id if instance else None,
-        "trades_count": store.count_trades_today(portfolio.id, paper_only=True),
-        "decisions_count": store.count_decisions_today(
-            strategy_instance_id=instance.id if instance else None,
-            mode=Mode.PAPER,
-        ),
-    }
+    raise HTTPException(404, "Competition not configured")
 
 
 @router.get("/workers/status")
@@ -890,18 +949,14 @@ def workers_status(store: StoreDep):
 @router.post("/paper/start")
 def paper_start(store: StoreDep):
     store.update_settings("paper_trading_enabled", True)
-    portfolio = store.resolve_paper_portfolio()
-    portfolio.status = PortfolioStatus.ACTIVE
-    store.update_portfolio(portfolio)
+    store.set_competition_portfolio_status(PortfolioStatus.ACTIVE)
     return {"status": "active"}
 
 
 @router.post("/paper/stop")
 def paper_stop(store: StoreDep):
     store.update_settings("paper_trading_enabled", False)
-    portfolio = store.resolve_paper_portfolio()
-    portfolio.status = PortfolioStatus.HALTED
-    store.update_portfolio(portfolio)
+    store.set_competition_portfolio_status(PortfolioStatus.HALTED)
     return {"status": "halted"}
 
 

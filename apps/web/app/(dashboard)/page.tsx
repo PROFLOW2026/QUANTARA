@@ -12,27 +12,20 @@ import {
   api,
   ApiError,
   isEngineConnectionError,
-  type Portfolio,
-  type RiskStatus,
-  type Position,
   type Decision,
   type CandleLatest,
   type WorkerStatus,
   type TodayActivity,
 } from "@/lib/api-client";
 import { loadCompetitionView } from "@/lib/competition-client";
-import { translateRiskProfile } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
 import { formatPercent, formatRelativeTime, formatCurrency } from "@/lib/utils";
 
 const POLL_INTERVAL = 60_000;
 
 export default function HomePageClient() {
-  const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [gold, setGold] = useState<CandleLatest | null>(null);
   const [decision, setDecision] = useState<Decision | null>(null);
-  const [positions, setPositions] = useState<Position[]>([]);
-  const [risk, setRisk] = useState<RiskStatus | null>(null);
   const [today, setToday] = useState<TodayActivity | null>(null);
   const [workers, setWorkers] = useState<WorkerStatus | null>(null);
   const [competition, setCompetition] = useState<Awaited<
@@ -48,11 +41,8 @@ export default function HomePageClient() {
     try {
       const results = await Promise.allSettled([
         api.getWorkersStatus(),
-        api.getPortfolio(),
         api.getCandlesLatest(),
         api.getLatestDecision(),
-        api.getPositions("open"),
-        api.getRiskStatus(),
         api.getAnalyticsToday(),
         loadCompetitionView(),
       ]);
@@ -69,15 +59,12 @@ export default function HomePageClient() {
         setWorkers(null);
       }
 
-      if (results[1].status === "fulfilled") setPortfolio(results[1].value);
-      else setPortfolio(null);
-
-      if (results[2].status === "fulfilled") {
-        setGold(results[2].value);
+      if (results[1].status === "fulfilled") {
+        setGold(results[1].value);
         setGoldError(null);
       } else {
         setGold(null);
-        const reason = (results[2] as PromiseRejectedResult).reason;
+        const reason = (results[1] as PromiseRejectedResult).reason;
         setGoldError(
           reason instanceof ApiError
             ? `${t("home.gold_load_error")} (${reason.status})`
@@ -85,24 +72,18 @@ export default function HomePageClient() {
         );
       }
 
-      if (results[3].status === "fulfilled") setDecision(results[3].value);
+      if (results[2].status === "fulfilled") setDecision(results[2].value);
       else setDecision(null);
 
-      if (results[4].status === "fulfilled") setPositions(results[4].value);
-      else setPositions([]);
-
-      if (results[5].status === "fulfilled") setRisk(results[5].value);
-      else setRisk(null);
-
-      if (results[6].status === "fulfilled") {
-        setToday(results[6].value);
+      if (results[3].status === "fulfilled") {
+        setToday(results[3].value);
         setTodayError(null);
       } else {
         setToday(null);
         setTodayError(t("common.section_unavailable"));
       }
 
-      if (results[7].status === "fulfilled") setCompetition(results[7].value);
+      if (results[4].status === "fulfilled") setCompetition(results[4].value);
       else setCompetition(null);
     } catch (e) {
       setEngineConnectionError(isEngineConnectionError(e));
@@ -121,7 +102,15 @@ export default function HomePageClient() {
     return () => clearInterval(id);
   }, [fetchAll]);
 
-  const totalUnrealized = positions.reduce((s, p) => s + p.unrealized_pnl, 0);
+  const portfolios = competition?.portfolios ?? [];
+  const combinedEquity = competition?.combined?.current_equity ?? 0;
+  const initialCapital = competition?.experiment?.total_initial_capital ?? 30_000;
+  const combinedRealized = portfolios.reduce((sum, row) => sum + row.realized_pnl, 0);
+  const combinedUnrealized = portfolios.reduce((sum, row) => sum + row.unrealized_pnl, 0);
+  const combinedTotalPnl = combinedEquity - initialCapital;
+  const openPositions = competition?.combined?.open_positions_total ?? 0;
+  const closedTrades = portfolios.reduce((sum, row) => sum + row.trades_count, 0);
+  const portfolioCount = competition?.experiment?.portfolio_count ?? portfolios.length;
 
   return (
     <>
@@ -134,36 +123,71 @@ export default function HomePageClient() {
       ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader><CardTitle>{t("home.experiment_portfolios")}</CardTitle></CardHeader>
+          <CardContent>
+            <p className="font-mono text-2xl">{portfolioCount}</p>
+            <p className="mt-1 text-xs text-muted">{t("home.competition_card_title")}</p>
+          </CardContent>
+        </Card>
         <MetricCardCurrency
-          label={t("home.equity")}
+          label={t("home.competition_initial_capital")}
           hint={t("home.equity_hint")}
-          value={portfolio?.equity ?? 0}
+          value={initialCapital}
         />
-        <Card>
-          <CardHeader><CardTitle>{t("home.daily_pnl")}</CardTitle></CardHeader>
-          <CardContent>
-            {loading ? (
-              <span className="text-muted">{t("common.loading")}</span>
-            ) : (
-              <PnLDisplay value={portfolio?.daily_pnl ?? 0} size="lg" />
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("home.drawdown")}</CardTitle>
-            <p className="text-xs text-muted">{t("home.drawdown_hint")}</p>
-          </CardHeader>
-          <CardContent>
-            <p className="font-mono text-2xl text-loss">
-              {formatPercent(-(portfolio?.current_drawdown_pct ?? 0))}
-            </p>
-          </CardContent>
-        </Card>
+        <MetricCardCurrency
+          label={t("home.competition_combined_equity")}
+          value={combinedEquity}
+        />
         <Card>
           <CardHeader><CardTitle>{t("home.worker_status")}</CardTitle></CardHeader>
           <CardContent>
             <WorkerIndicator healthy={workers?.healthy ?? false} />
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader><CardTitle>{t("home.realized_pnl")}</CardTitle></CardHeader>
+          <CardContent>
+            {loading ? (
+              <span className="text-muted">{t("common.loading")}</span>
+            ) : (
+              <PnLDisplay value={combinedRealized} size="lg" />
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>{t("home.unrealized_pnl")}</CardTitle></CardHeader>
+          <CardContent>
+            {loading ? (
+              <span className="text-muted">{t("common.loading")}</span>
+            ) : (
+              <PnLDisplay value={combinedUnrealized} size="lg" />
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>{t("home.total_pnl")}</CardTitle></CardHeader>
+          <CardContent>
+            {loading ? (
+              <span className="text-muted">{t("common.loading")}</span>
+            ) : (
+              <PnLDisplay value={combinedTotalPnl} size="lg" />
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>{t("home.open_positions")}</CardTitle></CardHeader>
+          <CardContent>
+            <p className="font-mono text-2xl">{openPositions}</p>
+            <Link
+              href="/portfolio-comparison"
+              className="mt-3 inline-block text-sm text-accent hover:underline"
+            >
+              {t("home.competition_view")} →
+            </Link>
           </CardContent>
         </Card>
       </div>
@@ -199,94 +223,89 @@ export default function HomePageClient() {
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {competition?.active ? (
+        <Card>
+          <CardHeader><CardTitle>{t("home.closed_trades")}</CardTitle></CardHeader>
+          <CardContent>
+            <p className="font-mono text-2xl">{closedTrades}</p>
+          </CardContent>
+        </Card>
+
+        {competition?.leader ? (
           <Card>
-            <CardHeader><CardTitle>{t("home.competition_card_title")}</CardTitle></CardHeader>
-            <CardContent className="space-y-1 text-sm">
-              <p>
-                <span className="text-muted">{t("home.competition_initial_capital")}: </span>
-                {formatCurrency(competition.experiment?.total_initial_capital ?? 30000)}
-              </p>
-              <p>
-                <span className="text-muted">{t("home.competition_combined_equity")}: </span>
-                {formatCurrency(competition.combined?.current_equity ?? 0)}
-              </p>
-              {competition.leader ? (
-                <p>
-                  <span className="text-muted">{t("home.competition_leader")}: </span>
-                  {competition.leader.name} ({formatPercent(competition.leader.return_pct)})
-                </p>
-              ) : null}
-              {competition.leading_timeframe ? (
-                <p>
-                  <span className="text-muted">{t("home.competition_leading_timeframe")}: </span>
-                  {competition.leading_timeframe.title_he ?? competition.leading_timeframe.timeframe_he}
-                </p>
-              ) : null}
-              <p>
-                <span className="text-muted">{t("home.competition_open_positions")}: </span>
-                {competition.combined?.open_positions_total ?? 0}
-              </p>
-              <Link
-                href="/portfolio-comparison"
-                className="mt-3 inline-block text-sm text-accent hover:underline"
-              >
-                {t("home.competition_view")} →
-              </Link>
+            <CardHeader><CardTitle>{t("home.competition_leader")}</CardTitle></CardHeader>
+            <CardContent className="text-sm">
+              <p>{competition.leader.name}</p>
+              <p className="text-muted">{formatPercent(competition.leader.return_pct)}</p>
             </CardContent>
           </Card>
         ) : null}
 
-        <Card>
-          <CardHeader><CardTitle>{t("home.open_positions")}</CardTitle></CardHeader>
-          <CardContent>
-            <p className="text-2xl font-mono">{positions.length}</p>
-            <div className="mt-2">
-              <PnLDisplay value={totalUnrealized} size="sm" />
-            </div>
-            <Link href="/positions" className="mt-3 inline-block text-sm text-accent hover:underline">
-              {t("common.view_all")} →
-            </Link>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle>{t("home.risk_status")}</CardTitle></CardHeader>
-          <CardContent className="space-y-1 text-sm">
-            <p><span className="text-muted">{t("home.profile")}: </span>{translateRiskProfile(risk?.profile)}</p>
-            <p>
-              <span className="text-muted">{t("common.status")}: </span>
-              {risk?.halted ? t("common.halted") : t("common.active")}
-            </p>
-            <p><span className="text-muted">{t("home.exposure")}: </span>{risk?.exposure_pct ?? 0}%</p>
-          </CardContent>
-        </Card>
+        {competition?.leading_timeframe ? (
+          <Card>
+            <CardHeader><CardTitle>{t("home.competition_leading_timeframe")}</CardTitle></CardHeader>
+            <CardContent className="text-sm">
+              <p>
+                {competition.leading_timeframe.title_he ??
+                  competition.leading_timeframe.timeframe_he}
+              </p>
+              <p className="text-muted">
+                {formatPercent(competition.leading_timeframe.average_return_pct)}
+              </p>
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Card>
           <CardHeader><CardTitle>{t("home.today_activity")}</CardTitle></CardHeader>
           <CardContent className="space-y-1 text-sm">
             {todayError ? (
               <p className="text-muted">{todayError}</p>
-            ) : today?.scope === "competition" ? (
-              <>
-                <p>{t("home.market_checks_today")}: {today.market_checks_today ?? 0}</p>
-                <p>{t("home.entry_signals_today")}: {today.entry_signals_today ?? 0}</p>
-                <p>{t("home.trades_opened_today")}: {today.trades_opened_today ?? 0}</p>
-                <p>{t("home.trades_closed_today")}: {today.trades_closed_today ?? 0}</p>
-              </>
             ) : (
               <>
-                <p>{t("home.trades_today")}: {today?.trades_count ?? 0}</p>
-                <p>{t("home.decisions_today")}: {today?.decisions_count ?? 0}</p>
+                <p>{t("home.market_checks_today")}: {today?.market_checks_today ?? 0}</p>
+                <p>{t("home.entry_signals_today")}: {today?.entry_signals_today ?? 0}</p>
+                <p>{t("home.trades_opened_today")}: {today?.trades_opened_today ?? 0}</p>
+                <p>{t("home.trades_closed_today")}: {today?.trades_closed_today ?? 0}</p>
               </>
             )}
           </CardContent>
         </Card>
       </div>
 
+      {competition?.timeframe_comparison?.length ? (
+        <Card className="mt-4">
+          <CardHeader><CardTitle>{t("home.timeframe_summary")}</CardTitle></CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-3">
+            {competition.timeframe_comparison.map((row) => (
+              <div key={row.timeframe} className="rounded-md bg-surface-elevated p-3 text-sm">
+                <p className="font-medium">{row.title_he ?? row.timeframe_he}</p>
+                <p>
+                  <span className="text-muted">{t("home.avg_return")}: </span>
+                  {formatPercent(row.average_return_pct)}
+                </p>
+                <p>
+                  <span className="text-muted">{t("home.combined_equity")}: </span>
+                  {formatCurrency(row.combined_equity)}
+                </p>
+                <p>
+                  <span className="text-muted">{t("home.closed_trades")}: </span>
+                  {row.total_trades}
+                </p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card className="mt-4">
         <CardHeader><CardTitle>{t("home.quick_actions")}</CardTitle></CardHeader>
         <CardContent className="flex flex-wrap gap-3">
+          <Link
+            href="/portfolio-comparison"
+            className="rounded-md bg-surface-elevated px-4 py-2 text-sm hover:bg-accent/20"
+          >
+            {t("home.competition_view")}
+          </Link>
           <Link
             href="/decisions"
             className="rounded-md bg-surface-elevated px-4 py-2 text-sm hover:bg-accent/20"
