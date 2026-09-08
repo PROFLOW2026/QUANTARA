@@ -13,12 +13,21 @@ from typing import Any
 
 from quantara_engine.core.config import settings
 from quantara_engine.domain.types import Candle
+from quantara_engine.market_data.credits import (
+    FetchPriority,
+    can_fetch,
+    credits_for_endpoint,
+    record_usage,
+    sync_provider_usage,
+)
 from quantara_engine.market_data.polling import (
     BOOTSTRAP_OUTPUT_SIZE,
+    PROVIDER_TIMEFRAME,
     is_bar_complete,
     timeframe_minutes,
 )
 from quantara_engine.market_data.symbols import TWELVEDATA_XAUUSD
+from quantara_engine.persistence.store import TradingStore
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +54,39 @@ class TwelveDataMarketDataProvider:
     source = "twelvedata"
     provider_symbol = TWELVEDATA_XAUUSD
 
-    def __init__(self, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        *,
+        store: TradingStore | None = None,
+        caller: str = "twelvedata",
+        priority: FetchPriority = FetchPriority.SCHEDULED,
+        allow_non_canonical_timeframes: bool = False,
+    ) -> None:
         self.api_key = (api_key or settings.market_data_api_key).strip()
         if not self.api_key:
             raise TwelveDataError("MARKET_DATA_API_KEY is not configured")
+        self._store = store
+        self._caller = caller
+        self._priority = priority
+        self._allow_non_canonical_timeframes = allow_non_canonical_timeframes
+
+    def bind_context(
+        self,
+        *,
+        store: TradingStore | None,
+        caller: str,
+        priority: FetchPriority = FetchPriority.SCHEDULED,
+    ) -> None:
+        self._store = store
+        self._caller = caller
+        self._priority = priority
+
+    def _ensure_canonical_timeframe(self, timeframe: str) -> None:
+        if timeframe != PROVIDER_TIMEFRAME and not self._allow_non_canonical_timeframes:
+            raise TwelveDataError(
+                f"Provider fetch blocked for {timeframe}; use canonical {PROVIDER_TIMEFRAME} + local aggregation"
+            )
 
     def _interval(self, timeframe: str) -> str:
         interval = TIMEFRAME_TO_INTERVAL.get(timeframe)
@@ -57,6 +95,12 @@ class TwelveDataMarketDataProvider:
         return interval
 
     def _request(self, endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
+        if endpoint != "api_usage" and not can_fetch(self._store, self._priority):
+            raise TwelveDataError(
+                f"Credit guard blocked {endpoint} for caller={self._caller} "
+                f"(priority={self._priority.name})"
+            )
+
         query = {**params, "apikey": self.api_key}
         url = f"{BASE_URL}/{endpoint}?" + urllib.parse.urlencode(query)
         req = urllib.request.Request(
@@ -88,10 +132,27 @@ class TwelveDataMarketDataProvider:
                 payload.get("message") or "Unknown Twelve Data error",
                 code=payload.get("code"),
             )
+
+        credits = credits_for_endpoint(endpoint)
+        if credits:
+            record_usage(
+                self._store,
+                endpoint=endpoint,
+                symbol=str(params.get("symbol") or self.provider_symbol),
+                interval=str(params.get("interval")) if params.get("interval") else None,
+                caller=self._caller,
+                credits=credits,
+            )
+        if endpoint == "api_usage":
+            sync_provider_usage(self._store, payload)
+
         return payload
 
+    def fetch_api_usage(self) -> dict[str, Any]:
+        return self._request("api_usage", {})
+
     def fetch_quote(self) -> dict[str, Any]:
-        """Latest quote for XAU/USD (1 API credit)."""
+        """Latest quote for XAU/USD (1 API credit). Avoid in scheduled ingestion."""
         return self._request("quote", {"symbol": self.provider_symbol})
 
     def fetch_price(self) -> Decimal:
@@ -107,6 +168,7 @@ class TwelveDataMarketDataProvider:
         start_date: datetime | None = None,
         end_date: datetime | None = None,
     ) -> list[dict[str, Any]]:
+        self._ensure_canonical_timeframe(timeframe)
         params: dict[str, Any] = {
             "symbol": self.provider_symbol,
             "interval": self._interval(timeframe),
@@ -183,10 +245,10 @@ class TwelveDataMarketDataProvider:
         since: datetime | None = None,
     ) -> list[Candle]:
         """Fetch recent closed bars; uses one API call per invocation."""
+        self._ensure_canonical_timeframe(timeframe)
         if since is not None:
             if since.tzinfo is None:
                 since = since.replace(tzinfo=timezone.utc)
-            # Pull bars since last stored timestamp (small window)
             end = datetime.now(timezone.utc)
             rows = self._time_series(
                 timeframe,
@@ -208,6 +270,7 @@ class TwelveDataMarketDataProvider:
         start: datetime,
         end: datetime,
     ) -> list[Candle]:
+        self._ensure_canonical_timeframe(timeframe)
         if start.tzinfo is None:
             start = start.replace(tzinfo=timezone.utc)
         if end.tzinfo is None:
@@ -234,5 +297,6 @@ class TwelveDataMarketDataProvider:
         bars: int = BOOTSTRAP_OUTPUT_SIZE,
     ) -> list[Candle]:
         """Historical bootstrap via single time_series call."""
+        self._ensure_canonical_timeframe(timeframe)
         rows = self._time_series(timeframe, outputsize=bars)
         return self._rows_to_candles(rows, instrument_id, timeframe, closed_only=True)

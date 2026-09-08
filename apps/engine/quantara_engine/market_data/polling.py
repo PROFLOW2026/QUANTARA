@@ -12,6 +12,10 @@ BAR_MINUTES: dict[str, int] = {
 
 TIMEFRAMES: tuple[str, ...] = ("5m", "15m", "1h")
 
+# Provider ingestion uses canonical 5m only; higher timeframes are derived locally.
+PROVIDER_TIMEFRAME = "5m"
+DERIVED_TIMEFRAMES: tuple[str, ...] = ("15m", "1h")
+
 # Minimum bars required by Gold Trend Pullback v1
 STRATEGY_MIN_CANDLES = 200
 

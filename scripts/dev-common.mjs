@@ -32,7 +32,35 @@ export function engineService() {
   };
 }
 
+export function isWorkerRunning() {
+  const lockPath = path.join(ROOT, ".quantara-workers.lock");
+  if (!fs.existsSync(lockPath)) return false;
+  try {
+    const pid = parseInt(fs.readFileSync(lockPath, "utf8").trim().split(/\r?\n/)[0], 10);
+    if (!Number.isFinite(pid) || pid <= 0) return false;
+    if (process.platform === "win32") {
+      const result = spawnSync("tasklist", ["/FI", `PID eq ${pid}`], {
+        shell: true,
+        encoding: "utf8",
+      });
+      return result.stdout.includes(String(pid));
+    }
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+}
+
 export function workersService() {
+  if (isWorkerRunning()) {
+    console.log("[WORKERS] Existing worker scheduler detected — not spawning duplicate");
+    return null;
+  }
   return {
     name: "workers",
     label: "WORKERS",

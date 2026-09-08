@@ -23,6 +23,7 @@ from quantara_engine.competition.constants import (
 from quantara_engine.competition.service import build_competition_response
 from quantara_engine.core.config import settings
 from quantara_engine.domain.types import ExecutionAssumptions, Mode, PortfolioStatus
+from quantara_engine.market_data.credits import status_payload as credit_status_payload
 from quantara_engine.market_data.factory import get_market_data_provider
 from quantara_engine.market_data.spot_price import (
     read_spot_snapshot,
@@ -198,7 +199,7 @@ def candles_latest(
     if not inst:
         raise HTTPException(404, "Instrument not found")
 
-    spot = resolve_spot_snapshot(store, allow_fetch=True)
+    spot = resolve_spot_snapshot(store, allow_fetch=False)
     if spot:
         fields = spot_response_fields(spot)
         return {
@@ -206,7 +207,7 @@ def candles_latest(
             **fields,
         }
 
-    rows = store.list_recent_candles(inst.id, timeframe, limit=50)
+    rows = store.list_recent_candles(inst.id, "5m", limit=50)
     if len(rows) < 2 and settings.market_data_provider == "mock":
         provider = get_market_data_provider("mock")
         generated = provider.generate_candles(inst.id, timeframe, 50)
@@ -273,6 +274,7 @@ def market_data_status(store: StoreDep):
         "stale": spot_stale,
         "spot_source": spot.get("source") if spot else None,
         "spot_age_minutes": round(spot_age_minutes(spot), 1) if spot else None,
+        "credits": credit_status_payload(store) if provider == "twelvedata" else None,
     }
 
 

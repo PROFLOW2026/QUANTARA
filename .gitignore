@@ -36,6 +36,11 @@ coverage.xml
 .env.local
 .env.*.local
 !.env.example
+
+# Cloudflare tunnel (local credentials/config — never commit)
+.quantara-workers.lock
+.cloudflared/
+scripts/cloudflare-tunnel.local.yml
 # IDE / OS
 .idea/
 .vscode/
