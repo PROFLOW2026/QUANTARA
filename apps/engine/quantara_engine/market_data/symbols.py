@@ -2,18 +2,38 @@
 
 from __future__ import annotations
 
-# QUANTARA canonical display symbol
-CANONICAL_XAUUSD = "XAU/USD"
+from quantara_engine.market_data.registry import TARGET_ASSETS, get_asset, get_asset_by_canonical
 
-# Twelve Data uses the same pair format for spot gold
+CANONICAL_XAUUSD = "XAU/USD"
 TWELVEDATA_XAUUSD = "XAU/USD"
 
 SYMBOL_ALIASES = {
     "XAUUSD": CANONICAL_XAUUSD,
     "XAU/USD": CANONICAL_XAUUSD,
+    "EURUSD": "EUR/USD",
+    "EUR/USD": "EUR/USD",
+    "BTCUSD": "BTC/USD",
+    "BTC/USD": "BTC/USD",
 }
 
 
 def normalize_canonical_symbol(symbol: str) -> str:
     key = symbol.upper().replace(" ", "")
-    return SYMBOL_ALIASES.get(key, symbol.upper())
+    if key in SYMBOL_ALIASES:
+        return SYMBOL_ALIASES[key]
+    asset = get_asset(key) or get_asset_by_canonical(symbol)
+    if asset:
+        return asset.display_symbol
+    return symbol.upper()
+
+
+def normalize_db_symbol(symbol: str) -> str:
+    asset = get_asset(symbol) or get_asset_by_canonical(symbol)
+    if asset:
+        return asset.db_symbol
+    key = symbol.upper().replace("/", "").replace(" ", "")
+    return SYMBOL_ALIASES.get(key, key).replace("/", "")
+
+
+def list_target_db_symbols() -> list[str]:
+    return [asset.db_symbol for asset in TARGET_ASSETS]

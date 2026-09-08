@@ -357,8 +357,11 @@ class CandleProcessor:
             return
 
         open_positions = self.state.open_positions()
-        if any(p.strategy_instance_id == self.instance.id for p in open_positions):
-            self._log(candle, DecisionType.POSITION_OPEN, "Skipped — position already exists")
+        if any(
+            p.strategy_instance_id == self.instance.id and p.instrument_id == self.instrument.id
+            for p in open_positions
+        ):
+            self._log(candle, DecisionType.POSITION_OPEN, "Skipped — position already exists for asset")
             return
 
         atr_value = None

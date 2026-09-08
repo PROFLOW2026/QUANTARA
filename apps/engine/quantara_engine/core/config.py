@@ -24,10 +24,24 @@ class Settings(BaseSettings):
     engine_host: str = "0.0.0.0"
     engine_port: int = 8000
     quantara_api_key: str = "dev-api-key"
+    cors_origins: str = "http://localhost:3000"
 
     # Market data / workers
     market_data_provider: str = "mock"
     market_data_api_key: str = ""
+
+    # Twelve Data (FX: XAU/USD, EUR/USD)
+    # market_data_api_key above
+
+    # Tiingo (US equities + crypto intraday)
+    tiingo_api_key: str = ""
+
+    # Alpaca (US equities + crypto)
+    alpaca_api_key_id: str = ""
+    alpaca_api_secret_key: str = ""
+    alpaca_paper_base_url: str = "https://paper-api.alpaca.markets"
+    alpaca_data_base_url: str = "https://data.alpaca.markets"
+    alpaca_data_feed: str = "iex"
 
     # App defaults
     default_timezone: str = "Asia/Jerusalem"
@@ -51,6 +65,10 @@ class Settings(BaseSettings):
         if direct:
             return direct
         return self.database_url.strip()
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 
 settings = Settings()

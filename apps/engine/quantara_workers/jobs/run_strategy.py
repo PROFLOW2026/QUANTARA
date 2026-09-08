@@ -16,6 +16,7 @@ from quantara_engine.domain.types import ExecutionAssumptions, Mode
 from quantara_engine.execution.catch_up import list_catchup_candle_indices
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
 from quantara_engine.market_data.factory import get_market_data_provider
+from quantara_engine.market_data.symbols import list_target_db_symbols
 from quantara_engine.market_data.polling import STRATEGY_MIN_CANDLES, is_bar_complete
 from quantara_engine.pipeline.candle_processor import CandleProcessor
 from quantara_engine.persistence.store import TradingStore
@@ -150,54 +151,55 @@ def _process_competition(s: TradingStore, started_at: datetime) -> int:
     if not entries:
         return 0
 
-    instrument = s.get_instrument_by_symbol("XAUUSD")
-    if not instrument:
-        logger.warning("XAUUSD instrument not found")
-        return 0
-
     settings_dict = s.get_settings_dict()
     by_timeframe: dict[str, list[dict]] = defaultdict(list)
     for entry in entries:
         by_timeframe[entry["instance"].timeframe].append(entry)
 
-    broker = PaperBrokerAdapter(instrument.id, ExecutionAssumptions())
     total_decisions = 0
     groups_evaluated = 0
     portfolios_touched = 0
     timeframe_status: dict[str, dict] = {}
+    instrument_status: dict[str, dict] = {}
 
-    for timeframe in TIMEFRAME_ORDER:
-        group = by_timeframe.get(timeframe, [])
-        if not group:
+    for symbol in list_target_db_symbols():
+        instrument = s.get_instrument_by_symbol(symbol)
+        if not instrument:
+            logger.warning("Instrument %s not found — skipping", symbol)
             continue
-        candles_processed, decisions, tf_status = _process_timeframe_group(
-            s,
-            instrument,
-            timeframe,
-            group,
-            settings_dict,
-            started_at,
-            broker,
-        )
-        timeframe_status[timeframe] = tf_status
-        if candles_processed:
-            groups_evaluated += 1
-            portfolios_touched += len(group) * candles_processed
-            total_decisions += decisions
+
+        broker = PaperBrokerAdapter(instrument.id, ExecutionAssumptions())
+        symbol_tf_status: dict[str, dict] = {}
+
+        for timeframe in TIMEFRAME_ORDER:
+            group = by_timeframe.get(timeframe, [])
+            if not group:
+                continue
+            candles_processed, decisions, tf_status = _process_timeframe_group(
+                s,
+                instrument,
+                timeframe,
+                group,
+                settings_dict,
+                started_at,
+                broker,
+            )
+            symbol_tf_status[timeframe] = tf_status
+            if candles_processed:
+                groups_evaluated += 1
+                portfolios_touched += len(group) * candles_processed
+                total_decisions += decisions
+
+        instrument_status[symbol] = symbol_tf_status
+        for timeframe, st in symbol_tf_status.items():
+            prev = timeframe_status.setdefault(timeframe, {"backlog": 0, "instances": 0})
+            prev["backlog"] = int(prev.get("backlog", 0)) + int(st.get("backlog", 0))
+            prev["instances"] = int(prev.get("instances", 0)) + int(st.get("instances", 0))
 
     overall_backlog = sum(st.get("backlog", 0) for st in timeframe_status.values())
     overall_status = "catching_up" if overall_backlog > 0 else "healthy"
 
     if groups_evaluated == 0:
-        for timeframe in TIMEFRAME_ORDER:
-            group = by_timeframe.get(timeframe, [])
-            if group:
-                timeframe_status[timeframe] = s.get_timeframe_execution_status(
-                    instrument.id,
-                    timeframe,
-                    [e["instance"].id for e in group],
-                    started_at,
-                )
         s.update_worker_status(
             "strategy_runner",
             {
@@ -206,6 +208,7 @@ def _process_competition(s: TradingStore, started_at: datetime) -> int:
                 "reason": "no_completed_bars",
                 "competition_portfolios": len(entries),
                 "timeframes": timeframe_status,
+                "instruments": instrument_status,
             },
         )
         return 0
@@ -220,6 +223,7 @@ def _process_competition(s: TradingStore, started_at: datetime) -> int:
             "competition_portfolios": len(entries),
             "timeframe_groups_evaluated": groups_evaluated,
             "timeframes": timeframe_status,
+            "instruments": instrument_status,
         },
     )
     s.save_worker_run(

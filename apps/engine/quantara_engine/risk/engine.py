@@ -100,13 +100,9 @@ class RiskEngine:
 
         direction = Direction.LONG if signal.action == SignalAction.BUY else Direction.SHORT
 
-        # Open position check
-        same_dir = [
-            p
-            for p in inp.open_positions
-            if p.instrument_id == inp.instrument.id and p.direction == direction
-        ]
-        if same_dir:
+        # Open position check — one open position per portfolio + asset
+        same_asset = [p for p in inp.open_positions if p.instrument_id == inp.instrument.id]
+        if same_asset:
             return RiskDecision(
                 approved=False,
                 denial_reason="POSITION_ALREADY_OPEN",

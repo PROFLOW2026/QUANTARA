@@ -27,6 +27,7 @@ from quantara_engine.market_data.polling import (
     timeframe_minutes,
 )
 from quantara_engine.market_data.symbols import TWELVEDATA_XAUUSD
+from quantara_engine.market_data.registry import AssetDefinition, provider_symbol, ProviderName
 from quantara_engine.persistence.store import TradingStore
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,7 @@ class TwelveDataMarketDataProvider:
         caller: str = "twelvedata",
         priority: FetchPriority = FetchPriority.SCHEDULED,
         allow_non_canonical_timeframes: bool = False,
+        asset: AssetDefinition | None = None,
     ) -> None:
         self.api_key = (api_key or settings.market_data_api_key).strip()
         if not self.api_key:
@@ -70,17 +72,26 @@ class TwelveDataMarketDataProvider:
         self._caller = caller
         self._priority = priority
         self._allow_non_canonical_timeframes = allow_non_canonical_timeframes
+        self._asset = asset
+        if asset is not None:
+            self.provider_symbol = provider_symbol(asset, ProviderName.TWELVE_DATA)
+        else:
+            self.provider_symbol = TWELVEDATA_XAUUSD
 
     def bind_context(
         self,
         *,
         store: TradingStore | None,
         caller: str,
+        asset: AssetDefinition | None = None,
         priority: FetchPriority = FetchPriority.SCHEDULED,
     ) -> None:
         self._store = store
         self._caller = caller
         self._priority = priority
+        if asset is not None:
+            self._asset = asset
+            self.provider_symbol = provider_symbol(asset, ProviderName.TWELVE_DATA)
 
     def _ensure_canonical_timeframe(self, timeframe: str) -> None:
         if timeframe != PROVIDER_TIMEFRAME and not self._allow_non_canonical_timeframes:

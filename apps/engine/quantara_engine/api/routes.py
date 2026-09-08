@@ -244,37 +244,61 @@ def candles_latest(
 
 @router.get("/market-data/status")
 def market_data_status(store: StoreDep):
-    inst = store.get_instrument_by_symbol("XAUUSD")
-    provider = settings.market_data_provider
-    last_fetch = None
-    stale = True
-    spot_stale = True
-    counts: dict[str, int] = {}
+    from quantara_engine.market_data.provider_budgets import all_provider_status
+    from quantara_engine.market_data.registry import list_target_assets
+
+    worker_raw = store.get_settings_dict().get("worker_status:data_fetcher") or {}
+    asset_rows: list[dict] = []
+    healthy = True
+    for asset in list_target_assets():
+        inst = store.get_instrument_by_symbol(asset.db_symbol)
+        counts: dict[str, int] = {}
+        last_candle = None
+        stale = True
+        if inst:
+            for tf in ("5m", "15m", "1h"):
+                counts[tf] = store.count_candles(inst.id, tf)
+            last_candle = store.latest_candle_timestamp(inst.id, "5m")
+            if last_candle:
+                age_min = (datetime.now(timezone.utc) - last_candle).total_seconds() / 60
+                stale = age_min > 30
+        asset_health = (worker_raw.get("assets") or {}).get(asset.db_symbol, {})
+        status = asset_health.get("status") or ("stale" if stale else "healthy")
+        if status in ("error", "stale"):
+            healthy = False
+        asset_rows.append(
+            {
+                "symbol": asset.display_symbol,
+                "db_symbol": asset.db_symbol,
+                "provider": asset.primary_provider.value,
+                "secondary_provider": (
+                    asset.secondary_provider.value if asset.secondary_provider else None
+                ),
+                "status": status,
+                "last_candle": last_candle.isoformat() if last_candle else None,
+                "candle_counts": counts,
+                "stale": stale,
+            }
+        )
+
     spot = read_spot_snapshot(store)
-    if inst:
-        for tf in ("5m", "15m", "1h"):
-            counts[tf] = store.count_candles(inst.id, tf)
-        if spot:
-            last_fetch = datetime.fromisoformat(
-                spot.get("fetched_at") or spot.get("updated_at")  # type: ignore[arg-type]
-            )
-            spot_stale = spot_age_minutes(spot) > 10
-        else:
-            last_fetch = store.latest_candle_timestamp(inst.id, "1h")
-            if last_fetch:
-                age_h = (datetime.now(timezone.utc) - last_fetch).total_seconds() / 3600
-                spot_stale = age_h > 2 if provider == "twelvedata" else age_h > 24
+    xau = store.get_instrument_by_symbol("XAUUSD")
+    last_fetch = None
+    if spot:
+        last_fetch = datetime.fromisoformat(spot.get("fetched_at") or spot.get("updated_at"))  # type: ignore[arg-type]
+    elif xau:
+        last_fetch = store.latest_candle_timestamp(xau.id, "1h")
+
     return {
-        "healthy": not spot_stale and (sum(counts.values()) > 0 if provider == "twelvedata" else True),
-        "provider": provider,
-        "source": provider,
+        "healthy": healthy,
+        "provider": "multi",
+        "source": "multi",
         "last_fetch": last_fetch.isoformat() if last_fetch else None,
-        "candle_counts": counts,
-        "gaps": 0,
-        "stale": spot_stale,
+        "assets": asset_rows,
+        "providers": all_provider_status(store),
+        "worker": worker_raw,
         "spot_source": spot.get("source") if spot else None,
         "spot_age_minutes": round(spot_age_minutes(spot), 1) if spot else None,
-        "credits": credit_status_payload(store) if provider == "twelvedata" else None,
     }
 
 

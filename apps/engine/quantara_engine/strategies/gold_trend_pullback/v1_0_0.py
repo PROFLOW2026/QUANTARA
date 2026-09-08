@@ -34,7 +34,16 @@ class GoldTrendPullbackV1(BaseStrategy):
 
     @classmethod
     def supported_instruments(cls) -> list[str]:
-        return ["XAUUSD", "xauusd"]
+        return [
+            "XAUUSD",
+            "EURUSD",
+            "SPY",
+            "QQQ",
+            "NVDA",
+            "AAPL",
+            "MSFT",
+            "BTCUSD",
+        ]
 
     @classmethod
     def supported_timeframes(cls) -> list[str]:

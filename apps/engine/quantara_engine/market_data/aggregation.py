@@ -1,4 +1,4 @@
-"""Derive higher-timeframe candles from canonical 5m bars (UTC-aligned)."""
+"""Derive higher-timeframe candles from canonical 5m bars."""
 
 from __future__ import annotations
 
@@ -7,6 +7,10 @@ from decimal import Decimal
 
 from quantara_engine.domain.types import Candle
 from quantara_engine.market_data.polling import BAR_MINUTES, timeframe_minutes
+from quantara_engine.market_data.sessions import (
+    expected_us_rth_5m_timestamps,
+    us_rth_bucket_start,
+)
 
 DERIVED_FROM_5M: tuple[str, ...] = ("15m", "1h")
 
@@ -31,12 +35,14 @@ def aggregate_from_5m(
     target_timeframe: str,
     *,
     source: str = "aggregated",
+    session_mode: str = "utc",
 ) -> list[Candle]:
     """
     Build completed higher-timeframe candles from 5m inputs.
 
-    Returns a candle only when every required 5m component exists, is complete,
-    and aligns exactly to UTC bucket boundaries. Missing components => no candle.
+    session_mode:
+      - utc: standard UTC bucket alignment (FX, crypto)
+      - us_rth: regular US session buckets (09:30–16:00 America/New_York)
     """
     if target_timeframe not in DERIVED_FROM_5M:
         raise ValueError(f"Unsupported derived timeframe: {target_timeframe}")
@@ -52,9 +58,16 @@ def aggregate_from_5m(
     for candle in base_candles:
         if candle.timeframe != "5m" or not candle.is_complete:
             continue
-        if bucket_start(candle.timestamp, "5m") != candle.timestamp:
-            continue
-        bucket = bucket_start(candle.timestamp, target_timeframe)
+        if session_mode == "us_rth":
+            if bucket_start(candle.timestamp, "5m") != candle.timestamp:
+                continue
+            bucket = us_rth_bucket_start(candle.timestamp, target_timeframe)
+            if bucket is None:
+                continue
+        else:
+            if bucket_start(candle.timestamp, "5m") != candle.timestamp:
+                continue
+            bucket = bucket_start(candle.timestamp, target_timeframe)
         by_bucket.setdefault(bucket, []).append(candle)
 
     derived: list[Candle] = []
@@ -62,7 +75,12 @@ def aggregate_from_5m(
         components = sorted(by_bucket[bucket], key=lambda c: c.timestamp)
         if len(components) != component_count:
             continue
-        if [c.timestamp for c in components] != _expected_5m_timestamps(bucket, component_count):
+        expected = (
+            expected_us_rth_5m_timestamps(bucket, component_count)
+            if session_mode == "us_rth"
+            else _expected_5m_timestamps(bucket, component_count)
+        )
+        if [c.timestamp for c in components] != expected:
             continue
 
         volumes = [c.volume for c in components if c.volume is not None]
