@@ -312,6 +312,7 @@ export interface TodayActivity {
   decisions_count?: number;
   market_checks_today?: number;
   entry_signals_today?: number;
+  strategy_signals_today?: number;
   trades_opened_today?: number;
   trades_closed_today?: number;
   sell_signals_today?: number;
@@ -623,6 +624,7 @@ export interface CompetitionResponse {
   today_summary?: {
     market_checks_today?: number;
     entry_signals_today?: number;
+  strategy_signals_today?: number;
     sell_signals_today?: number;
     trades_opened_today?: number;
     trades_closed_today?: number;

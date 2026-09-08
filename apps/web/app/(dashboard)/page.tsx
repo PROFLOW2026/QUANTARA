@@ -318,6 +318,7 @@ export default function HomePageClient() {
               <>
                 <p>{t("home.market_checks_today")}: {today?.market_checks_today ?? 0}</p>
                 <p>{t("home.entry_signals_today")}: {today?.entry_signals_today ?? 0}</p>
+                <p className="text-muted">{t("home.strategy_signals_today")}: {today?.strategy_signals_today ?? 0}</p>
                 <p>{t("home.trades_opened_today")}: {today?.trades_opened_today ?? 0}</p>
                 <p>{t("home.trades_closed_today")}: {today?.trades_closed_today ?? 0}</p>
               </>

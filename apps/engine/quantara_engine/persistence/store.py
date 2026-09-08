@@ -1602,6 +1602,7 @@ class TradingStore:
             return {
                 "market_checks_today": 0,
                 "entry_signals_today": 0,
+                "strategy_signals_today": 0,
                 "trades_opened_today": 0,
                 "trades_closed_today": 0,
             }
@@ -1625,7 +1626,7 @@ class TradingStore:
             )
         ) or 0
 
-        entry_signals = self.session.scalar(
+        strategy_signals = self.session.scalar(
             select(func.count())
             .select_from(OrmDecision)
             .where(
@@ -1633,6 +1634,26 @@ class TradingStore:
                 OrmDecision.created_at >= today_start,
                 OrmDecision.decision_type.in_(
                     [OrmDecisionType.BUY_SIGNAL, OrmDecisionType.SELL_SIGNAL]
+                ),
+            )
+        ) or 0
+
+        from quantara_engine.models.trading import OrderIntent as OrmOrderIntent
+
+        # Actionable entries: risk-approved intents that reached the execution queue.
+        entry_signals = self.session.scalar(
+            select(func.count())
+            .select_from(OrmOrderIntent)
+            .where(
+                OrmOrderIntent.portfolio_id.in_(port_uuids),
+                OrmOrderIntent.created_at >= today_start,
+                OrmOrderIntent.backtest_run_id.is_(None),
+                OrmOrderIntent.target_risk_amount > 0,
+                OrmOrderIntent.status.in_(
+                    [
+                        OrderIntentStatus.PENDING_EXECUTION,
+                        OrderIntentStatus.EXECUTED,
+                    ]
                 ),
             )
         ) or 0
@@ -1663,6 +1684,7 @@ class TradingStore:
         return {
             "market_checks_today": int(market_checks),
             "entry_signals_today": int(entry_signals),
+            "strategy_signals_today": int(strategy_signals),
             "sell_signals_today": int(
                 self.session.scalar(
                     select(func.count())
