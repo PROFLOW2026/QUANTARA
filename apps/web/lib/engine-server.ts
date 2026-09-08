@@ -1,8 +1,17 @@
 const LOCAL_ENGINE = "http://localhost:8000";
 const PRODUCTION_ENGINE_FALLBACK =
-  "https://afternoon-details-occasional-undergraduate.trycloudflare.com";
+  "https://transform-expenditures-focal-toxic.trycloudflare.com";
+const DEFAULT_PROXY_TIMEOUT_MS = 60_000;
 
-export const ENGINE_PROXY_TIMEOUT_MS = 10_000;
+function parseProxyTimeoutMs(): number {
+  const raw = process.env.ENGINE_PROXY_TIMEOUT_MS?.trim();
+  if (!raw) return DEFAULT_PROXY_TIMEOUT_MS;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 10_000 ? parsed : DEFAULT_PROXY_TIMEOUT_MS;
+}
+
+/** Server-side proxy + browser /api/engine fetch budget (tunnel + remote DB can exceed 10s). */
+export const ENGINE_PROXY_TIMEOUT_MS = parseProxyTimeoutMs();
 
 function isLocalhostUrl(url: string): boolean {
   return /localhost|127\.0\.0\.1/.test(url);

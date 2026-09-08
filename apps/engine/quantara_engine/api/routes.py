@@ -346,6 +346,25 @@ def analytics_assets(store: StoreDep):
     worker_raw = store.get_settings_dict().get("worker_status:data_fetcher") or {}
     rows: list[dict] = []
 
+    open_by_inst: dict[str, int] = {}
+    closed_by_inst: dict[str, int] = {}
+    realized_by_inst: dict[str, float] = {}
+    unrealized_by_inst: dict[str, float] = {}
+    for entry in entries:
+        pid = entry["portfolio"].id
+        for pos in store.list_positions(pid, open_only=True):
+            iid = pos.instrument_id
+            open_by_inst[iid] = open_by_inst.get(iid, 0) + 1
+            unrealized_by_inst[iid] = unrealized_by_inst.get(iid, 0.0) + float(
+                pos.unrealized_pnl
+            )
+        for trade in store.list_trades(pid, limit=5000):
+            iid = trade.instrument_id
+            closed_by_inst[iid] = closed_by_inst.get(iid, 0) + 1
+            realized_by_inst[iid] = realized_by_inst.get(iid, 0.0) + float(
+                trade.realized_pnl
+            )
+
     for asset in list_target_assets():
         inst = store.get_instrument_by_symbol(asset.db_symbol)
         counts = {"5m": 0, "15m": 0, "1h": 0}
@@ -378,16 +397,10 @@ def analytics_assets(store: StoreDep):
                     else "closed"
                 )
 
-            for entry in entries:
-                pid = entry["portfolio"].id
-                for pos in store.list_positions(pid, open_only=True):
-                    if pos.instrument_id == inst.id:
-                        open_positions += 1
-                        unrealized_pnl += float(pos.unrealized_pnl)
-                for trade in store.list_trades(pid, limit=5000):
-                    if trade.instrument_id == inst.id:
-                        closed_trades += 1
-                        realized_pnl += float(trade.realized_pnl)
+            open_positions = open_by_inst.get(inst.id, 0)
+            closed_trades = closed_by_inst.get(inst.id, 0)
+            realized_pnl = realized_by_inst.get(inst.id, 0.0)
+            unrealized_pnl = unrealized_by_inst.get(inst.id, 0.0)
 
         asset_health = (worker_raw.get("assets") or {}).get(asset.db_symbol, {})
         data_status = asset_health.get("status") or ("stale" if stale else "healthy")

@@ -6,6 +6,8 @@ import {
 } from "@/lib/engine-server";
 
 export const dynamic = "force-dynamic";
+/** Cloudflare tunnel + remote Supabase responses often exceed the default 10s Vercel limit. */
+export const maxDuration = 60;
 
 async function proxyToEngine(req: NextRequest, pathSegments: string[]) {
   const engineUrl = resolveServerEngineUrl();
