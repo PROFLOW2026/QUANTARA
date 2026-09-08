@@ -7,6 +7,12 @@ import { MetricCardCurrency } from "@/components/trading/MetricCard";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import { PriceDisplay } from "@/components/trading/PriceDisplay";
 import { SignalCard } from "@/components/trading/SignalCard";
+import {
+  ActiveAssetsSummary,
+  ActiveAssetsTable,
+  AssetResultsTable,
+  ProviderHealthPanel,
+} from "@/components/trading/ActiveAssetsPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   api,
@@ -16,6 +22,8 @@ import {
   type CandleLatest,
   type WorkerStatus,
   type TodayActivity,
+  type AssetAnalyticsResponse,
+  type MarketProviderStatus,
 } from "@/lib/api-client";
 import { loadCompetitionView } from "@/lib/competition-client";
 import { t } from "@/lib/i18n";
@@ -31,6 +39,8 @@ export default function HomePageClient() {
   const [competition, setCompetition] = useState<Awaited<
     ReturnType<typeof loadCompetitionView>
   > | null>(null);
+  const [assetAnalytics, setAssetAnalytics] = useState<AssetAnalyticsResponse | null>(null);
+  const [marketStatus, setMarketStatus] = useState<MarketProviderStatus | null>(null);
   const [engineConnectionError, setEngineConnectionError] = useState(false);
   const [goldError, setGoldError] = useState<string | null>(null);
   const [todayError, setTodayError] = useState<string | null>(null);
@@ -45,6 +55,8 @@ export default function HomePageClient() {
         api.getLatestDecision(),
         api.getAnalyticsToday(),
         loadCompetitionView(),
+        api.getAssetAnalytics(),
+        api.getMarketStatus(),
       ]);
 
       const coreResult = results[0];
@@ -85,6 +97,12 @@ export default function HomePageClient() {
 
       if (results[4].status === "fulfilled") setCompetition(results[4].value);
       else setCompetition(null);
+
+      if (results[5].status === "fulfilled") setAssetAnalytics(results[5].value);
+      else setAssetAnalytics(null);
+
+      if (results[6].status === "fulfilled") setMarketStatus(results[6].value);
+      else setMarketStatus(null);
     } catch (e) {
       setEngineConnectionError(isEngineConnectionError(e));
       setGoldError(null);
@@ -111,6 +129,8 @@ export default function HomePageClient() {
   const openPositions = competition?.combined?.open_positions_total ?? 0;
   const closedTrades = portfolios.reduce((sum, row) => sum + row.trades_count, 0);
   const portfolioCount = competition?.experiment?.portfolio_count ?? portfolios.length;
+  const assetRows = assetAnalytics?.assets ?? [];
+  const activeProviders = ["Twelve Data", "Tiingo", "Alpaca"];
 
   return (
     <>
@@ -190,6 +210,24 @@ export default function HomePageClient() {
             </Link>
           </CardContent>
         </Card>
+      </div>
+
+      <div className="mt-4">
+        <ActiveAssetsSummary
+          assetsActive={assetAnalytics?.assets_active ?? 8}
+          providers={activeProviders}
+        />
+      </div>
+
+      {assetRows.length ? (
+        <div className="mt-4 space-y-4">
+          <ActiveAssetsTable assets={assetRows} />
+          <AssetResultsTable assets={assetRows} />
+        </div>
+      ) : null}
+
+      <div className="mt-4">
+        <ProviderHealthPanel marketStatus={marketStatus} />
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">

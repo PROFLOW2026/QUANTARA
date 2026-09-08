@@ -212,8 +212,8 @@ class AlpacaMarketDataProvider:
 
     def fetch_bootstrap(self, instrument_id: str, timeframe: str, bars: int = BOOTSTRAP_OUTPUT_SIZE) -> list[Candle]:
         symbol = self._provider_ticker()
-        start = datetime.now(timezone.utc) - timedelta(days=3)
-        rows = self._fetch_bars(symbol=symbol, timeframe=timeframe, start=start, limit=min(bars, 120))
+        start = datetime.now(timezone.utc) - timedelta(days=90)
+        rows = self._fetch_bars(symbol=symbol, timeframe=timeframe, start=start, limit=10000)
         return self._to_candles(rows, instrument_id, timeframe)
 
     def fetch_range(

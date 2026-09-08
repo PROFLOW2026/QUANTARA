@@ -388,7 +388,67 @@ export interface MarketProviderStatus {
   last_fetch?: string;
   candle_counts?: Record<string, number>;
   gaps?: number;
+  stale?: boolean;
+  assets?: MarketAssetStatus[];
+  providers?: Record<string, ProviderHealthStatus>;
+  worker?: Record<string, unknown>;
+  spot_source?: string;
+  spot_age_minutes?: number | null;
+}
+
+export interface MarketAssetStatus {
+  symbol: string;
+  db_symbol: string;
+  provider: string;
+  secondary_provider?: string | null;
+  status: string;
+  last_candle?: string | null;
+  latest_price?: number | null;
+  session_status?: string;
+  candle_counts?: Record<string, number>;
+  stale?: boolean;
+  timeframes_available?: Record<string, boolean>;
+}
+
+export interface ProviderHealthStatus {
+  provider: string;
+  status?: string;
+  used_hour?: number;
+  hourly_limit?: number | null;
+  remaining_hour?: number | null;
+  used_day?: number;
+  daily_limit?: number | null;
+  remaining_day?: number | null;
+  active_symbols?: string[];
+  last_success?: string | null;
+  last_error?: string | null;
+  used_today?: number;
+  guard_limit?: number;
+  remaining?: number;
+}
+
+export interface AssetAnalyticsRow {
+  symbol: string;
+  db_symbol: string;
+  provider: string;
+  latest_price?: number | null;
+  last_candle?: string | null;
+  data_status: string;
   stale: boolean;
+  session_status: string;
+  candle_counts: Record<string, number>;
+  timeframes_available: Record<string, boolean>;
+  strategy_ready: Record<string, boolean>;
+  open_positions: number;
+  closed_trades: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  total_pnl: number;
+}
+
+export interface AssetAnalyticsResponse {
+  assets_active: number;
+  assets: AssetAnalyticsRow[];
 }
 
 export interface PortfolioListItem {
@@ -632,6 +692,8 @@ export const api = {
   },
   getMarketStatus: () =>
     apiFetch<MarketProviderStatus>("/market-data/status"),
+  getAssetAnalytics: () =>
+    apiFetch<AssetAnalyticsResponse>("/analytics/assets"),
   getWorkersStatus: () => apiFetch<WorkerStatus>("/workers/status"),
   getSettings: () => apiFetch<Settings>("/settings"),
   updateSettings: (data: Partial<Settings>) =>

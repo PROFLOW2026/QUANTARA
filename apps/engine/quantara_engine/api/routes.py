@@ -246,25 +246,39 @@ def candles_latest(
 def market_data_status(store: StoreDep):
     from quantara_engine.market_data.provider_budgets import all_provider_status
     from quantara_engine.market_data.registry import list_target_assets
+    from quantara_engine.market_data.sessions import session_allows_entries
 
     worker_raw = store.get_settings_dict().get("worker_status:data_fetcher") or {}
+    now = datetime.now(timezone.utc)
     asset_rows: list[dict] = []
     healthy = True
     for asset in list_target_assets():
         inst = store.get_instrument_by_symbol(asset.db_symbol)
         counts: dict[str, int] = {}
         last_candle = None
+        latest_price = None
         stale = True
+        session_status = "unknown"
         if inst:
             for tf in ("5m", "15m", "1h"):
                 counts[tf] = store.count_candles(inst.id, tf)
             last_candle = store.latest_candle_timestamp(inst.id, "5m")
+            recent = store.list_recent_candles(inst.id, "5m", limit=1)
+            if recent:
+                latest_price = float(recent[-1].close)
             if last_candle:
-                age_min = (datetime.now(timezone.utc) - last_candle).total_seconds() / 60
+                age_min = (now - last_candle).total_seconds() / 60
                 stale = age_min > 30
+                session_status = (
+                    "open"
+                    if session_allows_entries(asset.trading_sessions, last_candle)
+                    else "closed"
+                )
         asset_health = (worker_raw.get("assets") or {}).get(asset.db_symbol, {})
         status = asset_health.get("status") or ("stale" if stale else "healthy")
-        if status in ("error", "stale"):
+        if not last_candle and asset.primary_provider.value == "twelvedata":
+            status = "blocked"
+        if status in ("error", "stale", "blocked"):
             healthy = False
         asset_rows.append(
             {
@@ -276,8 +290,15 @@ def market_data_status(store: StoreDep):
                 ),
                 "status": status,
                 "last_candle": last_candle.isoformat() if last_candle else None,
+                "latest_price": latest_price,
+                "session_status": session_status,
                 "candle_counts": counts,
                 "stale": stale,
+                "timeframes_available": {
+                    "5m": counts.get("5m", 0) > 0,
+                    "15m": counts.get("15m", 0) > 0,
+                    "1h": counts.get("1h", 0) > 0,
+                },
             }
         )
 
@@ -299,6 +320,98 @@ def market_data_status(store: StoreDep):
         "worker": worker_raw,
         "spot_source": spot.get("source") if spot else None,
         "spot_age_minutes": round(spot_age_minutes(spot), 1) if spot else None,
+    }
+
+
+@router.get("/analytics/assets")
+def analytics_assets(store: StoreDep):
+    """Per-asset market + competition P&L summary for the Home dashboard."""
+    from quantara_engine.market_data.polling import STRATEGY_MIN_CANDLES
+    from quantara_engine.market_data.registry import list_target_assets
+    from quantara_engine.market_data.sessions import session_allows_entries
+
+    entries = store.list_competition_entries()
+    if not entries:
+        raise HTTPException(404, "Competition not configured")
+
+    now = datetime.now(timezone.utc)
+    worker_raw = store.get_settings_dict().get("worker_status:data_fetcher") or {}
+    rows: list[dict] = []
+
+    for asset in list_target_assets():
+        inst = store.get_instrument_by_symbol(asset.db_symbol)
+        counts = {"5m": 0, "15m": 0, "1h": 0}
+        last_candle = None
+        latest_price = None
+        stale = True
+        session_status = "unknown"
+        strategy_ready = {"5m": False, "15m": False, "1h": False}
+
+        open_positions = 0
+        closed_trades = 0
+        realized_pnl = 0.0
+        unrealized_pnl = 0.0
+
+        if inst:
+            for tf in ("5m", "15m", "1h"):
+                count = store.count_candles(inst.id, tf)
+                counts[tf] = count
+                strategy_ready[tf] = count >= STRATEGY_MIN_CANDLES
+            last_candle = store.latest_candle_timestamp(inst.id, "5m")
+            recent = store.list_recent_candles(inst.id, "5m", limit=1)
+            if recent:
+                latest_price = float(recent[-1].close)
+            if last_candle:
+                age_min = (now - last_candle).total_seconds() / 60
+                stale = age_min > 30
+                session_status = (
+                    "open"
+                    if session_allows_entries(asset.trading_sessions, last_candle)
+                    else "closed"
+                )
+
+            for entry in entries:
+                pid = entry["portfolio"].id
+                for pos in store.list_positions(pid, open_only=True):
+                    if pos.instrument_id == inst.id:
+                        open_positions += 1
+                        unrealized_pnl += float(pos.unrealized_pnl)
+                for trade in store.list_trades(pid, limit=5000):
+                    if trade.instrument_id == inst.id:
+                        closed_trades += 1
+                        realized_pnl += float(trade.realized_pnl)
+
+        asset_health = (worker_raw.get("assets") or {}).get(asset.db_symbol, {})
+        data_status = asset_health.get("status") or ("stale" if stale else "healthy")
+        if not last_candle and asset.primary_provider.value == "twelvedata":
+            data_status = "blocked"
+
+        rows.append(
+            {
+                "symbol": asset.display_symbol,
+                "db_symbol": asset.db_symbol,
+                "provider": asset.primary_provider.value,
+                "latest_price": latest_price,
+                "last_candle": last_candle.isoformat() if last_candle else None,
+                "data_status": data_status,
+                "stale": stale,
+                "session_status": session_status,
+                "candle_counts": counts,
+                "timeframes_available": {
+                    tf: counts[tf] > 0 for tf in ("5m", "15m", "1h")
+                },
+                "strategy_ready": strategy_ready,
+                "open_positions": open_positions,
+                "closed_trades": closed_trades,
+                "realized_pnl": round(realized_pnl, 2),
+                "unrealized_pnl": round(unrealized_pnl, 2),
+                "total_pnl": round(realized_pnl + unrealized_pnl, 2),
+            }
+        )
+
+    return {
+        "assets_active": len(list_target_assets()),
+        "assets": rows,
     }
 
 
