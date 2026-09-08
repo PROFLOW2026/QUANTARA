@@ -1,3 +1,5 @@
+import { redirect } from "next/navigation";
+
 import { PageHeader, ErrorBanner, ChartPlaceholder } from "@/components/layout/PageHeader";
 import { MetricCardCurrency } from "@/components/trading/MetricCard";
 import { PortfolioScopeBanner } from "@/components/trading/PortfolioScopeBanner";
@@ -7,10 +9,9 @@ import {
 } from "@/components/ui/table";
 import { translateRiskProfile } from "@/lib/display-text";
 import { api, ApiError } from "@/lib/api-client";
+import { canonicalizePortfolioId, resolvePortfolioScope } from "@/lib/portfolio-scope";
 import { t } from "@/lib/i18n";
 import { formatCurrency, formatDateTime, formatPercent } from "@/lib/utils";
-
-const DEFAULT_PORTFOLIO = "00000000-0000-0000-0000-00001101";
 
 export default async function PortfolioPage({
   searchParams,
@@ -18,13 +19,28 @@ export default async function PortfolioPage({
   searchParams: Promise<{ portfolio_id?: string }>;
 }) {
   const params = await searchParams;
-  const portfolioId = params.portfolio_id ?? DEFAULT_PORTFOLIO;
-
+  let portfolioId: string | undefined;
   let portfolio = null;
   let snapshots = null;
   let error: string | null = null;
 
   try {
+    const portfolios = await api.getPortfolios();
+    const scope = resolvePortfolioScope(params.portfolio_id, portfolios, {
+      requireSelection: true,
+    });
+    portfolioId = scope.portfolioId;
+
+    if (portfolioId) {
+      const resolved = canonicalizePortfolioId(portfolioId);
+      const requested = params.portfolio_id
+        ? canonicalizePortfolioId(params.portfolio_id)
+        : null;
+      if (!requested || requested !== resolved) {
+        redirect(`/portfolio?portfolio_id=${encodeURIComponent(portfolioId)}`);
+      }
+    }
+
     [portfolio, snapshots] = await Promise.all([
       api.getPortfolio(portfolioId),
       api.getSnapshots(portfolioId),

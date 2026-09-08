@@ -8,6 +8,7 @@ import {
 import { translateExitReason } from "@/lib/display-text";
 import { PortfolioScopeBanner } from "@/components/trading/PortfolioScopeBanner";
 import { api, ApiError } from "@/lib/api-client";
+import { resolvePortfolioScope, type PortfolioScope } from "@/lib/portfolio-scope";
 import { t } from "@/lib/i18n";
 import { formatDateTime, formatPrice } from "@/lib/utils";
 
@@ -17,17 +18,28 @@ export default async function JournalPage({
   searchParams: Promise<{ portfolio_id?: string }>;
 }) {
   const params = await searchParams;
-  const portfolioId = params.portfolio_id ?? "00000000-0000-0000-0000-00001101";
-
+  let scope: PortfolioScope = { scopeAll: true };
   let trades = null;
   let portfolio = null;
   let error: string | null = null;
 
   try {
-    [trades, portfolio] = await Promise.all([
-      api.getTrades({ portfolio_id: portfolioId }),
-      api.getPortfolio(portfolioId),
-    ]);
+    const portfolios = await api.getPortfolios();
+    scope = resolvePortfolioScope(params.portfolio_id, portfolios, {
+      redirectPath: "/journal",
+    });
+
+    const requests: Promise<unknown>[] = [
+      api.getTrades(scope.portfolioId ? { portfolio_id: scope.portfolioId } : undefined),
+    ];
+    if (scope.portfolioId) {
+      requests.push(api.getPortfolio(scope.portfolioId));
+    }
+    const results = await Promise.all(requests);
+    trades = results[0] as Awaited<ReturnType<typeof api.getTrades>>;
+    portfolio = scope.portfolioId
+      ? (results[1] as Awaited<ReturnType<typeof api.getPortfolio>>)
+      : null;
   } catch (e) {
     error = e instanceof ApiError ? e.message : t("common.error");
   }
@@ -35,7 +47,11 @@ export default async function JournalPage({
   return (
     <>
       <PageHeader titleKey="journal.title" />
-      <PortfolioScopeBanner portfolioId={portfolioId} portfolioName={portfolio?.name} />
+      <PortfolioScopeBanner
+        portfolioId={scope.portfolioId}
+        portfolioName={portfolio?.name}
+        scopeAll={scope.scopeAll}
+      />
       {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
 
       <Card>

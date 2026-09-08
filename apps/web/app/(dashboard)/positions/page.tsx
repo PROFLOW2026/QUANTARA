@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/table";
 import { PortfolioScopeBanner } from "@/components/trading/PortfolioScopeBanner";
 import { api, ApiError } from "@/lib/api-client";
+import { resolvePortfolioScope, type PortfolioScope } from "@/lib/portfolio-scope";
 import { t } from "@/lib/i18n";
 import { formatDateTime, formatPrice } from "@/lib/utils";
 
@@ -16,17 +17,28 @@ export default async function PositionsPage({
   searchParams: Promise<{ portfolio_id?: string }>;
 }) {
   const params = await searchParams;
-  const portfolioId = params.portfolio_id ?? "00000000-0000-0000-0000-00001101";
-
+  let scope: PortfolioScope = { scopeAll: true };
   let positions = null;
   let portfolio = null;
   let error: string | null = null;
 
   try {
-    [positions, portfolio] = await Promise.all([
-      api.getPositions("open", portfolioId),
-      api.getPortfolio(portfolioId),
-    ]);
+    const portfolios = await api.getPortfolios();
+    scope = resolvePortfolioScope(params.portfolio_id, portfolios, {
+      redirectPath: "/positions",
+    });
+
+    const requests: Promise<unknown>[] = [
+      api.getPositions("open", scope.portfolioId),
+    ];
+    if (scope.portfolioId) {
+      requests.push(api.getPortfolio(scope.portfolioId));
+    }
+    const results = await Promise.all(requests);
+    positions = results[0] as Awaited<ReturnType<typeof api.getPositions>>;
+    portfolio = scope.portfolioId
+      ? (results[1] as Awaited<ReturnType<typeof api.getPortfolio>>)
+      : null;
   } catch (e) {
     error = e instanceof ApiError ? e.message : t("common.error");
   }
@@ -34,7 +46,11 @@ export default async function PositionsPage({
   return (
     <>
       <PageHeader titleKey="positions.title" />
-      <PortfolioScopeBanner portfolioId={portfolioId} portfolioName={portfolio?.name} />
+      <PortfolioScopeBanner
+        portfolioId={scope.portfolioId}
+        portfolioName={portfolio?.name}
+        scopeAll={scope.scopeAll}
+      />
       {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
 
       <Card>
