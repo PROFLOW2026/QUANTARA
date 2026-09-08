@@ -548,6 +548,51 @@ class TradingStore:
         rows = self.session.scalars(stmt).all()
         return [self._decision_to_domain(row) for row in rows]
 
+    def list_latest_decisions_by_asset_timeframe(
+        self,
+        timeframe: str,
+    ) -> list[DecisionLogEntry]:
+        """Latest decision per target asset for competition instances on a timeframe."""
+        from quantara_engine.market_data.registry import list_target_assets
+
+        entries = self.list_competition_entries()
+        instance_ids = [
+            entry["instance"].id
+            for entry in entries
+            if entry["instance"].timeframe == timeframe
+        ]
+        if not instance_ids:
+            return []
+
+        inst_uuids = [_uuid(i) for i in instance_ids]
+        results: list[DecisionLogEntry] = []
+        for asset in list_target_assets():
+            instrument = self.get_instrument_by_symbol(asset.db_symbol)
+            if not instrument:
+                continue
+            row = self.session.scalar(
+                select(OrmDecision)
+                .where(
+                    OrmDecision.strategy_instance_id.in_(inst_uuids),
+                    OrmDecision.instrument_id == _uuid(instrument.id),
+                )
+                .order_by(OrmDecision.candle_timestamp.desc(), OrmDecision.created_at.desc())
+                .limit(1)
+            )
+            if row:
+                results.append(self._decision_to_domain(row))
+        return results
+
+    def resolve_instrument_display_symbols(self) -> dict[str, str]:
+        from quantara_engine.market_data.registry import list_target_assets
+
+        mapping: dict[str, str] = {}
+        for asset in list_target_assets():
+            instrument = self.get_instrument_by_symbol(asset.db_symbol)
+            if instrument:
+                mapping[instrument.id] = asset.display_symbol
+        return mapping
+
     def count_trades_for_portfolio(self, portfolio_id: str) -> int:
         return self.session.scalar(
             select(func.count())
@@ -1309,6 +1354,7 @@ class TradingStore:
     def timeframe_group_already_processed(
         self,
         instance_ids: list[str],
+        instrument_id: str,
         candle_timestamp: datetime,
     ) -> bool:
         if not instance_ids:
@@ -1318,6 +1364,7 @@ class TradingStore:
             .select_from(OrmDecision)
             .where(
                 OrmDecision.strategy_instance_id.in_([_uuid(i) for i in instance_ids]),
+                OrmDecision.instrument_id == _uuid(instrument_id),
                 OrmDecision.candle_timestamp == candle_timestamp,
             )
         ) or 0
@@ -1326,14 +1373,18 @@ class TradingStore:
     def get_timeframe_group_last_processed(
         self,
         instance_ids: list[str],
+        instrument_id: str,
     ) -> datetime | None:
-        """Latest candle timestamp fully processed by all instances in the group."""
+        """Latest candle timestamp fully processed for this instrument by all instances."""
         if not instance_ids:
             return None
         inst_uuids = [_uuid(i) for i in instance_ids]
         rows = self.session.execute(
             select(OrmDecision.candle_timestamp, func.count())
-            .where(OrmDecision.strategy_instance_id.in_(inst_uuids))
+            .where(
+                OrmDecision.strategy_instance_id.in_(inst_uuids),
+                OrmDecision.instrument_id == _uuid(instrument_id),
+            )
             .group_by(OrmDecision.candle_timestamp)
             .having(func.count() >= len(instance_ids))
         ).all()
@@ -1365,7 +1416,7 @@ class TradingStore:
         from quantara_engine.execution.catch_up import compute_backlog_status
 
         candles = self.list_candles(instrument_id, timeframe)
-        last_processed = self.get_timeframe_group_last_processed(instance_ids)
+        last_processed = self.get_timeframe_group_last_processed(instance_ids, instrument_id)
         return compute_backlog_status(
             candles,
             timeframe,

@@ -174,7 +174,11 @@ export interface Decision {
   message: string;
   strategy_name?: string;
   instrument?: string;
+  instrument_id?: string;
   candle_time?: string;
+  timeframe?: string;
+  fresh?: boolean;
+  trade_opened?: boolean;
   signal?: {
     direction?: string;
     entry_price?: number;
@@ -656,6 +660,10 @@ export const api = {
     return apiFetch<Decision[]>(`/decisions${qs}`);
   },
   getLatestDecision: () => apiFetch<Decision>("/decisions/latest"),
+  getDecisionsByAsset: (timeframe = "5m") =>
+    apiFetch<{ timeframe: string; decisions: Decision[] }>(
+      `/decisions/by-asset?timeframe=${encodeURIComponent(timeframe)}`
+    ),
   getStrategies: () => apiFetch<Strategy[]>("/strategies"),
   getStrategyVersions: (slug: string) =>
     apiFetch<StrategyVersion[]>(`/strategies/${slug}/versions`),

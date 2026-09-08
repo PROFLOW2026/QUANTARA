@@ -16,12 +16,44 @@ from quantara_engine.domain.types import ExecutionAssumptions, Mode
 from quantara_engine.execution.catch_up import list_catchup_candle_indices
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
 from quantara_engine.market_data.factory import get_market_data_provider
+from quantara_engine.market_data.registry import get_asset
 from quantara_engine.market_data.symbols import list_target_db_symbols
 from quantara_engine.market_data.polling import STRATEGY_MIN_CANDLES, is_bar_complete
 from quantara_engine.pipeline.candle_processor import CandleProcessor
 from quantara_engine.persistence.store import TradingStore
 
 logger = logging.getLogger(__name__)
+
+FRESHNESS_MAX_AGE_MINUTES = 30
+
+
+def _check_eligibility(
+    s: TradingStore,
+    instrument,
+    timeframe: str,
+    now: datetime,
+) -> tuple[bool, str]:
+    """Return (eligible, reason) for strategy evaluation on this asset/timeframe."""
+    asset = get_asset(instrument.symbol)
+    count = s.count_candles(instrument.id, timeframe)
+    if count < STRATEGY_MIN_CANDLES:
+        return False, f"insufficient_history ({count}/{STRATEGY_MIN_CANDLES})"
+
+    last_ts = s.latest_candle_timestamp(instrument.id, timeframe)
+    if not last_ts:
+        return False, "no_data"
+
+    age_min = (now - last_ts).total_seconds() / 60
+    if age_min >= FRESHNESS_MAX_AGE_MINUTES:
+        return False, f"stale_data ({round(age_min, 1)}m)"
+
+    if asset and asset.primary_provider.value == "twelvedata":
+        worker = s.get_settings_dict().get("worker_status:data_fetcher") or {}
+        wh = (worker.get("assets") or {}).get(asset.db_symbol, {})
+        if wh.get("status") == "error" and wh.get("error") and "429" in str(wh.get("error")):
+            return False, "provider_blocked"
+
+    return True, "eligible"
 
 
 def _ensure_candles(s: TradingStore, instrument, timeframe: str, settings_dict: dict) -> list:
@@ -53,15 +85,18 @@ def _catchup_indices(
     candles: list,
     timeframe: str,
     instance_ids: list[str],
+    instrument_id: str,
     now: datetime,
 ) -> list[int]:
-    last_processed = s.get_timeframe_group_last_processed(instance_ids)
+    last_processed = s.get_timeframe_group_last_processed(instance_ids, instrument_id)
     return list_catchup_candle_indices(
         candles,
         timeframe,
         last_processed=last_processed,
         now=now,
-        already_processed_fn=lambda ts: s.timeframe_group_already_processed(instance_ids, ts),
+        already_processed_fn=lambda ts: s.timeframe_group_already_processed(
+            instance_ids, instrument_id, ts
+        ),
     )
 
 
@@ -75,6 +110,16 @@ def _process_timeframe_group(
     broker: PaperBrokerAdapter,
 ) -> tuple[int, int, dict]:
     """Process all missed completed candles sequentially, oldest → newest."""
+    eligible, skip_reason = _check_eligibility(s, instrument, timeframe, started_at)
+    if not eligible:
+        return 0, 0, {
+            **s.get_timeframe_execution_status(
+                instrument.id, timeframe, [e["instance"].id for e in group], started_at
+            ),
+            "skipped": True,
+            "skip_reason": skip_reason,
+        }
+
     candles = _ensure_candles(s, instrument, timeframe, settings_dict)
     if len(candles) < STRATEGY_MIN_CANDLES:
         return 0, 0, s.get_timeframe_execution_status(
@@ -82,7 +127,7 @@ def _process_timeframe_group(
         )
 
     instance_ids = [entry["instance"].id for entry in group]
-    indices = _catchup_indices(s, candles, timeframe, instance_ids, started_at)
+    indices = _catchup_indices(s, candles, timeframe, instance_ids, instrument.id, started_at)
     if not indices:
         return 0, 0, s.get_timeframe_execution_status(
             instrument.id, timeframe, instance_ids, started_at
@@ -94,7 +139,7 @@ def _process_timeframe_group(
 
     for candle_index in indices:
         candle = candles[candle_index]
-        if s.timeframe_group_already_processed(instance_ids, candle.timestamp):
+        if s.timeframe_group_already_processed(instance_ids, instrument.id, candle.timestamp):
             continue
 
         eval_processor = CandleProcessor(

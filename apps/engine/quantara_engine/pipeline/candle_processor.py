@@ -27,6 +27,8 @@ from quantara_engine.domain.types import (
 )
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
 from quantara_engine.market_data.polling import timeframe_minutes
+from quantara_engine.market_data.registry import get_asset
+from quantara_engine.market_data.sessions import session_allows_entries
 from quantara_engine.portfolio.service import PortfolioState
 from quantara_engine.risk.engine import RiskEngine, RiskEvaluationInput
 from quantara_engine.strategies.base import BaseStrategy
@@ -298,6 +300,7 @@ class CandleProcessor:
                     p
                     for p in self.state.open_positions()
                     if p.strategy_instance_id == self.instance.id
+                    and p.instrument_id == self.instrument.id
                 ]
                 if open_for_instance and not intent.is_close:
                     self._log(
@@ -363,6 +366,17 @@ class CandleProcessor:
         ):
             self._log(candle, DecisionType.POSITION_OPEN, "Skipped — position already exists for asset")
             return
+
+        asset = get_asset(self.instrument.symbol)
+        if asset and signal.action in (SignalAction.BUY, SignalAction.SELL):
+            if not session_allows_entries(asset.trading_sessions, candle.timestamp):
+                self._log(
+                    candle,
+                    DecisionType.HOLD,
+                    "Session closed — no new entries outside market hours",
+                    signal_id,
+                )
+                return
 
         atr_value = None
         if signal.metadata and "atr" in signal.metadata:

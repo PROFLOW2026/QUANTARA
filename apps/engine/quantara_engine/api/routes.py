@@ -641,6 +641,7 @@ def decisions(
     limit: int = 50,
     portfolio_id: str | None = None,
 ):
+    symbol_map = store.resolve_instrument_display_symbols()
     if portfolio_id:
         items = store.list_decisions_for_portfolio(portfolio_id, limit=limit)
     else:
@@ -649,18 +650,23 @@ def decisions(
             items = store.list_competition_decisions(limit=limit)
         else:
             items = store.list_decisions(limit=limit)
-    return [
-        {
-            "id": d.id,
-            "timestamp": d.candle_timestamp.isoformat(),
-            "decision_type": d.decision_type.value,
-            "message": d.message,
-            "instrument": "XAUUSD",
-            "candle_time": d.candle_timestamp.isoformat(),
-            "strategy_instance_id": d.strategy_instance_id,
-        }
-        for d in items
-    ]
+    return [_decision_payload(d, symbol_map) for d in items]
+
+
+def _decision_payload(d, symbol_map: dict[str, str]) -> dict:
+    signal = d.metadata.get("signal") if d.metadata else None
+    instrument = symbol_map.get(d.instrument_id, d.instrument_id)
+    return {
+        "id": d.id,
+        "timestamp": d.candle_timestamp.isoformat(),
+        "decision_type": d.decision_type.value,
+        "message": d.message,
+        "instrument": instrument,
+        "instrument_id": d.instrument_id,
+        "candle_time": d.candle_timestamp.isoformat(),
+        "strategy_instance_id": d.strategy_instance_id,
+        "signal": signal,
+    }
 
 
 @router.get("/decisions/latest")
@@ -674,14 +680,26 @@ def decisions_latest(store: StoreDep):
             "message": "NO_SETUP — awaiting strategy evaluation",
             "signal": None,
         }
-    signal = d.metadata.get("signal") if d.metadata else None
-    return {
-        "id": d.id,
-        "timestamp": d.candle_timestamp.isoformat(),
-        "decision_type": d.decision_type.value,
-        "message": d.message,
-        "signal": signal,
-    }
+    symbol_map = store.resolve_instrument_display_symbols()
+    return _decision_payload(d, symbol_map)
+
+
+@router.get("/decisions/by-asset")
+def decisions_by_asset(store: StoreDep, timeframe: str = "5m"):
+    symbol_map = store.resolve_instrument_display_symbols()
+    items = store.list_latest_decisions_by_asset_timeframe(timeframe)
+    now = datetime.now(timezone.utc)
+    rows = []
+    for d in items:
+        payload = _decision_payload(d, symbol_map)
+        last_ts = d.candle_timestamp
+        age_min = (now - last_ts).total_seconds() / 60
+        payload["fresh"] = age_min < 30
+        payload["timeframe"] = timeframe
+        trade_opened = d.decision_type.value in ("buy_signal", "sell_signal")
+        payload["trade_opened"] = trade_opened
+        rows.append(payload)
+    return {"timeframe": timeframe, "decisions": rows}
 
 
 @router.get("/strategies")

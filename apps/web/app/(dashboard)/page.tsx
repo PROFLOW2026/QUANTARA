@@ -6,7 +6,7 @@ import { PageHeader, WorkerIndicator, EngineConnectionError } from "@/components
 import { MetricCardCurrency } from "@/components/trading/MetricCard";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import { PriceDisplay } from "@/components/trading/PriceDisplay";
-import { SignalCard } from "@/components/trading/SignalCard";
+import { LatestDecisionsPanel } from "@/components/trading/LatestDecisionsPanel";
 import {
   ActiveAssetsSummary,
   ActiveAssetsTable,
@@ -33,7 +33,7 @@ const POLL_INTERVAL = 60_000;
 
 export default function HomePageClient() {
   const [gold, setGold] = useState<CandleLatest | null>(null);
-  const [decision, setDecision] = useState<Decision | null>(null);
+  const [assetDecisions, setAssetDecisions] = useState<Decision[]>([]);
   const [today, setToday] = useState<TodayActivity | null>(null);
   const [workers, setWorkers] = useState<WorkerStatus | null>(null);
   const [competition, setCompetition] = useState<Awaited<
@@ -52,7 +52,7 @@ export default function HomePageClient() {
       const results = await Promise.allSettled([
         api.getWorkersStatus(),
         api.getCandlesLatest(),
-        api.getLatestDecision(),
+        api.getDecisionsByAsset("5m"),
         api.getAnalyticsToday(),
         loadCompetitionView(),
         api.getAssetAnalytics(),
@@ -84,8 +84,11 @@ export default function HomePageClient() {
         );
       }
 
-      if (results[2].status === "fulfilled") setDecision(results[2].value);
-      else setDecision(null);
+      if (results[2].status === "fulfilled") {
+        setAssetDecisions(results[2].value.decisions ?? []);
+      } else {
+        setAssetDecisions([]);
+      }
 
       if (results[3].status === "fulfilled") {
         setToday(results[3].value);
@@ -230,8 +233,8 @@ export default function HomePageClient() {
         <ProviderHealthPanel marketStatus={marketStatus} />
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <Card>
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-1">
           <CardHeader><CardTitle>{t("home.gold_snapshot")}</CardTitle></CardHeader>
           <CardContent>
             {gold ? (
@@ -256,8 +259,10 @@ export default function HomePageClient() {
             )}
           </CardContent>
         </Card>
+      </div>
 
-        <SignalCard decision={decision} />
+      <div className="mt-4">
+        <LatestDecisionsPanel decisions={assetDecisions} timeframe="5m" />
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
