@@ -48,31 +48,33 @@ function ProviderHealthCard({
   health?: ProviderHealthStatus;
 }) {
   const status = health?.status ?? "unknown";
+
   return (
     <div className="rounded-md bg-surface-elevated p-3 text-sm">
       <div className="mb-2 flex items-center justify-between gap-2">
         <p className="font-medium">{providerLabel(name)}</p>
         {statusBadge(status)}
       </div>
-      {health?.last_success ? (
+      {health && health.last_success ? (
         <p className="text-xs text-muted">
           {t("home.provider_last_update")}: {formatRelativeTime(health.last_success)}
         </p>
       ) : null}
-        if health?.remaining != null ? (
+      {health && health.remaining != null ? (
         <p className="text-xs text-muted">
-          {t("home.provider_credits")}: {health.used_today ?? 0}/{health.guard_limit ?? health.daily_limit}
+          {t("home.provider_credits")}: {health.used_today ?? 0}/
+          {health.guard_limit ?? health.daily_limit ?? "—"}
         </p>
       ) : null}
-      {health?.remaining_hour != null ? (
+      {health && health.remaining_hour != null ? (
         <p className="text-xs text-muted">
-          {t("home.provider_hourly")}: {health.used_hour ?? 0}/{health.hourly_limit}
-          {health.active_symbols?.length
+          {t("home.provider_hourly")}: {health.used_hour ?? 0}/{health.hourly_limit ?? "—"}
+          {health.active_symbols && health.active_symbols.length > 0
             ? ` · ${health.active_symbols.join(", ")}`
             : ""}
         </p>
       ) : null}
-      {health?.last_error ? (
+      {health && health.last_error ? (
         <p className="mt-1 text-xs text-warning truncate" title={health.last_error}>
           {health.last_error}
         </p>
