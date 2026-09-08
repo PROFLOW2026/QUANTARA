@@ -21,7 +21,10 @@ from quantara_engine.domain.types import (
     new_id,
 )
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
-from quantara_engine.pipeline.candle_processor import CandleProcessor
+from quantara_engine.pipeline.candle_processor import (
+    CandleProcessor,
+    intent_execution_allowed,
+)
 from quantara_engine.portfolio.service import PortfolioState
 
 
@@ -79,6 +82,7 @@ def _processor(
         store=None,
         mode=Mode.PAPER,
         latest_completed_timestamp=latest_completed,
+        execution_now=latest_completed,
     )
     proc.all_candles = [candle]
     intent = OrderIntent(

@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 FRESHNESS_MAX_AGE_MINUTES = 30
 CANDLE_LOOKBACK = STRATEGY_MIN_CANDLES + 50
-MAX_LIVE_CATCHUP_PER_RUN = 3
+MAX_HISTORICAL_DECISIONS_PER_RUN = 50
 
 
 def _check_eligibility(
@@ -104,6 +104,76 @@ def _catchup_indices(
     )
 
 
+def _process_candle_batch(
+    s: TradingStore,
+    instrument,
+    timeframe: str,
+    group: list[dict],
+    candles: list,
+    candle_index: int,
+    started_at: datetime,
+    broker: PaperBrokerAdapter,
+    latest_completed_ts: datetime | None,
+    *,
+    allow_live_execution: bool,
+) -> int:
+    """Process one candle index across all portfolios in the timeframe group."""
+    candle = candles[candle_index]
+    instance_ids = [entry["instance"].id for entry in group]
+    if s.timeframe_group_already_processed(instance_ids, instrument.id, candle.timestamp):
+        return 0
+
+    template = group[0]
+    eval_processor = CandleProcessor(
+        portfolio_state=s.load_portfolio_state(template["portfolio"].id),
+        strategy_instance=template["instance"],
+        instrument=instrument,
+        risk_profile=template["risk_profile"],
+        broker=broker,
+        clock=BacktestClock(),
+        store=None,
+        mode=Mode.PAPER,
+    )
+    eval_processor.all_candles = candles
+    shared_signal, _ = eval_processor.evaluate_signal(candle_index)
+
+    total_decisions = 0
+    for entry in group:
+        portfolio = entry["portfolio"]
+        instance = entry["instance"]
+        risk_profile = entry["risk_profile"]
+        state = s.load_portfolio_state(portfolio.id)
+        processor = CandleProcessor(
+            portfolio_state=state,
+            strategy_instance=instance,
+            instrument=instrument,
+            risk_profile=risk_profile,
+            broker=broker,
+            clock=BacktestClock(),
+            store=s,
+            mode=Mode.PAPER,
+            latest_completed_timestamp=latest_completed_ts,
+            allow_live_execution=allow_live_execution,
+            execution_now=started_at,
+        )
+        processor.all_candles = candles
+        pending = s.list_pending_order_intents(portfolio.id, instance.id)
+        processor.pending_intents = pending
+        processor._persisted_intents = {intent.id for intent in pending}
+        processor.process_candle(candle_index, shared_signal=shared_signal)
+        total_decisions += len(processor.decisions)
+
+    mode_label = "live" if allow_live_execution else "historical"
+    logger.info(
+        "Processed %s %s candle %s (%d portfolios)",
+        timeframe,
+        mode_label,
+        candle.timestamp.isoformat(),
+        len(group),
+    )
+    return total_decisions
+
+
 def _process_timeframe_group(
     s: TradingStore,
     instrument,
@@ -136,8 +206,11 @@ def _process_timeframe_group(
         return 0, 0, s.get_timeframe_execution_status(
             instrument.id, timeframe, instance_ids, started_at
         )
-    if len(indices) > MAX_LIVE_CATCHUP_PER_RUN:
-        indices = indices[-MAX_LIVE_CATCHUP_PER_RUN:]
+
+    live_idx = indices[-1]
+    historical_indices = indices[:-1]
+    if len(historical_indices) > MAX_HISTORICAL_DECISIONS_PER_RUN:
+        historical_indices = historical_indices[:MAX_HISTORICAL_DECISIONS_PER_RUN]
 
     latest_completed_ts: datetime | None = None
     for candle in candles:
@@ -146,56 +219,37 @@ def _process_timeframe_group(
 
     total_decisions = 0
     candles_processed = 0
-    template = group[0]
 
-    for candle_index in indices:
-        candle = candles[candle_index]
-        if s.timeframe_group_already_processed(instance_ids, instrument.id, candle.timestamp):
-            continue
+    # Live path first: SL/TP, pending execution, and current-bar strategy.
+    total_decisions += _process_candle_batch(
+        s,
+        instrument,
+        timeframe,
+        group,
+        candles,
+        live_idx,
+        started_at,
+        broker,
+        latest_completed_ts,
+        allow_live_execution=True,
+    )
+    candles_processed += 1
 
-        eval_processor = CandleProcessor(
-            portfolio_state=s.load_portfolio_state(template["portfolio"].id),
-            strategy_instance=template["instance"],
-            instrument=instrument,
-            risk_profile=template["risk_profile"],
-            broker=broker,
-            clock=BacktestClock(),
-            store=None,
-            mode=Mode.PAPER,
-        )
-        eval_processor.all_candles = candles
-        shared_signal, _ = eval_processor.evaluate_signal(candle_index)
-
-        for entry in group:
-            portfolio = entry["portfolio"]
-            instance = entry["instance"]
-            risk_profile = entry["risk_profile"]
-            state = s.load_portfolio_state(portfolio.id)
-            processor = CandleProcessor(
-                portfolio_state=state,
-                strategy_instance=instance,
-                instrument=instrument,
-                risk_profile=risk_profile,
-                broker=broker,
-                clock=BacktestClock(),
-                store=s,
-                mode=Mode.PAPER,
-                latest_completed_timestamp=latest_completed_ts,
-            )
-            processor.all_candles = candles
-            pending = s.list_pending_order_intents(portfolio.id, instance.id)
-            processor.pending_intents = pending
-            processor._persisted_intents = {intent.id for intent in pending}
-            processor.process_candle(candle_index, shared_signal=shared_signal)
-            total_decisions += len(processor.decisions)
-
-        candles_processed += 1
-        logger.info(
-            "Processed %s candle %s (%d portfolios, backlog remaining)",
+    # Bounded historical catch-up: decisions/analytics only, no Paper exposure.
+    for candle_index in historical_indices:
+        total_decisions += _process_candle_batch(
+            s,
+            instrument,
             timeframe,
-            candle.timestamp.isoformat(),
-            len(group),
+            group,
+            candles,
+            candle_index,
+            started_at,
+            broker,
+            latest_completed_ts,
+            allow_live_execution=False,
         )
+        candles_processed += 1
 
     tf_status = s.get_timeframe_execution_status(
         instrument.id, timeframe, instance_ids, started_at
@@ -296,7 +350,7 @@ def _process_competition(s: TradingStore, started_at: datetime) -> int:
         jobs_processed=groups_evaluated,
     )
     logger.info(
-        "run_strategy catch-up completed (%d candle-batches, %d portfolio-runs, %d decisions, backlog=%d)",
+        "run_strategy completed (%d candle-batches, %d portfolio-runs, %d decisions, backlog=%d)",
         groups_evaluated,
         portfolios_touched,
         total_decisions,

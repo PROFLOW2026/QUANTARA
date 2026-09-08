@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -38,6 +38,40 @@ if TYPE_CHECKING:
     from quantara_engine.persistence.store import TradingStore
 
 
+FRESHNESS_MAX_AGE_MINUTES = 30
+
+
+def signal_age_minutes(signal_candle_timestamp: datetime, now: datetime) -> float:
+    if signal_candle_timestamp.tzinfo is None:
+        signal_candle_timestamp = signal_candle_timestamp.replace(tzinfo=timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    return (now - signal_candle_timestamp).total_seconds() / 60
+
+
+def intent_execution_allowed(
+    intent: OrderIntent,
+    *,
+    candle: Candle,
+    now: datetime,
+    max_signal_age_minutes: int = FRESHNESS_MAX_AGE_MINUTES,
+) -> tuple[bool, str | None]:
+    """Return (allowed, rejection_reason) for live Paper execution."""
+    bar_minutes = timeframe_minutes(candle.timeframe)
+    if intent.execution_candle_timestamp != candle.timestamp:
+        return False, "execution_candle_mismatch"
+    age = signal_age_minutes(intent.signal_candle_timestamp, now)
+    if age > max_signal_age_minutes:
+        return False, f"stale_signal_age ({round(age, 1)}m)"
+    expected_exec_delta = bar_minutes
+    actual_exec_delta = (
+        intent.execution_candle_timestamp - intent.signal_candle_timestamp
+    ).total_seconds() / 60
+    if actual_exec_delta > expected_exec_delta + 1:
+        return False, "invalid_next_open_spacing"
+    return True, None
+
+
 @dataclass
 class PipelineResult:
     decisions: list[DecisionLogEntry] = field(default_factory=list)
@@ -60,6 +94,8 @@ class CandleProcessor:
         mode: Mode = Mode.PAPER,
         backtest_run_id: str | None = None,
         latest_completed_timestamp: datetime | None = None,
+        allow_live_execution: bool = True,
+        execution_now: datetime | None = None,
     ) -> None:
         self.state = portfolio_state
         self.instance = strategy_instance
@@ -72,6 +108,8 @@ class CandleProcessor:
         self.mode = mode
         self.backtest_run_id = backtest_run_id
         self.latest_completed_timestamp = latest_completed_timestamp
+        self.allow_live_execution = allow_live_execution
+        self.execution_now = execution_now or datetime.now(timezone.utc)
         if store is not None:
             store.mode = mode
             store.backtest_run_id = backtest_run_id
@@ -196,6 +234,22 @@ class CandleProcessor:
         )
         return strategy.evaluate(visible, ctx), candle
 
+    def process_position_management(self, candle_index: int) -> None:
+        """Execute pending intents and SL/TP on the live candle without strategy evaluation."""
+        candle = self.all_candles[candle_index]
+        self._execute_pending(candle)
+        self._check_sl_tp(candle)
+        self.state.recalculate_equity({self.instrument.id: candle.close})
+        if self.store:
+            self.store.update_portfolio(self.state.portfolio)
+            for pos in self.state.open_positions():
+                self.store.update_open_position_mark(
+                    pos.id, pos.current_price, pos.unrealized_pnl
+                )
+            self._flush_store()
+        snap = self.state.create_snapshot(candle.timestamp)
+        self._persist_snapshot(snap)
+
     def process_candle(
         self,
         candle_index: int,
@@ -211,21 +265,22 @@ class CandleProcessor:
         if isinstance(self.clock, BacktestClock):
             self.clock.set_candle_time(candle.timestamp)
 
-        # 1. Execute pending intents at this candle open
-        self._execute_pending(candle)
+        if self.allow_live_execution:
+            # 1. Execute pending intents at this candle open
+            self._execute_pending(candle)
 
-        # 2. Check SL/TP on candle OHLC
-        self._check_sl_tp(candle)
+            # 2. Check SL/TP on candle OHLC
+            self._check_sl_tp(candle)
 
-        # 3. Update unrealized P&L at close (instrument-scoped mark)
-        self.state.recalculate_equity({self.instrument.id: candle.close})
-        if self.store:
-            self.store.update_portfolio(self.state.portfolio)
-            for pos in self.state.open_positions():
-                self.store.update_open_position_mark(
-                    pos.id, pos.current_price, pos.unrealized_pnl
-                )
-            self._flush_store()
+            # 3. Update unrealized P&L at close (instrument-scoped mark)
+            self.state.recalculate_equity({self.instrument.id: candle.close})
+            if self.store:
+                self.store.update_portfolio(self.state.portfolio)
+                for pos in self.state.open_positions():
+                    self.store.update_open_position_mark(
+                        pos.id, pos.current_price, pos.unrealized_pnl
+                    )
+                self._flush_store()
 
         from quantara_engine.domain.types import Signal
 
@@ -240,9 +295,9 @@ class CandleProcessor:
         visible = self.all_candles[: candle_index + 1]
         self._handle_signal_decisions(signal, candle, signal_id, visible)
 
-        # 6. Snapshot
-        snap = self.state.create_snapshot(candle.timestamp)
-        self._persist_snapshot(snap)
+        if self.allow_live_execution:
+            snap = self.state.create_snapshot(candle.timestamp)
+            self._persist_snapshot(snap)
 
         return PipelineResult(
             decisions=self.decisions[-5:],
@@ -269,13 +324,16 @@ class CandleProcessor:
             self._log(candle, dtype, signal.reason, signal_id)
         elif signal.action == SignalAction.BUY:
             self._log(candle, DecisionType.BUY_SIGNAL, signal.reason, signal_id)
-            self._handle_trade_signal(signal, candle, signal_id, visible)
+            if self.allow_live_execution:
+                self._handle_trade_signal(signal, candle, signal_id, visible)
         elif signal.action == SignalAction.SELL:
             self._log(candle, DecisionType.SELL_SIGNAL, signal.reason, signal_id)
-            self._handle_trade_signal(signal, candle, signal_id, visible)
+            if self.allow_live_execution:
+                self._handle_trade_signal(signal, candle, signal_id, visible)
         elif signal.action == SignalAction.CLOSE:
             self._log(candle, DecisionType.CLOSE_SIGNAL, signal.reason, signal_id)
-            self._handle_close_signal(signal, candle, signal_id)
+            if self.allow_live_execution:
+                self._handle_close_signal(signal, candle, signal_id)
 
     def _execute_pending(self, candle: Candle) -> None:
         to_execute = [
@@ -285,6 +343,41 @@ class CandleProcessor:
             and i.execution_candle_timestamp == candle.timestamp
         ]
         for intent in to_execute:
+            if not self.allow_live_execution:
+                intent.status = IntentStatus.REJECTED
+                if self.store:
+                    self.store.update_order_intent_status(
+                        intent.id,
+                        IntentStatus.REJECTED,
+                        "historical_decision_only",
+                    )
+                    self._flush_store()
+                self._log(
+                    candle,
+                    DecisionType.RISK_DENIED,
+                    "Skipped historical catch-up execution",
+                )
+                continue
+            allowed, reject_reason = intent_execution_allowed(
+                intent,
+                candle=candle,
+                now=self.execution_now,
+            )
+            if not allowed:
+                intent.status = IntentStatus.REJECTED
+                if self.store:
+                    self.store.update_order_intent_status(
+                        intent.id,
+                        IntentStatus.REJECTED,
+                        reject_reason or "stale_catchup_execution",
+                    )
+                    self._flush_store()
+                self._log(
+                    candle,
+                    DecisionType.RISK_DENIED,
+                    f"Skipped stale catch-up execution ({reject_reason})",
+                )
+                continue
             if (
                 self.latest_completed_timestamp is not None
                 and intent.execution_candle_timestamp is not None
@@ -378,6 +471,18 @@ class CandleProcessor:
     def _handle_trade_signal(self, signal, candle: Candle, signal_id: str, visible: list) -> None:
         if self.state.portfolio.status != PortfolioStatus.ACTIVE:
             self._log(candle, DecisionType.TRADING_HALTED, "Portfolio halted")
+            return
+
+        if not self.allow_live_execution:
+            return
+
+        if signal_age_minutes(candle.timestamp, self.execution_now) > FRESHNESS_MAX_AGE_MINUTES:
+            self._log(
+                candle,
+                DecisionType.RISK_DENIED,
+                "Skipped stale signal — exceeds live execution window",
+                signal_id,
+            )
             return
 
         open_positions = self.state.open_positions()
