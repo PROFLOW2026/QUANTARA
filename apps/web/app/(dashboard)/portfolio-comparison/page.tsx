@@ -70,7 +70,7 @@ function LeaderboardTable({ rows }: { rows: CompetitionLeaderboardRow[] }) {
             <th className="py-2 text-right">{t("competition.timeframe")}</th>
             <th className="py-2 text-right">{t("competition.return_pct")}</th>
             <th className="py-2 text-right">{t("competition.max_drawdown")}</th>
-            <th className="py-2 text-right">{t("competition.trades")}</th>
+            <th className="py-2 text-right">{t("competition.closed_trades")}</th>
             <th className="py-2 text-right">{t("competition.win_rate")}</th>
           </tr>
         </thead>
@@ -94,6 +94,14 @@ function LeaderboardTable({ rows }: { rows: CompetitionLeaderboardRow[] }) {
       </table>
     </div>
   );
+}
+
+function portfolioDirectionLabel(direction?: string | null): string {
+  if (!direction) return "—";
+  const lower = direction.toLowerCase();
+  if (lower === "long") return t("common.long");
+  if (lower === "short") return t("common.short");
+  return direction;
 }
 
 function PortfolioCard({ p }: { p: CompetitionPortfolioSummary }) {
@@ -128,13 +136,25 @@ function PortfolioCard({ p }: { p: CompetitionPortfolioSummary }) {
           </span>
         </div>
         <div className="flex justify-between">
-          <span className="text-muted">{t("competition.open_position")}</span>
+          <span className="text-muted">{t("competition.open_position_label")}</span>
           <span>
-            {p.open_position ? t("competition.open_position") : t("competition.no_position")}
+            {p.open_position
+              ? t("competition.open_position_yes")
+              : t("competition.open_position_no")}
           </span>
         </div>
+        {p.open_position ? (
+          <div className="flex justify-between">
+            <span className="text-muted">{t("competition.open_direction")}</span>
+            <span>{portfolioDirectionLabel(p.open_direction)}</span>
+          </div>
+        ) : null}
         <div className="flex justify-between">
-          <span className="text-muted">{t("competition.trades")}</span>
+          <span className="text-muted">{t("competition.unrealized_pnl")}</span>
+          <PnLDisplay value={Number(p.unrealized_pnl ?? 0)} size="sm" />
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted">{t("competition.closed_trades")}</span>
           <span>{p.trades_count ?? 0}</span>
         </div>
         <div className="flex justify-between">
@@ -446,7 +466,7 @@ export default function PortfolioComparisonPage() {
                 <tr className="border-b border-border text-muted">
                   <th className="py-2 text-right">{t("competition.timeframe")}</th>
                   <th className="py-2 text-right">{t("competition.avg_return")}</th>
-                  <th className="py-2 text-right">{t("competition.trades")}</th>
+                  <th className="py-2 text-right">{t("competition.closed_trades")}</th>
                   <th className="py-2 text-right">{t("competition.avg_drawdown")}</th>
                   <th className="py-2 text-right">{t("competition.max_drawdown")}</th>
                 </tr>

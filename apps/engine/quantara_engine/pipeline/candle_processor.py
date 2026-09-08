@@ -217,6 +217,10 @@ class CandleProcessor:
         self.state.recalculate_equity(candle.close)
         if self.store:
             self.store.update_portfolio(self.state.portfolio)
+            for pos in self.state.open_positions():
+                self.store.update_open_position_mark(
+                    pos.id, pos.current_price, pos.unrealized_pnl
+                )
             self._flush_store()
 
         from quantara_engine.domain.types import Signal

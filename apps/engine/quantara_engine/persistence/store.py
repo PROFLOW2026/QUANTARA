@@ -887,6 +887,19 @@ class TradingStore:
         row.unrealized_pnl = Decimal("0")
         self.session.flush()
 
+    def update_open_position_mark(
+        self,
+        position_id: str,
+        mark_price: Decimal,
+        unrealized_pnl: Decimal,
+    ) -> None:
+        row = self.session.get(OrmPosition, _uuid(position_id))
+        if not row:
+            return
+        row.current_price = mark_price
+        row.unrealized_pnl = unrealized_pnl
+        self.session.flush()
+
     def save_trade(self, trade: Trade) -> None:
         row = OrmTrade(
             id=_uuid(trade.id),

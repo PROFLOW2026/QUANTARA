@@ -18,9 +18,11 @@ export async function loadCompetitionFull(): Promise<CompetitionResponse> {
 }
 
 function toSummary(item: PortfolioListItem): CompetitionPortfolioSummary {
+  const unrealizedPnl = Number(item.unrealized_pnl ?? 0);
   const totalPnl = item.equity - item.initial_capital;
   const returnPct =
     item.initial_capital > 0 ? (totalPnl / item.initial_capital) * 100 : 0;
+  const openPositionsCount = item.open_positions_count ?? 0;
 
   return {
     id: item.id,
@@ -32,17 +34,18 @@ function toSummary(item: PortfolioListItem): CompetitionPortfolioSummary {
     risk_per_trade_pct: item.risk_per_trade_pct ?? 0,
     initial_capital: item.initial_capital,
     equity: item.equity,
-    balance: item.equity,
-    realized_pnl: 0,
-    unrealized_pnl: 0,
+    balance: item.balance ?? item.equity,
+    realized_pnl: totalPnl - unrealizedPnl,
+    unrealized_pnl: unrealizedPnl,
     total_pnl: totalPnl,
     return_pct: returnPct,
-    trades_count: 0,
+    trades_count: item.closed_trades_count ?? 0,
     win_rate: null,
     max_drawdown_pct: 0,
     exposure_pct: 0,
-    open_position: false,
-    open_positions_count: 0,
+    open_position: item.open_position ?? openPositionsCount > 0,
+    open_positions_count: openPositionsCount,
+    open_direction: item.open_direction ?? null,
     status: "active",
     strategy_instance_id: "",
     sort_order: item.sort_order ?? 99,
@@ -151,7 +154,10 @@ export async function loadCompetitionView(): Promise<CompetitionResponse> {
       initial_equity: COMPETITION_TOTAL_INITIAL,
       current_equity: combinedEquity,
       combined_pnl: combinedEquity - COMPETITION_TOTAL_INITIAL,
-      open_positions_total: 0,
+      open_positions_total: portfolios.reduce(
+        (sum, row) => sum + (row.open_positions_count ?? 0),
+        0
+      ),
     },
     leader,
     leading_timeframe: leadingTimeframe,

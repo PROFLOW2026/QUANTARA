@@ -402,6 +402,8 @@ def portfolios_list(store: StoreDep):
     for entry in entries:
         p = entry["portfolio"]
         portfolio_def = PORTFOLIO_DEF_BY_ID.get(p.id)
+        open_positions = store.list_positions(p.id, open_only=True)
+        open_pos = open_positions[0] if open_positions else None
         items.append(
             {
                 "id": p.id,
@@ -412,7 +414,13 @@ def portfolios_list(store: StoreDep):
                 "risk_slug": entry["risk_profile"].slug,
                 "risk_per_trade_pct": float(entry["risk_profile"].risk_per_trade_pct),
                 "initial_capital": float(p.initial_capital),
+                "balance": float(p.balance),
                 "equity": float(p.equity),
+                "unrealized_pnl": float(p.unrealized_pnl),
+                "open_positions_count": len(open_positions),
+                "open_position": len(open_positions) > 0,
+                "open_direction": open_pos.direction.value if open_pos else None,
+                "closed_trades_count": store.count_trades_for_portfolio(p.id),
                 "sort_order": entry["sort_order"],
             }
         )

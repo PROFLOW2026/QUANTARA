@@ -388,7 +388,13 @@ export interface PortfolioListItem {
   timeframe_he?: string;
   sort_order?: number;
   initial_capital: number;
+  balance?: number;
   equity: number;
+  unrealized_pnl?: number;
+  open_positions_count?: number;
+  open_position?: boolean;
+  open_direction?: string | null;
+  closed_trades_count?: number;
 }
 
 export interface CompetitionLeaderboardRow {
@@ -453,6 +459,7 @@ export interface CompetitionPortfolioSummary {
   actual_risk_pct?: number | null;
   virtual_leverage?: number | null;
   notional_exposure?: number;
+  open_direction?: string | null;
 }
 
 export interface CompetitionResponse {

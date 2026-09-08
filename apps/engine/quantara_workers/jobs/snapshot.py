@@ -21,6 +21,8 @@ def _snapshot_one(s: TradingStore, portfolio_id: str, mark) -> None:
     snap = state.create_snapshot(datetime.now(timezone.utc))
     s.save_snapshot(snap)
     s.update_portfolio(state.portfolio)
+    for pos in state.open_positions():
+        s.update_open_position_mark(pos.id, pos.current_price, pos.unrealized_pnl)
 
 
 def snapshot_job(store: TradingStore | None = None) -> None:
@@ -30,7 +32,7 @@ def snapshot_job(store: TradingStore | None = None) -> None:
         instrument = s.get_instrument_by_symbol("XAUUSD")
         mark = None
         if instrument:
-            candles = s.list_candles(instrument.id, "1h", limit=1)
+            candles = s.list_recent_candles(instrument.id, "1h", limit=1)
             if candles:
                 mark = candles[-1].close
 
