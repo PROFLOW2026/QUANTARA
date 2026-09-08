@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from quantara_engine.db.session import session_scope
 from quantara_engine.persistence.store import TradingStore
@@ -12,10 +13,30 @@ from quantara_engine.persistence.store import TradingStore
 logger = logging.getLogger(__name__)
 
 
-def _snapshot_one(s: TradingStore, portfolio_id: str, mark) -> None:
+def _marks_for_portfolio(s: TradingStore, portfolio_id: str, state) -> dict:
+    """Latest close per instrument using the portfolio's strategy timeframe."""
+    marks: dict = {}
+    instance = s.get_paper_strategy_instance(portfolio_id)
+    timeframe = instance.timeframe if instance else "1h"
+    for pos in state.open_positions():
+        if pos.instrument_id in marks:
+            continue
+        candles = s.list_recent_candles(pos.instrument_id, timeframe, limit=1)
+        if candles:
+            marks[pos.instrument_id] = candles[-1].close
+    return marks
+
+
+def _snapshot_one(s: TradingStore, portfolio_id: str) -> None:
     state = s.load_portfolio_state(portfolio_id)
-    if mark:
-        state.recalculate_equity(mark)
+    marks = _marks_for_portfolio(s, portfolio_id, state)
+    if marks:
+        state.recalculate_equity(marks)
+    else:
+        state.portfolio.unrealized_pnl = Decimal("0")
+        state.portfolio.equity = state.portfolio.balance
+        state.portfolio.exposure_notional = Decimal("0")
+        state.portfolio.reserved_capital = Decimal("0")
     snap = state.create_snapshot(datetime.now(timezone.utc))
     s.save_snapshot(snap)
     s.update_portfolio(state.portfolio)
@@ -27,13 +48,6 @@ def snapshot_job(store: TradingStore | None = None) -> None:
     started_at = datetime.now(timezone.utc)
 
     def _run(s: TradingStore) -> None:
-        instrument = s.get_instrument_by_symbol("XAUUSD")
-        mark = None
-        if instrument:
-            candles = s.list_recent_candles(instrument.id, "1h", limit=1)
-            if candles:
-                mark = candles[-1].close
-
         entries = s.list_competition_entries()
         portfolio_ids = [e["portfolio"].id for e in entries]
         if not portfolio_ids:
@@ -41,7 +55,7 @@ def snapshot_job(store: TradingStore | None = None) -> None:
             return
 
         for portfolio_id in portfolio_ids:
-            _snapshot_one(s, portfolio_id, mark)
+            _snapshot_one(s, portfolio_id)
 
         s.update_worker_status(
             "snapshot",

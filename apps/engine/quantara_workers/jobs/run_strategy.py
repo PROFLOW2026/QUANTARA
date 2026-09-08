@@ -139,6 +139,11 @@ def _process_timeframe_group(
     if len(indices) > MAX_LIVE_CATCHUP_PER_RUN:
         indices = indices[-MAX_LIVE_CATCHUP_PER_RUN:]
 
+    latest_completed_ts: datetime | None = None
+    for candle in candles:
+        if is_bar_complete(candle.timestamp, timeframe, started_at):
+            latest_completed_ts = candle.timestamp
+
     total_decisions = 0
     candles_processed = 0
     template = group[0]
@@ -175,6 +180,7 @@ def _process_timeframe_group(
                 clock=BacktestClock(),
                 store=s,
                 mode=Mode.PAPER,
+                latest_completed_timestamp=latest_completed_ts,
             )
             processor.all_candles = candles
             pending = s.list_pending_order_intents(portfolio.id, instance.id)

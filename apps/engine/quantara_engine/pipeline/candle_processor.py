@@ -59,6 +59,7 @@ class CandleProcessor:
         store: TradingStore | None = None,
         mode: Mode = Mode.PAPER,
         backtest_run_id: str | None = None,
+        latest_completed_timestamp: datetime | None = None,
     ) -> None:
         self.state = portfolio_state
         self.instance = strategy_instance
@@ -70,6 +71,7 @@ class CandleProcessor:
         self.store = store
         self.mode = mode
         self.backtest_run_id = backtest_run_id
+        self.latest_completed_timestamp = latest_completed_timestamp
         if store is not None:
             store.mode = mode
             store.backtest_run_id = backtest_run_id
@@ -215,8 +217,8 @@ class CandleProcessor:
         # 2. Check SL/TP on candle OHLC
         self._check_sl_tp(candle)
 
-        # 3. Update unrealized P&L at close
-        self.state.recalculate_equity(candle.close)
+        # 3. Update unrealized P&L at close (instrument-scoped mark)
+        self.state.recalculate_equity({self.instrument.id: candle.close})
         if self.store:
             self.store.update_portfolio(self.state.portfolio)
             for pos in self.state.open_positions():
@@ -283,6 +285,25 @@ class CandleProcessor:
             and i.execution_candle_timestamp == candle.timestamp
         ]
         for intent in to_execute:
+            if (
+                self.latest_completed_timestamp is not None
+                and intent.execution_candle_timestamp is not None
+                and intent.execution_candle_timestamp < self.latest_completed_timestamp
+            ):
+                intent.status = IntentStatus.REJECTED
+                if self.store:
+                    self.store.update_order_intent_status(
+                        intent.id,
+                        IntentStatus.REJECTED,
+                        "stale_catchup_execution",
+                    )
+                    self._flush_store()
+                self._log(
+                    candle,
+                    DecisionType.RISK_DENIED,
+                    "Skipped stale catch-up execution",
+                )
+                continue
             if intent.is_close and intent.position_id:
                 position = next(
                     (p for p in self.state.open_positions() if p.id == intent.position_id),

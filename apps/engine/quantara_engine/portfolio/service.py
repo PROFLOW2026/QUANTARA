@@ -21,7 +21,6 @@ from quantara_engine.domain.types import (
 )
 from quantara_engine.execution.fill_calculator import FillResult
 from quantara_engine.portfolio.pnl import (
-    exposure_notional,
     gross_pnl,
     net_pnl,
     update_position_unrealized,
@@ -51,15 +50,29 @@ class PortfolioState:
     def open_positions(self) -> list[Position]:
         return [p for p in self.positions if p.status == PositionStatus.OPEN]
 
-    def recalculate_equity(self, mark_price: Decimal) -> None:
+    def _mark_for_position(
+        self, position: Position, mark_price: Decimal | dict[str, Decimal]
+    ) -> Decimal:
+        if isinstance(mark_price, dict):
+            return mark_price.get(position.instrument_id, position.current_price)
+        return mark_price
+
+    def recalculate_equity(self, mark_price: Decimal | dict[str, Decimal]) -> None:
         total_unrealized = Decimal("0")
         for pos in self.open_positions():
-            total_unrealized += update_position_unrealized(pos, mark_price)
+            mark = self._mark_for_position(pos, mark_price)
+            total_unrealized += update_position_unrealized(pos, mark)
         self.portfolio.unrealized_pnl = total_unrealized.quantize(Decimal("0.01"))
         self.portfolio.equity = (self.portfolio.balance + self.portfolio.unrealized_pnl).quantize(
             Decimal("0.01")
         )
-        exp = exposure_notional(self.open_positions(), mark_price)
+        exp = sum(
+            (
+                pos.quantity * self._mark_for_position(pos, mark_price)
+                for pos in self.open_positions()
+            ),
+            Decimal("0"),
+        ).quantize(Decimal("0.01"))
         self.portfolio.exposure_notional = exp
         self.portfolio.reserved_capital = exp
         if self.portfolio.equity > self.portfolio.peak_equity:
