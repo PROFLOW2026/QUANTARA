@@ -6,7 +6,11 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from quantara_engine.domain.types import Candle
-from quantara_engine.market_data.aggregation import aggregate_from_5m, bucket_start
+from quantara_engine.market_data.aggregation import (
+    aggregate_from_5m,
+    bucket_start,
+    derivation_source_limit,
+)
 
 
 def _bar(ts: str, o: str, h: str, l: str, c: str) -> Candle:
@@ -80,3 +84,9 @@ def test_aggregate_skips_gap_in_5m_sequence():
         _bar("2026-09-08T10:30:00+00:00", "2.5", "3.5", "2.0", "3.0"),
     ]
     assert aggregate_from_5m(bars, "15m") == []
+
+
+def test_derivation_source_limit_scales_with_strategy_minimum():
+    assert derivation_source_limit(5000) >= 200 * 12
+    assert derivation_source_limit(100) == 100
+    assert derivation_source_limit(0) == 0

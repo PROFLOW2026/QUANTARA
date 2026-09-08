@@ -196,6 +196,7 @@
     "asset_status_stale": "מיושן",
     "asset_status_blocked": "חסום",
     "asset_status_error": "שגיאה",
+    "asset_status_deferred": "נדחה",
     "asset_status_unknown": "לא ידוע",
     "session_open": "פתוח",
     "session_closed": "סגור",

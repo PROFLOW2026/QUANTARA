@@ -16,6 +16,8 @@ function statusBadge(status: string, stale?: boolean) {
   const variant =
     key === "healthy" || key === "fresh"
       ? "success"
+      : key === "deferred"
+        ? "muted"
       : key === "blocked" || key === "error"
         ? "danger"
         : "warning";
@@ -57,14 +59,17 @@ function ProviderHealthCard({
           {t("home.provider_last_update")}: {formatRelativeTime(health.last_success)}
         </p>
       ) : null}
+        if health?.remaining != null ? (
+        <p className="text-xs text-muted">
+          {t("home.provider_credits")}: {health.used_today ?? 0}/{health.guard_limit ?? health.daily_limit}
+        </p>
+      ) : null}
       {health?.remaining_hour != null ? (
         <p className="text-xs text-muted">
           {t("home.provider_hourly")}: {health.used_hour ?? 0}/{health.hourly_limit}
-        </p>
-      ) : null}
-      {health?.remaining != null ? (
-        <p className="text-xs text-muted">
-          {t("home.provider_credits")}: {health.used_today ?? 0}/{health.guard_limit ?? health.daily_limit}
+          {health.active_symbols?.length
+            ? ` · ${health.active_symbols.join(", ")}`
+            : ""}
         </p>
       ) : null}
       {health?.last_error ? (

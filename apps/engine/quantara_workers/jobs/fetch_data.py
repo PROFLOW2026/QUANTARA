@@ -14,18 +14,63 @@ from quantara_engine.market_data.adapters.twelvedata import TwelveDataError
 from quantara_engine.market_data.aggregation import (
     DERIVED_FROM_5M,
     aggregate_from_5m,
-    aggregation_lookback_bars,
+    derivation_source_limit,
 )
 from quantara_engine.market_data.credits import FetchPriority, status_payload as twelve_status
 from quantara_engine.market_data.factory import get_provider_for_asset
 from quantara_engine.market_data.polling import PROVIDER_TIMEFRAME, STRATEGY_MIN_CANDLES, should_fetch_timeframe
 from quantara_engine.market_data.provider_budgets import all_provider_status
-from quantara_engine.market_data.registry import AssetClass, list_target_assets
+from quantara_engine.market_data.registry import AssetClass, ProviderName, list_target_assets
 from quantara_engine.market_data.spot_price import update_spot_from_latest_5m
 from quantara_engine.market_data.validation import validate_candle
 from quantara_engine.persistence.store import TradingStore
 
 logger = logging.getLogger(__name__)
+
+TIINGO_POLL_INTERVAL_MINUTES = 12
+LAST_FETCH_KEY = "provider_budget:tiingo:last_fetch"
+
+
+def _tiingo_last_fetch(store: TradingStore, db_symbol: str) -> datetime | None:
+    raw = store.get_settings_dict().get(f"{LAST_FETCH_KEY}:{db_symbol}")
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+
+
+def _mark_tiingo_fetch(store: TradingStore, db_symbol: str, when: datetime) -> None:
+    store.update_settings(
+        f"{LAST_FETCH_KEY}:{db_symbol}",
+        when.isoformat(),
+        description=f"Tiingo last poll for {db_symbol}",
+    )
+
+
+def _should_poll_asset(
+    store: TradingStore,
+    asset,
+    *,
+    now: datetime,
+    stored: int,
+    force_bootstrap: bool,
+) -> tuple[bool, str | None]:
+    if force_bootstrap:
+        return True, None
+    if asset.primary_provider != ProviderName.TIINGO:
+        return True, None
+    last_poll = _tiingo_last_fetch(store, asset.db_symbol)
+    if last_poll:
+        elapsed = (now - last_poll).total_seconds() / 60
+        if elapsed < TIINGO_POLL_INTERVAL_MINUTES:
+            return False, f"deferred (Tiingo poll interval {TIINGO_POLL_INTERVAL_MINUTES}m)"
+    from quantara_engine.market_data.provider_budgets import can_request
+
+    if not can_request(store, "tiingo"):
+        return False, "deferred (Tiingo hourly budget)"
+    return True, None
 
 
 def _aggregation_mode(asset) -> str:
@@ -41,7 +86,8 @@ def _derive_and_store_higher_timeframes(
     session_mode: str,
 ) -> int:
     derived_count = 0
-    lookback = max(aggregation_lookback_bars(tf) for tf in DERIVED_FROM_5M)
+    stored_5m = store.count_candles(instrument_id, PROVIDER_TIMEFRAME)
+    lookback = derivation_source_limit(stored_5m)
     base_rows = store.list_recent_candles(instrument_id, PROVIDER_TIMEFRAME, limit=lookback)
     if not base_rows:
         return 0
@@ -82,9 +128,23 @@ def _fetch_asset(
     stored = store.count_candles(instrument.id, timeframe)
     count = 0
     error: str | None = None
+    force_bootstrap = stored < STRATEGY_MIN_CANDLES
+
+    should_poll, defer_reason = _should_poll_asset(
+        store, asset, now=now, stored=stored, force_bootstrap=force_bootstrap
+    )
+    if not should_poll:
+        derived = 0
+        if stored >= STRATEGY_MIN_CANDLES:
+            derived = _derive_and_store_higher_timeframes(
+                store,
+                instrument.id,
+                session_mode=_aggregation_mode(asset),
+            )
+        return 0, derived, defer_reason
 
     try:
-        if stored < STRATEGY_MIN_CANDLES and hasattr(provider, "fetch_bootstrap"):
+        if force_bootstrap and hasattr(provider, "fetch_bootstrap"):
             candles = provider.fetch_bootstrap(instrument.id, timeframe)  # type: ignore[attr-defined]
         elif should_fetch_timeframe(timeframe, last_ts, now):
             candles = provider.fetch_latest(instrument.id, timeframe, since=last_ts)
@@ -107,6 +167,36 @@ def _fetch_asset(
             continue
         store.upsert_candle(candle)
         count += 1
+
+    stored_after = store.count_candles(instrument.id, timeframe)
+    if (
+        force_bootstrap
+        and stored_after < STRATEGY_MIN_CANDLES
+        and asset.secondary_provider is not None
+    ):
+        try:
+            secondary = get_provider_for_asset(asset, role="secondary")
+            if hasattr(secondary, "bind_context"):
+                secondary.bind_context(  # type: ignore[attr-defined]
+                    store=store,
+                    caller="fetch_data_job:bootstrap_secondary",
+                    asset=asset,
+                    priority=FetchPriority.CATCH_UP,
+                )
+            extra = secondary.fetch_bootstrap(instrument.id, timeframe)  # type: ignore[attr-defined]
+            for candle in extra:
+                try:
+                    validate_candle(candle)
+                except Exception as exc:
+                    logger.warning("Invalid secondary candle skipped (%s): %s", asset.db_symbol, exc)
+                    continue
+                store.upsert_candle(candle)
+                count += 1
+        except (TwelveDataError, AlpacaError, TiingoError) as exc:
+            logger.warning("Secondary bootstrap failed for %s — %s", asset.db_symbol, exc)
+
+    if asset.primary_provider == ProviderName.TIINGO and count:
+        _mark_tiingo_fetch(store, asset.db_symbol, now)
 
     derived = 0
     if count or stored >= STRATEGY_MIN_CANDLES:
@@ -140,7 +230,15 @@ def fetch_data_job(store: TradingStore | None = None) -> None:
             count, derived, error = _fetch_asset(s, instrument, asset, now)
             total_count += count
             total_derived += derived
-            if error:
+            latest = s.latest_candle_timestamp(instrument.id, PROVIDER_TIMEFRAME)
+            if error and str(error).startswith("deferred"):
+                asset_status[asset.db_symbol] = {
+                    "status": "deferred",
+                    "provider": asset.primary_provider.value,
+                    "last_candle": latest.isoformat() if latest else None,
+                    "note": error,
+                }
+            elif error:
                 errors.append(error)
                 asset_status[asset.db_symbol] = {
                     "status": "error",
@@ -148,7 +246,6 @@ def fetch_data_job(store: TradingStore | None = None) -> None:
                     "error": error,
                 }
             else:
-                latest = s.latest_candle_timestamp(instrument.id, PROVIDER_TIMEFRAME)
                 asset_status[asset.db_symbol] = {
                     "status": "healthy" if latest else "stale",
                     "provider": asset.primary_provider.value,

@@ -144,8 +144,31 @@ def status_payload(store: TradingStore | None, provider: str) -> dict[str, Any]:
 def all_provider_status(store: TradingStore | None) -> dict[str, dict[str, Any]]:
     from quantara_engine.market_data.credits import status_payload as twelve_status
 
+    worker_raw = {}
+    if store is not None:
+        worker_raw = store.get_settings_dict().get("worker_status:data_fetcher") or {}
+
+    td = twelve_status(store)
+    alpaca = status_payload(store, "alpaca")
+    tiingo = status_payload(store, "tiingo")
+
+    # Infer from worker payload when budget tracker has not recorded yet.
+    if alpaca.get("status") == "unknown" and worker_raw.get("last_run"):
+        alpaca["status"] = worker_raw.get("status", "healthy")
+        alpaca["last_success"] = worker_raw.get("last_run")
+    if tiingo.get("status") == "unknown" and worker_raw.get("last_run"):
+        tiingo["status"] = worker_raw.get("status", "healthy")
+        tiingo["last_success"] = worker_raw.get("last_run")
+
+    errors = worker_raw.get("errors") or []
+    if isinstance(errors, list) and any("429" in str(item) for item in errors):
+        td["status"] = "blocked"
+        td["last_error"] = next((str(item) for item in errors if "429" in str(item)), td.get("last_error"))
+    elif int(td.get("used_today") or 0) >= 720:
+        td["status"] = "blocked"
+
     return {
-        "twelvedata": twelve_status(store),
-        "alpaca": status_payload(store, "alpaca"),
-        "tiingo": status_payload(store, "tiingo"),
+        "twelvedata": td,
+        "alpaca": alpaca,
+        "tiingo": tiingo,
     }

@@ -137,7 +137,15 @@ def _strategy_label_from_instance(store: TradingStore, strategy_instance_id: str
 
 @router.get("/health")
 def health():
-    return {"status": "ok", "service": "quantara-engine"}
+    return {
+        "status": "ok",
+        "service": "quantara-engine",
+        "api_version": "multi-provider-8asset",
+        "features": {
+            "analytics_assets": True,
+            "multi_market_data_status": True,
+        },
+    }
 
 
 @router.get("/instruments")

@@ -124,37 +124,69 @@ class AlpacaMarketDataProvider:
         timeframe: str,
         start: datetime | None,
         limit: int,
-    ) -> list[dict[str, Any]]:
+        page_token: str | None = None,
+    ) -> tuple[list[dict[str, Any]], str | None]:
         tf = TIMEFRAME_MAP.get(timeframe)
         if not tf:
             raise AlpacaError(f"Unsupported timeframe: {timeframe}")
 
         if self._asset and self._asset.asset_class == AssetClass.CRYPTO:
-            params = {
+            params: dict[str, Any] = {
                 "symbols": symbol,
                 "timeframe": tf,
-                "limit": limit,
+                "limit": min(limit, 10000),
             }
             if start:
                 params["start"] = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+            if page_token:
+                params["page_token"] = page_token
             url = f"{self.base_url}/v1beta3/crypto/us/bars?" + urllib.parse.urlencode(params)
         else:
             params = {
                 "timeframe": tf,
-                "limit": limit,
+                "limit": min(limit, 10000),
                 "feed": self.feed,
             }
             if start:
                 params["start"] = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+            if page_token:
+                params["page_token"] = page_token
             url = f"{self.base_url}/v2/stocks/{symbol}/bars?" + urllib.parse.urlencode(params)
 
         payload = self._request(url, symbol)
         bars = payload.get("bars")
         if isinstance(bars, list):
-            return bars
-        if isinstance(bars, dict):
-            return list(bars.get(symbol) or [])
-        return []
+            rows = bars
+        elif isinstance(bars, dict):
+            rows = list(bars.get(symbol) or [])
+        else:
+            rows = []
+        return rows, payload.get("next_page_token")
+
+    def _fetch_bars_paginated(
+        self,
+        *,
+        symbol: str,
+        timeframe: str,
+        start: datetime | None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        page_token: str | None = None
+        while len(rows) < limit:
+            batch, page_token = self._fetch_bars(
+                symbol=symbol,
+                timeframe=timeframe,
+                start=start,
+                limit=limit - len(rows),
+                page_token=page_token,
+            )
+            if not batch:
+                break
+            rows.extend(batch)
+            if not page_token:
+                break
+        return rows[:limit]
 
     def _parse_bar(self, row: dict[str, Any], instrument_id: str, timeframe: str) -> Candle | None:
         try:
@@ -206,14 +238,27 @@ class AlpacaMarketDataProvider:
         if timeframe != PROVIDER_TIMEFRAME:
             raise AlpacaError(f"Alpaca fetch blocked for {timeframe}; use {PROVIDER_TIMEFRAME}")
         symbol = self._provider_ticker()
-        start = since - timedelta(minutes=15) if since else None
-        rows = self._fetch_bars(symbol=symbol, timeframe=timeframe, start=start, limit=30)
+        now = datetime.now(timezone.utc)
+        if since is not None:
+            start = since - timedelta(minutes=15)
+            # Catch up long gaps with a wider window (crypto can go stale across restarts).
+            if (now - since).total_seconds() > 3600:
+                start = since - timedelta(hours=6)
+            limit = 1000 if (now - since).total_seconds() > 86400 else 100
+        else:
+            start = now - timedelta(days=2)
+            limit = 100
+        rows = self._fetch_bars_paginated(
+            symbol=symbol, timeframe=timeframe, start=start, limit=limit
+        )
         return self._to_candles(rows, instrument_id, timeframe, since=since)
 
     def fetch_bootstrap(self, instrument_id: str, timeframe: str, bars: int = BOOTSTRAP_OUTPUT_SIZE) -> list[Candle]:
         symbol = self._provider_ticker()
         start = datetime.now(timezone.utc) - timedelta(days=90)
-        rows = self._fetch_bars(symbol=symbol, timeframe=timeframe, start=start, limit=10000)
+        rows = self._fetch_bars_paginated(
+            symbol=symbol, timeframe=timeframe, start=start, limit=10000
+        )
         return self._to_candles(rows, instrument_id, timeframe)
 
     def fetch_range(
@@ -224,7 +269,9 @@ class AlpacaMarketDataProvider:
         end: datetime,
     ) -> list[Candle]:
         symbol = self._provider_ticker()
-        rows = self._fetch_bars(symbol=symbol, timeframe=timeframe, start=start, limit=5000)
+        rows = self._fetch_bars_paginated(
+            symbol=symbol, timeframe=timeframe, start=start, limit=10000
+        )
         candles = self._to_candles(rows, instrument_id, timeframe)
         return [c for c in candles if start <= c.timestamp <= end]
 

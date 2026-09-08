@@ -166,14 +166,25 @@ def status_payload(store: TradingStore | None) -> dict[str, Any]:
     used = int(state.get("provider_daily_usage") or state.get("used") or 0)
     limit = int(state.get("provider_daily_limit") or DAILY_HARD_LIMIT)
     remaining = max(0, limit - used)
+    if used >= DAILY_HARD_LIMIT:
+        status = "blocked"
+    elif used >= INTERNAL_GUARD_LIMIT:
+        status = "stale"
+    elif used > 0:
+        status = "healthy"
+    else:
+        status = "unknown"
     return {
         "provider": "twelvedata",
+        "status": status,
         "date": state.get("date", _today_key()),
         "used_today": used,
         "remaining": remaining,
         "estimated_run_rate_per_hour": estimate_run_rate_per_hour(store),
         "daily_hard_limit": DAILY_HARD_LIMIT,
         "internal_guard_limit": INTERNAL_GUARD_LIMIT,
+        "guard_limit": INTERNAL_GUARD_LIMIT,
         "ledger_used": int(state.get("used") or 0),
         "last_sync": state.get("last_sync"),
+        "last_error": state.get("last_error"),
     }

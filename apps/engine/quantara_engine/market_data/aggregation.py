@@ -114,3 +114,21 @@ def aggregation_lookback_bars(target_timeframe: str, extra_buckets: int = 2) -> 
     base_minutes = BAR_MINUTES["5m"]
     components = target_minutes // base_minutes
     return components * (1 + extra_buckets)
+
+
+def derivation_source_limit(stored_5m_count: int) -> int:
+    """
+    Load enough completed 5m bars to rebuild up to STRATEGY_MIN_CANDLES derived bars.
+
+    1h needs the deepest window (200 buckets × 12 five-minute bars).
+    """
+    from quantara_engine.market_data.polling import STRATEGY_MIN_CANDLES, timeframe_minutes
+
+    if stored_5m_count <= 0:
+        return 0
+    max_components = max(
+        timeframe_minutes(tf) // timeframe_minutes("5m") for tf in DERIVED_FROM_5M
+    )
+    needed = STRATEGY_MIN_CANDLES * max_components + max_components
+    incremental = max(aggregation_lookback_bars(tf) for tf in DERIVED_FROM_5M)
+    return min(stored_5m_count, max(needed, incremental))
