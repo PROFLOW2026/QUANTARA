@@ -25,6 +25,8 @@ from quantara_engine.persistence.store import TradingStore
 logger = logging.getLogger(__name__)
 
 FRESHNESS_MAX_AGE_MINUTES = 30
+CANDLE_LOOKBACK = STRATEGY_MIN_CANDLES + 50
+MAX_LIVE_CATCHUP_PER_RUN = 3
 
 
 def _check_eligibility(
@@ -57,27 +59,29 @@ def _check_eligibility(
 
 
 def _ensure_candles(s: TradingStore, instrument, timeframe: str, settings_dict: dict) -> list:
-    candles = s.list_candles(instrument.id, timeframe)
-    if len(candles) >= STRATEGY_MIN_CANDLES:
-        return sorted(candles, key=lambda c: c.timestamp)
+    stored = s.count_candles(instrument.id, timeframe)
+    if stored < STRATEGY_MIN_CANDLES:
+        if settings_dict.get("market_data_provider") == "mock" or settings.market_data_provider == "mock":
+            provider = get_market_data_provider("mock")
+            generated = provider.generate_candles(
+                instrument.id, timeframe, STRATEGY_MIN_CANDLES + 50
+            )
+            for candle in generated:
+                s.upsert_candle(candle)
+            stored = s.count_candles(instrument.id, timeframe)
+        else:
+            logger.warning(
+                "Insufficient real candles (%d/%d) for %s — skipping run",
+                stored,
+                STRATEGY_MIN_CANDLES,
+                timeframe,
+            )
+            return []
 
-    if settings_dict.get("market_data_provider") == "mock" or settings.market_data_provider == "mock":
-        provider = get_market_data_provider("mock")
-        generated = provider.generate_candles(
-            instrument.id, timeframe, STRATEGY_MIN_CANDLES + 50
-        )
-        for candle in generated:
-            s.upsert_candle(candle)
-        candles = s.list_candles(instrument.id, timeframe)
-        return sorted(candles, key=lambda c: c.timestamp)
-
-    logger.warning(
-        "Insufficient real candles (%d/%d) for %s — skipping run",
-        len(candles),
-        STRATEGY_MIN_CANDLES,
-        timeframe,
-    )
-    return []
+    candles = s.list_recent_candles(instrument.id, timeframe, limit=CANDLE_LOOKBACK)
+    if len(candles) < STRATEGY_MIN_CANDLES:
+        return []
+    return candles
 
 
 def _catchup_indices(
@@ -132,6 +136,8 @@ def _process_timeframe_group(
         return 0, 0, s.get_timeframe_execution_status(
             instrument.id, timeframe, instance_ids, started_at
         )
+    if len(indices) > MAX_LIVE_CATCHUP_PER_RUN:
+        indices = indices[-MAX_LIVE_CATCHUP_PER_RUN:]
 
     total_decisions = 0
     candles_processed = 0
@@ -255,6 +261,12 @@ def _process_competition(s: TradingStore, started_at: datetime) -> int:
                 "timeframes": timeframe_status,
                 "instruments": instrument_status,
             },
+        )
+        s.save_worker_run(
+            run_id=str(uuid.uuid4()),
+            worker_name="strategy_runner",
+            started_at=started_at,
+            jobs_processed=0,
         )
         return 0
 
