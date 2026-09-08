@@ -116,6 +116,63 @@ def aggregation_lookback_bars(target_timeframe: str, extra_buckets: int = 2) -> 
     return components * (1 + extra_buckets)
 
 
+def incremental_source_limit(new_5m_count: int) -> int:
+    """Minimal 5m lookback when deriving only buckets touched by new bars."""
+    max_components = max(
+        timeframe_minutes(tf) // timeframe_minutes("5m") for tf in DERIVED_FROM_5M
+    )
+    window = max(aggregation_lookback_bars(tf) for tf in DERIVED_FROM_5M)
+    return window + max(new_5m_count, 1) + max_components
+
+
+def affected_derived_buckets(
+    timestamps: list[datetime],
+    target_timeframe: str,
+    *,
+    session_mode: str,
+) -> set[datetime]:
+    buckets: set[datetime] = set()
+    for ts in timestamps:
+        if session_mode == "us_rth":
+            bucket = us_rth_bucket_start(ts, target_timeframe)
+        else:
+            bucket = bucket_start(ts, target_timeframe)
+        if bucket is not None:
+            buckets.add(bucket)
+    return buckets
+
+
+def incremental_derive_from_5m(
+    base_candles: list[Candle],
+    new_5m_timestamps: list[datetime],
+    *,
+    session_mode: str = "utc",
+    source: str = "aggregated",
+) -> list[Candle]:
+    """Derive only 15m/1h buckets affected by newly upserted 5m candles."""
+    if not base_candles or not new_5m_timestamps:
+        return []
+
+    derived: list[Candle] = []
+    for target_tf in DERIVED_FROM_5M:
+        target_buckets = affected_derived_buckets(
+            new_5m_timestamps,
+            target_tf,
+            session_mode=session_mode,
+        )
+        if not target_buckets:
+            continue
+        for candle in aggregate_from_5m(
+            base_candles,
+            target_tf,
+            session_mode=session_mode,
+            source=source,
+        ):
+            if candle.timestamp in target_buckets:
+                derived.append(candle)
+    return derived
+
+
 def derivation_source_limit(stored_5m_count: int) -> int:
     """
     Load enough completed 5m bars to rebuild up to STRATEGY_MIN_CANDLES derived bars.

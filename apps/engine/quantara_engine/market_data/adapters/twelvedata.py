@@ -131,6 +131,10 @@ class TwelveDataMarketDataProvider:
                 message = payload.get("message") or body[:200]
             except json.JSONDecodeError:
                 message = body[:200] or str(exc)
+            if exc.code == 429:
+                from quantara_engine.market_data.credits import mark_blocked
+
+                mark_blocked(self._store, f"HTTP 429: {message}")
             raise TwelveDataError(
                 f"HTTP {exc.code}: {message}",
                 code=exc.code,
@@ -139,10 +143,13 @@ class TwelveDataMarketDataProvider:
             raise TwelveDataError(f"Network error: {exc.reason}") from exc
 
         if payload.get("status") == "error":
-            raise TwelveDataError(
-                payload.get("message") or "Unknown Twelve Data error",
-                code=payload.get("code"),
-            )
+            message = payload.get("message") or "Unknown Twelve Data error"
+            code = payload.get("code")
+            if code == 429 or (isinstance(message, str) and "run out of api credits" in message.lower()):
+                from quantara_engine.market_data.credits import mark_blocked
+
+                mark_blocked(self._store, str(message))
+            raise TwelveDataError(message, code=code)
 
         credits = credits_for_endpoint(endpoint)
         if credits:

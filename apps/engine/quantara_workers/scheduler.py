@@ -7,12 +7,18 @@ from datetime import datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from quantara_workers.jobs.fetch_data import fetch_data_job
+from quantara_workers.jobs.fetch_data import fetch_bulk_job, fetch_live_job
 from quantara_workers.jobs.run_backtest import run_backtest_job
 from quantara_workers.jobs.run_strategy import run_strategy_job
 from quantara_workers.jobs.snapshot import snapshot_job
 
 logger = logging.getLogger(__name__)
+
+_JOB_OPTS = {
+    "max_instances": 1,
+    "coalesce": True,
+    "misfire_grace_time": 120,
+}
 
 
 class WorkerScheduler:
@@ -22,11 +28,20 @@ class WorkerScheduler:
 
     def register_jobs(self) -> None:
         self.scheduler.add_job(
-            fetch_data_job,
+            fetch_live_job,
             "interval",
             minutes=5,
-            id="fetch_data",
+            id="fetch_live",
             replace_existing=True,
+            **_JOB_OPTS,
+        )
+        self.scheduler.add_job(
+            fetch_bulk_job,
+            "interval",
+            minutes=30,
+            id="fetch_bulk",
+            replace_existing=True,
+            **_JOB_OPTS,
         )
         self.scheduler.add_job(
             run_strategy_job,
@@ -34,6 +49,7 @@ class WorkerScheduler:
             minutes=5,
             id="run_strategy",
             replace_existing=True,
+            **_JOB_OPTS,
         )
         self.scheduler.add_job(
             snapshot_job,
@@ -41,6 +57,7 @@ class WorkerScheduler:
             minutes=5,
             id="snapshot",
             replace_existing=True,
+            **_JOB_OPTS,
         )
 
     def start(self) -> None:

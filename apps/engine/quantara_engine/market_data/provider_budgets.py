@@ -28,7 +28,7 @@ class FetchPriority(IntEnum):
 
 
 def _today() -> str:
-    return date.today().isoformat()
+    return datetime.now(timezone.utc).date().isoformat()
 
 
 def _hour_key() -> str:

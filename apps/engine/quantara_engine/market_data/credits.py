@@ -46,7 +46,7 @@ class CreditEvent:
 
 
 def _today_key() -> str:
-    return date.today().isoformat()
+    return datetime.now(timezone.utc).date().isoformat()
 
 
 def _empty_state() -> dict[str, Any]:
@@ -135,6 +135,25 @@ def sync_provider_usage(store: TradingStore | None, provider_usage: dict[str, An
         state["provider_daily_limit"] = int(daily_limit)
     state["last_sync"] = datetime.now(timezone.utc).isoformat()
     _save_state(store, state)
+
+
+def mark_blocked(store: TradingStore | None, error: str) -> None:
+    """Persist provider-side block (e.g. HTTP 429) for fast-skip until UTC day reset."""
+    if store is None:
+        return
+    state = _load_state(store)
+    state["last_error"] = error
+    state["used"] = max(int(state.get("used") or 0), DAILY_HARD_LIMIT)
+    _save_state(store, state)
+
+
+def is_blocked(store: TradingStore | None) -> bool:
+    """True when Twelve Data daily credits are exhausted (429 / guard)."""
+    payload = status_payload(store)
+    if payload.get("status") == "blocked":
+        return True
+    err = str(payload.get("last_error") or "").lower()
+    return "429" in err or "run out of api credits" in err
 
 
 def can_fetch(store: TradingStore | None, priority: FetchPriority) -> bool:
