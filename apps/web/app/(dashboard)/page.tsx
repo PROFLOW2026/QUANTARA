@@ -5,7 +5,6 @@ import Link from "next/link";
 import { PageHeader, WorkerIndicator, EngineConnectionError } from "@/components/layout/PageHeader";
 import { MetricCardCurrency } from "@/components/trading/MetricCard";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
-import { PriceDisplay } from "@/components/trading/PriceDisplay";
 import { LatestDecisionsPanel } from "@/components/trading/LatestDecisionsPanel";
 import { StrategyFreshnessPanel } from "@/components/trading/StrategyFreshnessPanel";
 import {
@@ -20,7 +19,6 @@ import {
   ApiError,
   isEngineConnectionError,
   type Decision,
-  type CandleLatest,
   type WorkerStatus,
   type TodayActivity,
   type AssetAnalyticsResponse,
@@ -28,12 +26,18 @@ import {
 } from "@/lib/api-client";
 import { loadCompetitionView } from "@/lib/competition-client";
 import { t } from "@/lib/i18n";
-import { formatPercent, formatRelativeTime, formatCurrency } from "@/lib/utils";
+import { formatPercent } from "@/lib/utils";
 
 const POLL_INTERVAL = 60_000;
 
+function engineHealthy(workers: WorkerStatus | null): boolean {
+  if (!workers) return false;
+  if (workers.healthy) return true;
+  const freshness = workers.strategy_freshness;
+  return Boolean(freshness?.healthy && !freshness?.stalled);
+}
+
 export default function HomePageClient() {
-  const [gold, setGold] = useState<CandleLatest | null>(null);
   const [assetDecisions, setAssetDecisions] = useState<Decision[]>([]);
   const [today, setToday] = useState<TodayActivity | null>(null);
   const [workers, setWorkers] = useState<WorkerStatus | null>(null);
@@ -43,7 +47,6 @@ export default function HomePageClient() {
   const [assetAnalytics, setAssetAnalytics] = useState<AssetAnalyticsResponse | null>(null);
   const [marketStatus, setMarketStatus] = useState<MarketProviderStatus | null>(null);
   const [engineConnectionError, setEngineConnectionError] = useState(false);
-  const [goldError, setGoldError] = useState<string | null>(null);
   const [todayError, setTodayError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -52,7 +55,6 @@ export default function HomePageClient() {
     try {
       const results = await Promise.allSettled([
         api.getWorkersStatus(),
-        api.getCandlesLatest(),
         api.getDecisionsByAsset("5m"),
         api.getAnalyticsToday(),
         loadCompetitionView(),
@@ -73,43 +75,29 @@ export default function HomePageClient() {
       }
 
       if (results[1].status === "fulfilled") {
-        setGold(results[1].value);
-        setGoldError(null);
-      } else {
-        setGold(null);
-        const reason = (results[1] as PromiseRejectedResult).reason;
-        setGoldError(
-          reason instanceof ApiError
-            ? `${t("home.gold_load_error")} (${reason.status})`
-            : t("home.gold_load_error")
-        );
-      }
-
-      if (results[2].status === "fulfilled") {
-        setAssetDecisions(results[2].value.decisions ?? []);
+        setAssetDecisions(results[1].value.decisions ?? []);
       } else {
         setAssetDecisions([]);
       }
 
-      if (results[3].status === "fulfilled") {
-        setToday(results[3].value);
+      if (results[2].status === "fulfilled") {
+        setToday(results[2].value);
         setTodayError(null);
       } else {
         setToday(null);
         setTodayError(t("common.section_unavailable"));
       }
 
-      if (results[4].status === "fulfilled") setCompetition(results[4].value);
+      if (results[3].status === "fulfilled") setCompetition(results[3].value);
       else setCompetition(null);
 
-      if (results[5].status === "fulfilled") setAssetAnalytics(results[5].value);
+      if (results[4].status === "fulfilled") setAssetAnalytics(results[4].value);
       else setAssetAnalytics(null);
 
-      if (results[6].status === "fulfilled") setMarketStatus(results[6].value);
+      if (results[5].status === "fulfilled") setMarketStatus(results[5].value);
       else setMarketStatus(null);
     } catch (e) {
       setEngineConnectionError(isEngineConnectionError(e));
-      setGoldError(null);
       setTodayError(null);
     } finally {
       setLoading(false);
@@ -139,6 +127,8 @@ export default function HomePageClient() {
   const portfolioCount = competition?.experiment?.portfolio_count ?? portfolios.length;
   const assetRows = assetAnalytics?.assets ?? [];
   const activeProviders = ["Twelve Data", "Tiingo", "Alpaca"];
+  const strategyRunner = workers?.workers?.find((w) => w.name === "strategy_runner");
+  const freshness = workers?.strategy_freshness ?? strategyRunner?.freshness;
 
   return (
     <>
@@ -176,12 +166,12 @@ export default function HomePageClient() {
         <Card>
           <CardHeader><CardTitle>{t("home.worker_status")}</CardTitle></CardHeader>
           <CardContent>
-            <WorkerIndicator healthy={workers?.healthy ?? false} />
+            <WorkerIndicator healthy={engineHealthy(workers)} />
           </CardContent>
         </Card>
       </div>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardHeader><CardTitle>{t("home.realized_pnl")}</CardTitle></CardHeader>
           <CardContent>
@@ -212,18 +202,6 @@ export default function HomePageClient() {
             )}
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader><CardTitle>{t("home.open_positions")}</CardTitle></CardHeader>
-          <CardContent>
-            <p className="font-mono text-2xl">{openPositions}</p>
-            <Link
-              href="/portfolio-comparison"
-              className="mt-3 inline-block text-sm text-accent hover:underline"
-            >
-              {t("home.competition_view")} →
-            </Link>
-          </CardContent>
-        </Card>
       </div>
 
       <div className="mt-4">
@@ -245,45 +223,32 @@ export default function HomePageClient() {
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-1">
-          <CardHeader><CardTitle>{t("home.gold_snapshot")}</CardTitle></CardHeader>
-          <CardContent>
-            {gold ? (
-              <>
-                <PriceDisplay
-                  value={gold.price}
-                  change={gold.change}
-                  changePct={gold.change_pct}
-                  size="lg"
-                />
-                <p className="mt-2 text-xs text-muted">
-                  {t("home.last_update")}: {formatRelativeTime(gold.last_update)}
-                </p>
-                {gold.is_stale ? (
-                  <p className="mt-1 text-xs text-warning">{t("market.stale_warning")}</p>
-                ) : null}
-              </>
-            ) : goldError ? (
-              <p className="text-sm text-warning">{goldError}</p>
-            ) : (
-              <p className="text-sm text-muted">{loading ? t("common.loading") : t("common.no_data")}</p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <LatestDecisionsPanel decisions={assetDecisions} timeframe="5m" />
         </div>
-        <StrategyFreshnessPanel freshness={workers?.strategy_freshness} />
+        <StrategyFreshnessPanel freshness={freshness} />
       </div>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader><CardTitle>{t("home.closed_trades")}</CardTitle></CardHeader>
           <CardContent>
             <p className="font-mono text-2xl">{closedTrades}</p>
+            <p className="mt-1 text-xs text-muted">{t("home.closed_trades_hint")}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>{t("home.open_positions")}</CardTitle></CardHeader>
+          <CardContent>
+            <p className="font-mono text-2xl">{openPositions}</p>
+            <p className="mt-1 text-xs text-muted">{t("home.open_positions_hint")}</p>
+            <Link
+              href="/positions"
+              className="mt-3 inline-block text-sm text-accent hover:underline"
+            >
+              {t("nav.positions")} →
+            </Link>
           </CardContent>
         </Card>
 
@@ -323,11 +288,11 @@ export default function HomePageClient() {
           </Card>
         ) : null}
 
-        <Card>
+        <Card className="sm:col-span-2 lg:col-span-2">
           <CardHeader><CardTitle>{t("home.today_activity")}</CardTitle></CardHeader>
-          <CardContent className="space-y-1 text-sm">
+          <CardContent className="grid gap-1 text-sm sm:grid-cols-2">
             {todayError ? (
-              <p className="text-muted">{todayError}</p>
+              <p className="text-muted sm:col-span-2">{todayError}</p>
             ) : (
               <>
                 <p>{t("home.market_checks_today")}: {today?.market_checks_today ?? 0}</p>
@@ -369,10 +334,9 @@ export default function HomePageClient() {
       {workers?.workers?.length ? (
         <Card className="mt-4">
           <CardHeader><CardTitle>{t("home.worker_timeframes")}</CardTitle></CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-3 text-sm">
-            {(["5m", "15m", "1h"] as const).map((timeframe) => {
-              const runner = workers.workers.find((w) => w.name === "strategy_runner");
-              const tf = runner?.timeframes?.[timeframe];
+          <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+            {(["5m", "15m", "1h", "orb_5m"] as const).map((timeframe) => {
+              const tf = strategyRunner?.timeframes?.[timeframe];
               return (
                 <div key={timeframe} className="rounded-md bg-surface-elevated p-3">
                   <p className="font-medium">{timeframe}</p>
@@ -382,7 +346,7 @@ export default function HomePageClient() {
                   </p>
                   <p>
                     <span className="text-muted">{t("home.worker_status_label")}: </span>
-                    {tf?.status ?? runner?.status ?? "—"}
+                    {tf?.status ?? strategyRunner?.execution_status ?? "—"}
                   </p>
                 </div>
               );
@@ -399,6 +363,12 @@ export default function HomePageClient() {
             className="rounded-md bg-surface-elevated px-4 py-2 text-sm hover:bg-accent/20"
           >
             {t("home.competition_view")}
+          </Link>
+          <Link
+            href="/positions"
+            className="rounded-md bg-surface-elevated px-4 py-2 text-sm hover:bg-accent/20"
+          >
+            {t("nav.positions")}
           </Link>
           <Link
             href="/decisions"

@@ -8,6 +8,7 @@ import {
   type MarketProviderStatus,
   type ProviderHealthStatus,
 } from "@/lib/api-client";
+import { translateDataStatus } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 
@@ -21,8 +22,7 @@ function statusBadge(status: string, stale?: boolean) {
       : key === "blocked" || key === "error"
         ? "danger"
         : "warning";
-  const labelKey = `home.asset_status_${key}` as const;
-  return <Badge variant={variant}>{t(labelKey)}</Badge>;
+  return <Badge variant={variant}>{translateDataStatus(status, stale)}</Badge>;
 }
 
 function tfBadge(available: boolean) {

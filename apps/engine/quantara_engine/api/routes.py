@@ -709,6 +709,9 @@ def decisions_by_asset(store: StoreDep, timeframe: str = "5m"):
     identity_map = store.build_instance_strategy_identity_map()
     items = store.list_latest_decisions_by_asset_timeframe(timeframe)
     now = datetime.now(timezone.utc)
+    open_instruments = {
+        pos.instrument_id for pos in store.list_competition_positions(open_only=True)
+    }
     rows = []
     for d in items:
         payload = _decision_payload(d, symbol_map)
@@ -721,8 +724,10 @@ def decisions_by_asset(store: StoreDep, timeframe: str = "5m"):
         payload["fresh"] = age_min < 30
         payload["candle_age_minutes"] = round(age_min, 1)
         payload["timeframe"] = timeframe
-        trade_opened = d.decision_type.value in ("buy_signal", "sell_signal")
-        payload["trade_opened"] = trade_opened
+        entry_signal = d.decision_type.value in ("buy_signal", "sell_signal")
+        payload["entry_signal"] = entry_signal
+        payload["trade_opened"] = entry_signal
+        payload["position_open"] = d.instrument_id in open_instruments
         rows.append(payload)
     rows.sort(key=lambda row: (row.get("robot_label") or "", row.get("instrument") or ""))
     return {

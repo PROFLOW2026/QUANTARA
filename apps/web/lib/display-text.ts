@@ -104,9 +104,72 @@ export function translateExecution(mode: string | null | undefined): string {
   return mode;
 }
 
+const ORB_REASON_KEYS: Record<string, string> = {
+  waiting_for_breakout: "signals.orb_waiting_for_breakout",
+  breakout_long_confirmed: "signals.orb_breakout_long_confirmed",
+  breakout_short_confirmed: "signals.orb_breakout_short_confirmed",
+  opening_range_building: "signals.orb_opening_range_building",
+  opening_range_incomplete: "signals.orb_opening_range_incomplete",
+  trade_already_taken_today: "signals.orb_trade_already_taken_today",
+  entry_cutoff_passed: "signals.orb_entry_cutoff_passed",
+  market_closed: "signals.orb_market_closed",
+};
+
+const DATA_STATUS_KEYS: Record<string, string> = {
+  healthy: "home.asset_status_healthy",
+  fresh: "home.asset_status_fresh",
+  deferred: "home.asset_status_deferred",
+  stale: "home.asset_status_stale",
+  blocked: "home.asset_status_blocked",
+  error: "home.asset_status_error",
+  unknown: "home.asset_status_unknown",
+};
+
+export function translateDataStatus(status: string | null | undefined, stale?: boolean): string {
+  if (stale && status !== "error" && status !== "blocked") {
+    return t("home.asset_status_stale");
+  }
+  const key = DATA_STATUS_KEYS[(status ?? "unknown").toLowerCase()];
+  return key ? t(key) : status ?? "—";
+}
+
+export function translateRobotStrategyLabel(
+  robotLabel?: string | null,
+  strategyName?: string | null,
+  strategySlug?: string | null
+): string {
+  if (robotLabel === "Robot A") return "Robot A — Trend Pullback";
+  if (robotLabel === "Robot B") return "Robot B — Opening Range Breakout";
+  if (strategyName && robotLabel) return `${robotLabel} — ${strategyName}`;
+  if (strategySlug === "opening-range-breakout") return "Robot B — Opening Range Breakout";
+  if (strategySlug === "gold-trend-pullback") return "Robot A — Trend Pullback";
+  return robotLabel ?? strategyName ?? "—";
+}
+
+export function isEntrySignalDecision(decisionType: string | null | undefined): boolean {
+  const normalized = (decisionType ?? "").toLowerCase();
+  return normalized === "buy_signal" || normalized === "sell_signal";
+}
+
 export function translateSignalReason(reason: string | null | undefined): string {
   if (!reason) return "—";
   const text = reason.trim();
+
+  const orbKey = ORB_REASON_KEYS[text];
+  if (orbKey) return t(orbKey);
+
+  if (text.startsWith("RISK_APPROVED:")) {
+    const match = text.match(
+      /qty=([^,]+).*target_risk=\$([0-9.]+)/
+    );
+    if (match) {
+      return t("signals.risk_approved_summary", {
+        qty: match[1],
+        target: match[2],
+      });
+    }
+    return t("display.decision.risk_approved");
+  }
 
   if (text.startsWith("Pullback to EMA20 in uptrend")) {
     return t("signals.pullback_uptrend");

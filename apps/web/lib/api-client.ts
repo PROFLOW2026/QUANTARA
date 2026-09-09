@@ -178,7 +178,12 @@ export interface Decision {
   candle_time?: string;
   timeframe?: string;
   fresh?: boolean;
+  /** @deprecated Use entry_signal — means entry signal, not confirmed fill */
   trade_opened?: boolean;
+  entry_signal?: boolean;
+  position_open?: boolean;
+  robot_label?: string;
+  strategy_slug?: string;
   signal?: {
     direction?: string;
     entry_price?: number;
@@ -374,6 +379,8 @@ export interface StrategyFreshness {
   last_evaluation_at?: string | null;
   evaluation_age_minutes?: number | null;
   backlog?: number;
+  live_backlog?: number;
+  historical_backlog?: number;
   market_candle_age_minutes?: Record<string, number | null>;
   fetch_status?: string;
 }

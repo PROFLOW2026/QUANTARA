@@ -11,6 +11,11 @@ function statusBadge(freshness: StrategyFreshness) {
     return <Badge variant="warning">{t("home.strategy_stalled")}</Badge>;
   }
   if (freshness.healthy) {
+    const historical = freshness.historical_backlog ?? freshness.backlog ?? 0;
+    const live = freshness.live_backlog ?? 0;
+    if (historical > 0 && live === 0) {
+      return <Badge variant="success">{t("home.strategy_catching_up")}</Badge>;
+    }
     return <Badge variant="success">{t("home.strategy_healthy")}</Badge>;
   }
   return <Badge variant="warning">{t("home.strategy_degraded")}</Badge>;
@@ -35,6 +40,9 @@ export function StrategyFreshnessPanel({
   }
 
   const marketRows = Object.entries(freshness.market_candle_age_minutes ?? {});
+  const liveBacklog = freshness.live_backlog ?? 0;
+  const historicalBacklog =
+    freshness.historical_backlog ?? freshness.backlog ?? 0;
 
   return (
     <Card>
@@ -53,10 +61,17 @@ export function StrategyFreshnessPanel({
             </p>
           </div>
           <div>
-            <p className="text-muted">{t("home.strategy_backlog")}</p>
-            <p className="font-mono">{freshness.backlog ?? 0}</p>
+            <p className="text-muted">{t("home.strategy_live_backlog")}</p>
+            <p className="font-mono">{liveBacklog}</p>
+          </div>
+          <div>
+            <p className="text-muted">{t("home.strategy_historical_backlog")}</p>
+            <p className="font-mono">{historicalBacklog}</p>
           </div>
         </div>
+        {historicalBacklog > 0 && liveBacklog === 0 && freshness.healthy ? (
+          <p className="text-xs text-muted">{t("home.strategy_historical_active_hint")}</p>
+        ) : null}
         {marketRows.length ? (
           <div>
             <p className="mb-1 text-muted">{t("home.market_candle_age")}</p>
@@ -69,7 +84,7 @@ export function StrategyFreshnessPanel({
             </ul>
           </div>
         ) : null}
-        <p className="text-xs text-muted">{t("home.strategy_freshness_hint")}</p>
+        <p className="text-xs text-muted">{t("home.strategy_backlog_hint")}</p>
       </CardContent>
     </Card>
   );

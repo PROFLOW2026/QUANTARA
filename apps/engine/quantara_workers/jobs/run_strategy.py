@@ -806,6 +806,16 @@ def strategy_freshness_summary(store: TradingStore, now: datetime | None = None)
         market_ages[sym] = round((now - ts).total_seconds() / 60, 1) if ts else None
 
     backlog = int(runner.get("jobs_pending") or 0)
+    timeframe_status = runner.get("timeframes") or {}
+    live_keys = ("5m", "orb_5m")
+    historical_keys = ("15m", "1h")
+    live_backlog = sum(int(timeframe_status.get(k, {}).get("backlog", 0)) for k in live_keys)
+    historical_backlog = sum(
+        int(timeframe_status.get(k, {}).get("backlog", 0)) for k in historical_keys
+    )
+    if not timeframe_status:
+        historical_backlog = backlog
+        live_backlog = 0
     status = runner.get("status")
     has_error = bool(runner.get("error"))
 
@@ -834,6 +844,8 @@ def strategy_freshness_summary(store: TradingStore, now: datetime | None = None)
         "last_evaluation_at": last_eval,
         "evaluation_age_minutes": eval_age_min,
         "backlog": backlog,
+        "live_backlog": live_backlog,
+        "historical_backlog": historical_backlog if timeframe_status else backlog,
         "market_candle_age_minutes": market_ages,
         "fetch_status": fetcher.get("status"),
     }
