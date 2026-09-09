@@ -706,11 +706,16 @@ def decisions_by_asset(store: StoreDep, timeframe: str = "5m"):
     from quantara_workers.jobs.run_strategy import strategy_freshness_summary
 
     symbol_map = store.resolve_instrument_display_symbols()
+    identity_map = store.build_instance_strategy_identity_map()
     items = store.list_latest_decisions_by_asset_timeframe(timeframe)
     now = datetime.now(timezone.utc)
     rows = []
     for d in items:
         payload = _decision_payload(d, symbol_map)
+        identity = identity_map.get(d.strategy_instance_id, {})
+        payload["robot_label"] = identity.get("robot_label")
+        payload["strategy_slug"] = identity.get("strategy_slug")
+        payload["strategy_name"] = identity.get("strategy_name")
         last_ts = d.candle_timestamp
         age_min = (now - last_ts).total_seconds() / 60
         payload["fresh"] = age_min < 30
@@ -719,6 +724,7 @@ def decisions_by_asset(store: StoreDep, timeframe: str = "5m"):
         trade_opened = d.decision_type.value in ("buy_signal", "sell_signal")
         payload["trade_opened"] = trade_opened
         rows.append(payload)
+    rows.sort(key=lambda row: (row.get("robot_label") or "", row.get("instrument") or ""))
     return {
         "timeframe": timeframe,
         "decisions": rows,

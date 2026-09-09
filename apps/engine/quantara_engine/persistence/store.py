@@ -650,39 +650,80 @@ class TradingStore:
         rows = self.session.scalars(stmt).all()
         return [self._decision_to_domain(row) for row in rows]
 
+    def build_instance_strategy_identity_map(self) -> dict[str, dict[str, str]]:
+        """Map strategy_instance_id -> robot_label, strategy_slug, strategy_name."""
+        from quantara_engine.competition.orb_constants import ORB_STRATEGY_SLUG
+
+        mapping: dict[str, dict[str, str]] = {}
+        _, _, combined = self.list_all_competition_entries()
+        for entry in combined:
+            inst = entry["instance"]
+            slug = inst.strategy_slug
+            is_orb = slug == ORB_STRATEGY_SLUG
+            mapping[inst.id] = {
+                "robot_label": "Robot B" if is_orb else "Robot A",
+                "strategy_slug": slug,
+                "strategy_name": "Opening Range Breakout" if is_orb else "Trend Pullback",
+            }
+        return mapping
+
+    def _latest_decision_for_instances(
+        self,
+        instance_ids: list[str],
+        instrument_id: str,
+    ) -> DecisionLogEntry | None:
+        if not instance_ids:
+            return None
+        row = self.session.scalar(
+            select(OrmDecision)
+            .where(
+                OrmDecision.strategy_instance_id.in_([_uuid(i) for i in instance_ids]),
+                OrmDecision.instrument_id == _uuid(instrument_id),
+            )
+            .order_by(OrmDecision.candle_timestamp.desc(), OrmDecision.created_at.desc())
+            .limit(1)
+        )
+        return self._decision_to_domain(row) if row else None
+
     def list_latest_decisions_by_asset_timeframe(
         self,
         timeframe: str,
     ) -> list[DecisionLogEntry]:
-        """Latest decision per target asset for competition instances on a timeframe."""
+        """Latest decision per asset/strategy for all active paper competition robots on a timeframe."""
+        from quantara_engine.competition.orb_constants import ORB_ASSETS
         from quantara_engine.market_data.registry import list_target_assets
 
-        entries = self.list_competition_entries()
-        instance_ids = [
-            entry["instance"].id
-            for entry in entries
-            if entry["instance"].timeframe == timeframe
-        ]
-        if not instance_ids:
-            return []
-
-        inst_uuids = [_uuid(i) for i in instance_ids]
         results: list[DecisionLogEntry] = []
-        for asset in list_target_assets():
-            instrument = self.get_instrument_by_symbol(asset.db_symbol)
-            if not instrument:
-                continue
-            row = self.session.scalar(
-                select(OrmDecision)
-                .where(
-                    OrmDecision.strategy_instance_id.in_(inst_uuids),
-                    OrmDecision.instrument_id == _uuid(instrument.id),
-                )
-                .order_by(OrmDecision.candle_timestamp.desc(), OrmDecision.created_at.desc())
-                .limit(1)
-            )
-            if row:
-                results.append(self._decision_to_domain(row))
+
+        entries_a = [
+            e for e in self.list_competition_entries() if e["instance"].timeframe == timeframe
+        ]
+        if entries_a:
+            instance_ids_a = [e["instance"].id for e in entries_a]
+            for asset in list_target_assets():
+                instrument = self.get_instrument_by_symbol(asset.db_symbol)
+                if not instrument:
+                    continue
+                decision = self._latest_decision_for_instances(instance_ids_a, instrument.id)
+                if decision:
+                    results.append(decision)
+
+        if self.is_orb_competition_enabled():
+            entries_b = [
+                e
+                for e in self.list_orb_competition_entries()
+                if e["instance"].timeframe == timeframe
+            ]
+            if entries_b:
+                instance_ids_b = [e["instance"].id for e in entries_b]
+                for symbol in ORB_ASSETS:
+                    instrument = self.get_instrument_by_symbol(symbol)
+                    if not instrument:
+                        continue
+                    decision = self._latest_decision_for_instances(instance_ids_b, instrument.id)
+                    if decision:
+                        results.append(decision)
+
         return results
 
     def latest_decision_for_instrument(

@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from quantara_workers.jobs.run_strategy import (
     LIVE_CYCLE_MAX_SECONDS,
+    LIVE_ROBOT_A_BUDGET_SEC,
+    LIVE_ROBOT_B_BUDGET_SEC,
     _process_timeframe_group,
     run_strategy_historical_job,
     run_strategy_job,
@@ -120,3 +122,7 @@ def test_run_strategy_historical_job_delegates_to_historical_cycle():
         kwargs = execute.call_args.kwargs
         assert kwargs["historical_only"] is True
         assert kwargs["live_only"] is True
+
+
+def test_live_budget_slices_sum_within_cycle_envelope():
+    assert LIVE_ROBOT_A_BUDGET_SEC + LIVE_ROBOT_B_BUDGET_SEC <= LIVE_CYCLE_MAX_SECONDS

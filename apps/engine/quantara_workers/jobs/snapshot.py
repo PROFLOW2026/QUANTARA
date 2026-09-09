@@ -48,7 +48,7 @@ def snapshot_job(store: TradingStore | None = None) -> None:
     started_at = datetime.now(timezone.utc)
 
     def _run(s: TradingStore) -> None:
-        entries = s.list_competition_entries()
+        _, _, entries = s.list_all_competition_entries()
         portfolio_ids = [e["portfolio"].id for e in entries]
         if not portfolio_ids:
             logger.warning("No active competition portfolios — snapshot job skipped")

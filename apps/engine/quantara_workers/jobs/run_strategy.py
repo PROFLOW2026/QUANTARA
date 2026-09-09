@@ -34,7 +34,10 @@ logger = logging.getLogger(__name__)
 
 CANDLE_LOOKBACK = STRATEGY_MIN_CANDLES + 50
 MAX_HISTORICAL_DECISIONS_PER_RUN = 50
-LIVE_CYCLE_MAX_SECONDS = 120
+# Live envelope (~5 min). Each robot gets a guaranteed slice so one backlog cannot starve the other.
+LIVE_CYCLE_MAX_SECONDS = 300
+LIVE_ROBOT_A_BUDGET_SEC = 180
+LIVE_ROBOT_B_BUDGET_SEC = 90
 LIVE_PRIORITY_SYMBOLS = ("BTCUSD", "EURUSD", "XAUUSD")
 HISTORICAL_CYCLE_MAX_SECONDS = 240
 STRATEGY_STALL_THRESHOLD_MINUTES = 12
@@ -352,6 +355,18 @@ def _process_timeframe_group(
     return candles_processed, total_decisions, tf_status
 
 
+def _experiment_iteration_pairs(
+    symbols: list[str],
+    timeframes: tuple[str, ...],
+    *,
+    order_by_timeframe_first: bool,
+) -> list[tuple[str, str]]:
+    """Symbol/timeframe visit order. Live Robot A uses timeframe-first so 5m stays fresh on all assets."""
+    if order_by_timeframe_first:
+        return [(tf, sym) for tf in timeframes for sym in symbols]
+    return [(tf, sym) for sym in symbols for tf in timeframes]
+
+
 def _process_experiment(
     s: TradingStore,
     entries: list[dict],
@@ -365,6 +380,7 @@ def _process_experiment(
     time_budget_sec: float,
     deadline: float,
     per_portfolio_eval: bool = False,
+    order_by_timeframe_first: bool = False,
 ) -> tuple[int, int, int, dict[str, dict], dict[str, dict], list[str]]:
     if not entries:
         return 0, 0, 0, {}, {}, []
@@ -377,12 +393,17 @@ def _process_experiment(
     groups_evaluated = 0
     portfolios_touched = 0
     timeframe_status: dict[str, dict] = {}
-    instrument_status: dict[str, dict] = {}
+    instrument_status: dict[str, dict] = defaultdict(dict)
     skipped_reasons: list[str] = []
 
-    for symbol in symbols:
+    pairs = _experiment_iteration_pairs(
+        symbols, timeframes, order_by_timeframe_first=order_by_timeframe_first
+    )
+    for timeframe, symbol in pairs:
         if time.perf_counter() >= deadline:
-            logger.warning("Strategy cycle time budget exhausted during %s scan", symbol)
+            logger.warning(
+                "Strategy cycle time budget exhausted during %s %s scan", symbol, timeframe
+            )
             break
 
         instrument = s.get_instrument_by_symbol(symbol)
@@ -390,57 +411,49 @@ def _process_experiment(
             logger.warning("Instrument %s not found — skipping", symbol)
             continue
 
-        broker = PaperBrokerAdapter(instrument.id, ExecutionAssumptions())
-        symbol_tf_status: dict[str, dict] = {}
-
-        for timeframe in timeframes:
-            if time.perf_counter() >= deadline:
-                break
-            group = by_timeframe.get(timeframe, [])
+        group = by_timeframe.get(timeframe, [])
+        if not group:
+            continue
+        if per_portfolio_eval:
+            group = [e for e in group if e["instance"].instrument_id == instrument.id]
             if not group:
                 continue
-            if per_portfolio_eval:
-                group = [
-                    e for e in group if e["instance"].instrument_id == instrument.id
-                ]
-                if not group:
-                    continue
-            candles_processed, decisions, tf_status = _process_timeframe_group(
-                s,
-                instrument,
-                timeframe,
-                group,
-                settings_dict,
-                started_at,
-                broker,
-                live_only=live_only,
-                historical_only=historical_only,
-                time_budget_sec=time_budget_sec,
-                deadline=deadline,
-                per_portfolio_eval=per_portfolio_eval,
-            )
-            symbol_tf_status[timeframe] = tf_status
-            if tf_status.get("skipped"):
-                reason = str(tf_status.get("skip_reason") or "skipped")
-                skipped_reasons.append(f"{symbol}/{timeframe}:{reason}")
-            if candles_processed:
-                groups_evaluated += 1
-                portfolios_touched += len(group) * candles_processed
-                total_decisions += decisions
-                _commit_progress(s)
 
-        instrument_status[symbol] = symbol_tf_status
-        for timeframe, st in symbol_tf_status.items():
-            prev = timeframe_status.setdefault(timeframe, {"backlog": 0, "instances": 0})
-            prev["backlog"] = int(prev.get("backlog", 0)) + int(st.get("backlog", 0))
-            prev["instances"] = int(prev.get("instances", 0)) + int(st.get("instances", 0))
+        broker = PaperBrokerAdapter(instrument.id, ExecutionAssumptions())
+        candles_processed, decisions, tf_status = _process_timeframe_group(
+            s,
+            instrument,
+            timeframe,
+            group,
+            settings_dict,
+            started_at,
+            broker,
+            live_only=live_only,
+            historical_only=historical_only,
+            time_budget_sec=time_budget_sec,
+            deadline=deadline,
+            per_portfolio_eval=per_portfolio_eval,
+        )
+        instrument_status[symbol][timeframe] = tf_status
+        if tf_status.get("skipped"):
+            reason = str(tf_status.get("skip_reason") or "skipped")
+            skipped_reasons.append(f"{symbol}/{timeframe}:{reason}")
+        if candles_processed:
+            groups_evaluated += 1
+            portfolios_touched += len(group) * candles_processed
+            total_decisions += decisions
+            _commit_progress(s)
+
+        prev = timeframe_status.setdefault(timeframe, {"backlog": 0, "instances": 0})
+        prev["backlog"] = int(prev.get("backlog", 0)) + int(tf_status.get("backlog", 0))
+        prev["instances"] = int(prev.get("instances", 0)) + int(tf_status.get("instances", 0))
 
     return (
         groups_evaluated,
         portfolios_touched,
         total_decisions,
         timeframe_status,
-        instrument_status,
+        dict(instrument_status),
         skipped_reasons,
     )
 
@@ -458,50 +471,102 @@ def _process_competition(
     from quantara_engine.competition.orb_constants import ORB_ASSETS, ORB_TIMEFRAME
 
     settings_dict = s.get_settings_dict()
-    deadline = time.perf_counter() + time_budget_sec
-
+    cycle_t0 = time.perf_counter()
     robot_a = s.list_competition_entries()
-    (
-        groups_a,
-        touched_a,
-        decisions_a,
-        tf_a,
-        inst_a,
-        skipped_a,
-    ) = _process_experiment(
-        s,
-        robot_a,
-        _ordered_symbols(),
-        TIMEFRAME_ORDER,
-        settings_dict,
-        started_at,
-        live_only=live_only,
-        historical_only=historical_only,
-        time_budget_sec=time_budget_sec,
-        deadline=deadline,
-    )
-
     orb_entries = s.list_orb_competition_entries()
-    (
-        groups_b,
-        touched_b,
-        decisions_b,
-        tf_b,
-        inst_b,
-        skipped_b,
-    ) = _process_experiment(
-        s,
-        orb_entries,
-        list(ORB_ASSETS),
-        (ORB_TIMEFRAME,),
-        settings_dict,
-        started_at,
-        live_only=live_only,
-        historical_only=historical_only,
-        time_budget_sec=time_budget_sec,
-        deadline=deadline,
-        per_portfolio_eval=True,
-    )
+
+    if live_only and not historical_only:
+        # Guaranteed fair scheduling: Robot B cannot be starved by Robot A backlog.
+        deadline_a = cycle_t0 + LIVE_ROBOT_A_BUDGET_SEC
+        (
+            groups_a,
+            touched_a,
+            decisions_a,
+            tf_a,
+            inst_a,
+            skipped_a,
+        ) = _process_experiment(
+            s,
+            robot_a,
+            _ordered_symbols(),
+            TIMEFRAME_ORDER,
+            settings_dict,
+            started_at,
+            live_only=True,
+            historical_only=False,
+            time_budget_sec=LIVE_ROBOT_A_BUDGET_SEC,
+            deadline=deadline_a,
+            order_by_timeframe_first=True,
+        )
+        robot_a_duration_ms = round((time.perf_counter() - cycle_t0) * 1000, 1)
+
+        robot_b_t0 = time.perf_counter()
+        deadline_b = robot_b_t0 + LIVE_ROBOT_B_BUDGET_SEC
+        (
+            groups_b,
+            touched_b,
+            decisions_b,
+            tf_b,
+            inst_b,
+            skipped_b,
+        ) = _process_experiment(
+            s,
+            orb_entries,
+            list(ORB_ASSETS),
+            (ORB_TIMEFRAME,),
+            settings_dict,
+            started_at,
+            live_only=True,
+            historical_only=False,
+            time_budget_sec=LIVE_ROBOT_B_BUDGET_SEC,
+            deadline=deadline_b,
+            per_portfolio_eval=True,
+        )
+        robot_b_duration_ms = round((time.perf_counter() - robot_b_t0) * 1000, 1)
+    else:
+        deadline = cycle_t0 + time_budget_sec
+        (
+            groups_a,
+            touched_a,
+            decisions_a,
+            tf_a,
+            inst_a,
+            skipped_a,
+        ) = _process_experiment(
+            s,
+            robot_a,
+            _ordered_symbols(),
+            TIMEFRAME_ORDER,
+            settings_dict,
+            started_at,
+            live_only=live_only,
+            historical_only=historical_only,
+            time_budget_sec=time_budget_sec,
+            deadline=deadline,
+        )
+
+        (
+            groups_b,
+            touched_b,
+            decisions_b,
+            tf_b,
+            inst_b,
+            skipped_b,
+        ) = _process_experiment(
+            s,
+            orb_entries,
+            list(ORB_ASSETS),
+            (ORB_TIMEFRAME,),
+            settings_dict,
+            started_at,
+            live_only=live_only,
+            historical_only=historical_only,
+            time_budget_sec=time_budget_sec,
+            deadline=deadline,
+            per_portfolio_eval=True,
+        )
+        robot_a_duration_ms = round((time.perf_counter() - cycle_t0) * 1000, 1)
+        robot_b_duration_ms = 0.0
 
     groups_evaluated = groups_a + groups_b
     portfolios_touched = touched_a + touched_b
@@ -515,7 +580,7 @@ def _process_competition(
         int(st.get("backlog", 0))
         for st in (*tf_a.values(), *tf_b.values())
     )
-    duration_ms = round((time.perf_counter() - (deadline - time_budget_sec)) * 1000, 1)
+    duration_ms = round((time.perf_counter() - cycle_t0) * 1000, 1)
 
     if groups_evaluated == 0:
         reason = "no_eligible_bars"
@@ -529,6 +594,8 @@ def _process_competition(
                 "last_run": started_at.isoformat(),
                 "last_finish": datetime.now(timezone.utc).isoformat(),
                 "duration_ms": duration_ms,
+                "robot_a_duration_ms": robot_a_duration_ms,
+                "robot_b_duration_ms": robot_b_duration_ms,
                 "reason": reason,
                 "competition_portfolios": entries_count,
                 "timeframes": timeframe_status,
@@ -554,6 +621,10 @@ def _process_competition(
             "last_run": started_at.isoformat(),
             "last_finish": datetime.now(timezone.utc).isoformat(),
             "duration_ms": duration_ms,
+            "robot_a_duration_ms": robot_a_duration_ms,
+            "robot_b_duration_ms": robot_b_duration_ms,
+            "robot_a_groups_evaluated": groups_a,
+            "robot_b_groups_evaluated": groups_b,
             "jobs_pending": overall_backlog,
             "decisions": total_decisions,
             "competition_portfolios": entries_count,
@@ -735,17 +806,29 @@ def strategy_freshness_summary(store: TradingStore, now: datetime | None = None)
         market_ages[sym] = round((now - ts).total_seconds() / 60, 1) if ts else None
 
     backlog = int(runner.get("jobs_pending") or 0)
-    healthy = (
-        runner.get("status") in ("healthy", "catching_up", "waiting")
-        and not running_stalled
-        and (eval_age_min is None or eval_age_min < STRATEGY_STALL_THRESHOLD_MINUTES)
+    status = runner.get("status")
+    has_error = bool(runner.get("error"))
+
+    if status == "running":
+        healthy = not running_stalled and not has_error
+    elif status in ("healthy", "catching_up", "waiting"):
+        healthy = (
+            not running_stalled
+            and not has_error
+            and (eval_age_min is None or eval_age_min < STRATEGY_STALL_THRESHOLD_MINUTES)
+        )
+    else:
+        healthy = False
+
+    stalled = running_stalled or (
+        status != "running"
+        and eval_age_min is not None
+        and eval_age_min >= STRATEGY_STALL_THRESHOLD_MINUTES
     )
 
     return {
         "healthy": healthy,
-        "stalled": running_stalled or (
-            eval_age_min is not None and eval_age_min >= STRATEGY_STALL_THRESHOLD_MINUTES
-        ),
+        "stalled": stalled,
         "status": runner.get("status"),
         "mode": runner.get("mode"),
         "last_evaluation_at": last_eval,
