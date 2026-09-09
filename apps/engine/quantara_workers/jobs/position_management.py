@@ -25,11 +25,11 @@ def position_management_job(store: TradingStore | None = None) -> None:
 
         report = manage_all_open_positions(s, started_at)
         duration_ms = round((time.perf_counter() - t0) * 1000, 1)
-        status = "healthy" if not report.get("errors") else "degraded"
+        run_status = "healthy" if not report.get("errors") else "degraded"
         s.update_worker_status(
             "position_management",
             {
-                "status": status,
+                "status": run_status,
                 "last_run": started_at.isoformat(),
                 "duration_ms": duration_ms,
                 "positions_checked": report.get("positions_checked", 0),
@@ -42,7 +42,7 @@ def position_management_job(store: TradingStore | None = None) -> None:
             worker_name="position_management",
             started_at=started_at,
             jobs_processed=report.get("positions_checked", 0),
-            status="success" if status == "healthy" else "error",
+            status="success" if run_status == "healthy" else "partial",
             errors={"items": report.get("errors")} if report.get("errors") else None,
         )
         logger.info(
@@ -76,7 +76,7 @@ def position_management_job(store: TradingStore | None = None) -> None:
                     run_id=str(uuid.uuid4()),
                     worker_name="position_management",
                     started_at=started_at,
-                    status="error",
+                    status="failed",
                     errors={"message": str(exc)},
                 )
         except Exception:

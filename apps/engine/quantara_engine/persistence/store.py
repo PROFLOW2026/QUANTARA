@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -45,6 +45,7 @@ from quantara_engine.competition.constants import (
 )
 from quantara_engine.execution.fill_calculator import FillResult
 from quantara_engine.models.enums import (
+    coerce_worker_run_status,
     BacktestStatus,
     DecisionType as OrmDecisionType,
     Direction as OrmDirection,
@@ -90,7 +91,21 @@ from quantara_engine.portfolio.service import PortfolioSnapshot, PortfolioState
 def _uuid(value: str | uuid.UUID) -> uuid.UUID:
     if isinstance(value, uuid.UUID):
         return value
-    return uuid.UUID(value)
+    if not value or not str(value).strip():
+        raise ValueError("UUID value is required")
+    return uuid.UUID(str(value))
+
+
+def _is_uuid(value: str | uuid.UUID | None) -> bool:
+    if isinstance(value, uuid.UUID):
+        return True
+    if not value or not str(value).strip():
+        return False
+    try:
+        uuid.UUID(str(value))
+    except ValueError:
+        return False
+    return True
 
 
 def _str_id(value: uuid.UUID | str | None) -> str:
@@ -1075,13 +1090,38 @@ class TradingStore:
         row.unrealized_pnl = unrealized_pnl
         self.session.flush()
 
+    def resolve_strategy_version_id(self, strategy_instance_id: str) -> str:
+        row = self.session.get(OrmStrategyInstance, _uuid(strategy_instance_id))
+        if not row:
+            raise ValueError(f"Strategy instance not found: {strategy_instance_id}")
+        return _str_id(row.strategy_version_id)
+
+    def _hydrate_position_strategy_versions(self, positions: list[Position]) -> None:
+        if not positions:
+            return
+        instance_ids = list({position.strategy_instance_id for position in positions})
+        rows = self.session.execute(
+            select(OrmStrategyInstance.id, OrmStrategyInstance.strategy_version_id).where(
+                OrmStrategyInstance.id.in_([_uuid(instance_id) for instance_id in instance_ids])
+            )
+        ).all()
+        version_by_instance = {_str_id(row[0]): _str_id(row[1]) for row in rows}
+        for position in positions:
+            if not _is_uuid(position.strategy_version_id):
+                resolved = version_by_instance.get(position.strategy_instance_id)
+                if resolved:
+                    position.strategy_version_id = resolved
+
     def save_trade(self, trade: Trade) -> None:
+        strategy_version_id = trade.strategy_version_id
+        if not _is_uuid(strategy_version_id):
+            strategy_version_id = self.resolve_strategy_version_id(trade.strategy_instance_id)
         row = OrmTrade(
             id=_uuid(trade.id),
             position_id=_uuid(trade.position_id),
             portfolio_id=_uuid(trade.portfolio_id),
             strategy_instance_id=_uuid(trade.strategy_instance_id),
-            strategy_version_id=_uuid(trade.strategy_version_id),
+            strategy_version_id=_uuid(strategy_version_id),
             instrument_id=_uuid(trade.instrument_id),
             direction=OrmDirection(trade.direction.value),
             quantity=trade.quantity,
@@ -1153,6 +1193,7 @@ class TradingStore:
             )
         ).all()
         positions = [self._position_to_domain(row) for row in position_rows]
+        self._hydrate_position_strategy_versions(positions)
 
         trade_rows = self.session.scalars(
             select(OrmTrade)
@@ -1535,13 +1576,25 @@ class TradingStore:
             )
         ).all()
 
+        from quantara_engine.market_data.polling import timeframe_minutes
+
         cancelled = 0
         for row in rows:
             instance = self.session.get(OrmStrategyInstance, row.strategy_instance_id)
             if not instance:
                 continue
+            tf = instance.timeframe.value if hasattr(instance.timeframe, "value") else str(instance.timeframe)
             exec_ts = row.execution_candle_timestamp
-            if exec_ts and is_bar_complete(exec_ts, instance.timeframe, now):
+            expired = False
+            if exec_ts and is_bar_complete(exec_ts, tf, now):
+                expired = True
+            elif exec_ts is None and row.signal_candle_timestamp:
+                expected_exec = row.signal_candle_timestamp + timedelta(
+                    minutes=timeframe_minutes(tf)
+                )
+                if is_bar_complete(expected_exec, tf, now):
+                    expired = True
+            if expired:
                 row.status = OrderIntentStatus.EXPIRED
                 row.rejection_reason = "execution_window_passed"
                 cancelled += 1
@@ -1788,7 +1841,7 @@ class TradingStore:
             worker_name=worker_name,
             started_at=started_at,
             completed_at=completed_at or datetime.now(timezone.utc),
-            status=WorkerRunStatus(status),
+            status=coerce_worker_run_status(status),
             jobs_processed=jobs_processed,
             errors=errors,
         )

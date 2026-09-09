@@ -153,6 +153,24 @@ class WorkerRunStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+def coerce_worker_run_status(status: str) -> WorkerRunStatus:
+    """Map worker/job status strings to persisted WorkerRunStatus values."""
+    normalized = status.lower().strip()
+    aliases = {
+        "healthy": WorkerRunStatus.SUCCESS,
+        "success": WorkerRunStatus.SUCCESS,
+        "waiting": WorkerRunStatus.SUCCESS,
+        "running": WorkerRunStatus.SUCCESS,
+        "degraded": WorkerRunStatus.PARTIAL,
+        "partial": WorkerRunStatus.PARTIAL,
+        "error": WorkerRunStatus.FAILED,
+        "failed": WorkerRunStatus.FAILED,
+    }
+    if normalized in aliases:
+        return aliases[normalized]
+    raise ValueError(f"{status!r} is not a valid WorkerRunStatus")
+
+
 class EventSeverity(str, enum.Enum):
     INFO = "info"
     WARNING = "warning"

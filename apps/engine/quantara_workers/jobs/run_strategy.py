@@ -19,13 +19,19 @@ from quantara_engine.execution.paper_broker import PaperBrokerAdapter
 from quantara_engine.market_data.factory import get_market_data_provider
 from quantara_engine.market_data.registry import get_asset
 from quantara_engine.market_data.symbols import list_target_db_symbols
-from quantara_engine.market_data.polling import STRATEGY_MIN_CANDLES, is_bar_complete
+from quantara_engine.competition.constants import ACTIVE_COMPETITION_EXPERIMENT_ID
+from quantara_engine.market_data.polling import (
+    STRATEGY_MIN_CANDLES,
+    bar_staleness_minutes,
+    is_bar_complete,
+    is_market_data_fresh,
+    max_staleness_minutes,
+)
 from quantara_engine.pipeline.candle_processor import CandleProcessor
 from quantara_engine.persistence.store import TradingStore
 
 logger = logging.getLogger(__name__)
 
-FRESHNESS_MAX_AGE_MINUTES = 30
 CANDLE_LOOKBACK = STRATEGY_MIN_CANDLES + 50
 MAX_HISTORICAL_DECISIONS_PER_RUN = 50
 LIVE_CYCLE_MAX_SECONDS = 120
@@ -50,9 +56,10 @@ def _check_eligibility(
     if not last_ts:
         return False, "no_data"
 
-    age_min = (now - last_ts).total_seconds() / 60
-    if age_min >= FRESHNESS_MAX_AGE_MINUTES:
-        return False, f"stale_data ({round(age_min, 1)}m)"
+    if not is_market_data_fresh(last_ts, timeframe, now):
+        stale_after_close = round(bar_staleness_minutes(last_ts, timeframe, now), 1)
+        limit = round(max_staleness_minutes(timeframe), 1)
+        return False, f"stale_data ({stale_after_close}m since close, limit {limit}m)"
 
     if asset and asset.primary_provider.value == "twelvedata":
         worker = s.get_settings_dict().get("worker_status:data_fetcher") or {}
@@ -191,6 +198,7 @@ def _process_candle_batch(
             latest_completed_timestamp=latest_completed_ts,
             allow_live_execution=allow_live_execution,
             execution_now=started_at,
+            manage_exits=False,
         )
         processor.all_candles = candles
         pending = s.list_pending_order_intents(portfolio.id, instance.id)
@@ -491,6 +499,10 @@ def _execute_strategy_cycle(
             return 0
 
         _mark_cycle_started(s, run_id=run_id, started_at=started_at, mode=mode)
+        expired_intents = s.cancel_stale_pending_intents(ACTIVE_COMPETITION_EXPERIMENT_ID, started_at)
+        if expired_intents:
+            logger.info("Expired %d stale pending_execution intent(s)", expired_intents)
+            _commit_progress(s)
         if not s.list_competition_entries():
             logger.warning("No active competition portfolios — strategy runner idle")
             s.update_worker_status(
@@ -553,7 +565,7 @@ def _execute_strategy_cycle(
                     run_id=run_id,
                     worker_name="strategy_runner",
                     started_at=started_at,
-                    status="error",
+                    status="failed",
                     errors={"message": str(exc)},
                 )
         except Exception:

@@ -96,7 +96,7 @@ def snapshot_job(store: TradingStore | None = None) -> None:
                     run_id=str(uuid.uuid4()),
                     worker_name="snapshot",
                     started_at=started_at,
-                    status="error",
+                    status="failed",
                     errors={"message": str(exc)},
                 )
         except Exception:

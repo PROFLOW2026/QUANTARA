@@ -96,6 +96,7 @@ class CandleProcessor:
         latest_completed_timestamp: datetime | None = None,
         allow_live_execution: bool = True,
         execution_now: datetime | None = None,
+        manage_exits: bool = True,
     ) -> None:
         self.state = portfolio_state
         self.instance = strategy_instance
@@ -110,6 +111,7 @@ class CandleProcessor:
         self.latest_completed_timestamp = latest_completed_timestamp
         self.allow_live_execution = allow_live_execution
         self.execution_now = execution_now or datetime.now(timezone.utc)
+        self.manage_exits = manage_exits
         if store is not None:
             store.mode = mode
             store.backtest_run_id = backtest_run_id
@@ -269,8 +271,9 @@ class CandleProcessor:
             # 1. Execute pending intents at this candle open
             self._execute_pending(candle)
 
-            # 2. Check SL/TP on candle OHLC
-            self._check_sl_tp(candle)
+            # 2. SL/TP exits — paper competition defers to position_management_job
+            if self.manage_exits:
+                self._check_sl_tp(candle)
 
             # 3. Update unrealized P&L at close (instrument-scoped mark)
             self.state.recalculate_equity({self.instrument.id: candle.close})
@@ -453,6 +456,8 @@ class CandleProcessor:
             trigger = detect_exit_trigger(position, candle)
             if not trigger:
                 continue
+            if not position.strategy_version_id:
+                position.strategy_version_id = self.instance.strategy_version_id
             reason, trigger_price = trigger
             order, fill = self.broker.execute_exit_at_trigger(
                 position.direction,
