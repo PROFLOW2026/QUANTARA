@@ -296,6 +296,7 @@ def test_stale_entry_intent_expires_after_execution_window():
     row.strategy_instance_id = uuid.uuid4()
     row.execution_candle_timestamp = datetime(2026, 9, 9, 7, 0, tzinfo=timezone.utc)
     row.signal_candle_timestamp = datetime(2026, 9, 9, 6, 55, tzinfo=timezone.utc)
+    row.created_at = datetime(2026, 9, 9, 7, 1, tzinfo=timezone.utc)
     row.status = OrderIntentStatus.PENDING_EXECUTION
 
     instance = MagicMock(spec=OrmStrategyInstance)

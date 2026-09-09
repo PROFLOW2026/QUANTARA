@@ -9,6 +9,7 @@ from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from quantara_workers.jobs.execute_intents import execute_intents_job
 from quantara_workers.jobs.fetch_data import fetch_bulk_job, fetch_live_job
 from quantara_workers.jobs.position_management import position_management_job
 from quantara_workers.jobs.run_backtest import run_backtest_job
@@ -70,18 +71,25 @@ class WorkerScheduler:
             **_INGEST_OPTS,
         )
         self.scheduler.add_job(
-            position_management_job,
-            CronTrigger(minute="*/5", second=20),
-            id="position_management",
+            run_strategy_job,
+            CronTrigger(minute="*/5", second=12),
+            id="run_strategy",
+            replace_existing=True,
+            **_LIVE_STRATEGY_OPTS,
+        )
+        self.scheduler.add_job(
+            execute_intents_job,
+            CronTrigger(minute="*/5", second=25),
+            id="execute_intents",
             replace_existing=True,
             **_INGEST_OPTS,
         )
         self.scheduler.add_job(
-            run_strategy_job,
-            CronTrigger(minute="*/5", second=35),
-            id="run_strategy",
+            position_management_job,
+            CronTrigger(minute="*/5", second=38),
+            id="position_management",
             replace_existing=True,
-            **_LIVE_STRATEGY_OPTS,
+            **_INGEST_OPTS,
         )
         self.scheduler.add_job(
             snapshot_job,

@@ -26,6 +26,7 @@ from quantara_engine.domain.types import (
     new_id,
 )
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
+from quantara_engine.execution.timing import live_fill_allowed
 from quantara_engine.market_data.polling import timeframe_minutes
 from quantara_engine.market_data.registry import get_asset
 from quantara_engine.market_data.sessions import session_allows_entries
@@ -57,19 +58,15 @@ def intent_execution_allowed(
     max_signal_age_minutes: int = FRESHNESS_MAX_AGE_MINUTES,
 ) -> tuple[bool, str | None]:
     """Return (allowed, rejection_reason) for live Paper execution."""
-    bar_minutes = timeframe_minutes(candle.timeframe)
-    if intent.execution_candle_timestamp != candle.timestamp:
-        return False, "execution_candle_mismatch"
-    age = signal_age_minutes(intent.signal_candle_timestamp, now)
-    if age > max_signal_age_minutes:
-        return False, f"stale_signal_age ({round(age, 1)}m)"
-    expected_exec_delta = bar_minutes
-    actual_exec_delta = (
-        intent.execution_candle_timestamp - intent.signal_candle_timestamp
-    ).total_seconds() / 60
-    if actual_exec_delta > expected_exec_delta + 1:
-        return False, "invalid_next_open_spacing"
-    return True, None
+    if intent.execution_candle_timestamp is None:
+        return False, "execution_candle_missing"
+    return live_fill_allowed(
+        execution_candle_timestamp=intent.execution_candle_timestamp,
+        candle_timestamp=candle.timestamp,
+        signal_candle_timestamp=intent.signal_candle_timestamp,
+        now=now,
+        timeframe=candle.timeframe,
+    )
 
 
 @dataclass
@@ -259,6 +256,18 @@ class CandleProcessor:
             runtime=self._build_strategy_runtime(candle),
         )
         return strategy.evaluate(visible, ctx), candle
+
+    def execute_pending_on_candle(self, candle_index: int) -> None:
+        """Fill pending intents on this candle only — no strategy or exit management."""
+        candle = self.all_candles[candle_index]
+        self._execute_pending(candle)
+        if self.store:
+            self.store.update_portfolio(self.state.portfolio)
+            for pos in self.state.open_positions():
+                self.store.update_open_position_mark(
+                    pos.id, pos.current_price, pos.unrealized_pnl
+                )
+            self._flush_store()
 
     def process_position_management(self, candle_index: int) -> None:
         """Execute pending intents and SL/TP on the live candle without strategy evaluation."""

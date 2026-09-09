@@ -1714,7 +1714,7 @@ class TradingStore:
         now: datetime,
     ) -> int:
         """Cancel pending intents whose execution candle is complete but never filled."""
-        from quantara_engine.market_data.polling import is_bar_complete
+        from quantara_engine.execution.timing import intent_past_execution_window
         from quantara_engine.models.trading import OrderIntent as OrmOrderIntentModel
 
         rows = self.session.scalars(
@@ -1727,25 +1727,19 @@ class TradingStore:
             )
         ).all()
 
-        from quantara_engine.market_data.polling import timeframe_minutes
-
         cancelled = 0
         for row in rows:
             instance = self.session.get(OrmStrategyInstance, row.strategy_instance_id)
             if not instance:
                 continue
             tf = instance.timeframe.value if hasattr(instance.timeframe, "value") else str(instance.timeframe)
-            exec_ts = row.execution_candle_timestamp
-            expired = False
-            if exec_ts and is_bar_complete(exec_ts, tf, now):
-                expired = True
-            elif exec_ts is None and row.signal_candle_timestamp:
-                expected_exec = row.signal_candle_timestamp + timedelta(
-                    minutes=timeframe_minutes(tf)
-                )
-                if is_bar_complete(expected_exec, tf, now):
-                    expired = True
-            if expired:
+            if intent_past_execution_window(
+                signal_candle_timestamp=row.signal_candle_timestamp,
+                execution_candle_timestamp=row.execution_candle_timestamp,
+                intent_created_at=row.created_at,
+                timeframe=tf,
+                now=now,
+            ):
                 row.status = OrderIntentStatus.EXPIRED
                 row.rejection_reason = "execution_window_passed"
                 cancelled += 1

@@ -71,7 +71,7 @@ def test_large_robot_a_backlog_does_not_block_orb_live_pass():
     assert robot_a_kwargs["live_only"] is True
     assert robot_a_kwargs["historical_only"] is False
     assert robot_a_kwargs["order_by_timeframe_first"] is True
-    assert robot_b_kwargs["per_portfolio_eval"] is True
+    assert robot_b_kwargs["per_portfolio_eval"] is False
     assert robot_b_kwargs["live_only"] is True
     assert robot_b_kwargs["historical_only"] is False
 

@@ -150,6 +150,44 @@ def _mark_cycle_started(
     _commit_progress(s)
 
 
+def _orb_entry_signal_for_portfolio(
+    s: TradingStore,
+    entry: dict,
+    instrument,
+    candle,
+    shared_signal,
+):
+    """ORB breakout signal is canonical; per-portfolio trade-day gate stays independent."""
+    from quantara_engine.domain.types import Signal, SignalAction
+
+    if shared_signal is None:
+        return shared_signal
+    if entry["instance"].strategy_slug != "opening-range-breakout":
+        return shared_signal
+    if shared_signal.action not in (SignalAction.BUY, SignalAction.SELL):
+        return shared_signal
+
+    from quantara_engine.strategies.opening_range_breakout.session import rth_session_date
+
+    session_date = rth_session_date(candle.timestamp)
+    if not session_date:
+        return shared_signal
+
+    trades_today = s.count_trades_on_session_date(
+        entry["portfolio"].id,
+        instrument.id,
+        session_date,
+    )
+    max_trades = 1
+    if trades_today >= max_trades:
+        return Signal(
+            action=SignalAction.HOLD,
+            reason="trade_already_taken_today",
+            metadata=dict(shared_signal.metadata or {}),
+        )
+    return shared_signal
+
+
 def _process_candle_batch(
     s: TradingStore,
     instrument,
@@ -215,7 +253,10 @@ def _process_candle_batch(
             signal, _ = processor.evaluate_signal(candle_index)
             processor.process_candle(candle_index, shared_signal=signal)
         else:
-            processor.process_candle(candle_index, shared_signal=shared_signal)
+            effective_signal = _orb_entry_signal_for_portfolio(
+                s, entry, instrument, candle, shared_signal
+            )
+            processor.process_candle(candle_index, shared_signal=effective_signal)
         total_decisions += len(processor.decisions)
 
     mode_label = "live" if allow_live_execution else "historical"
@@ -414,7 +455,8 @@ def _process_experiment(
         group = by_timeframe.get(timeframe, [])
         if not group:
             continue
-        if per_portfolio_eval:
+        orb_mode = group[0]["instance"].strategy_slug == "opening-range-breakout"
+        if per_portfolio_eval or orb_mode:
             group = [e for e in group if e["instance"].instrument_id == instrument.id]
             if not group:
                 continue
@@ -520,7 +562,7 @@ def _process_competition(
             historical_only=False,
             time_budget_sec=LIVE_ROBOT_B_BUDGET_SEC,
             deadline=deadline_b,
-            per_portfolio_eval=True,
+            per_portfolio_eval=False,
         )
         robot_b_duration_ms = round((time.perf_counter() - robot_b_t0) * 1000, 1)
     else:
@@ -563,7 +605,7 @@ def _process_competition(
             historical_only=historical_only,
             time_budget_sec=time_budget_sec,
             deadline=deadline,
-            per_portfolio_eval=True,
+            per_portfolio_eval=False,
         )
         robot_a_duration_ms = round((time.perf_counter() - cycle_t0) * 1000, 1)
         robot_b_duration_ms = 0.0
@@ -699,7 +741,7 @@ def _execute_strategy_cycle(
             _commit_progress(s)
             return 0
 
-        return _process_competition(
+        jobs = _process_competition(
             s,
             started_at,
             run_id=run_id,
@@ -707,6 +749,18 @@ def _execute_strategy_cycle(
             historical_only=historical_only,
             time_budget_sec=time_budget_sec,
         )
+        if live_only and not historical_only:
+            from quantara_engine.execution.live_intents import execute_pending_intents_live
+
+            exec_report = execute_pending_intents_live(s, started_at)
+            if exec_report.get("expired_intents") or exec_report.get("fills_attempted"):
+                logger.info(
+                    "Post-strategy execute_intents: expired=%d fills=%d",
+                    exec_report.get("expired_intents", 0),
+                    exec_report.get("fills_attempted", 0),
+                )
+                _commit_progress(s)
+        return jobs
 
     try:
         if store is not None:

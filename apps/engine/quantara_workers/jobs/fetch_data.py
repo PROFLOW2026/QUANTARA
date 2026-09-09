@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 TIINGO_POLL_INTERVAL_MINUTES = 12
 LAST_FETCH_KEY = "provider_budget:tiingo:last_fetch"
+ALPACA_LIVE_LAST_FETCH_KEY = "provider_budget:alpaca:last_live_fetch"
 
 BTC_CATCHUP_FRESH_MINUTES = 30
 BTC_CATCHUP_MAX_EXTRA_PASSES = 2
@@ -57,6 +58,23 @@ def _mark_tiingo_fetch(store: TradingStore, db_symbol: str, when: datetime) -> N
         f"{LAST_FETCH_KEY}:{db_symbol}",
         when.isoformat(),
         description=f"Tiingo last poll for {db_symbol}",
+    )
+
+
+def _mark_alpaca_live_fetch(store: TradingStore, db_symbol: str, when: datetime) -> None:
+    store.update_settings(
+        f"{ALPACA_LIVE_LAST_FETCH_KEY}:{db_symbol}",
+        when.isoformat(),
+        description=f"Alpaca live 5m poll for {db_symbol}",
+    )
+
+
+def _uses_alpaca_live_equity(asset, now: datetime) -> bool:
+    """US equities use Alpaca for timely 5m live bars during RTH."""
+    return (
+        asset.secondary_provider == ProviderName.ALPACA
+        and asset.asset_class in (AssetClass.STOCK, AssetClass.INDEX)
+        and is_us_equity_rth(now)
     )
 
 
@@ -164,7 +182,8 @@ def _fetch_asset_live(
     now: datetime,
     timings: dict[str, float],
 ) -> tuple[int, int, str | None]:
-    provider_key = asset.primary_provider.value
+    use_alpaca_live = _uses_alpaca_live_equity(asset, now)
+    provider_key = ProviderName.ALPACA.value if use_alpaca_live else asset.primary_provider.value
     t0 = time.perf_counter()
 
     timeframe = PROVIDER_TIMEFRAME
@@ -172,15 +191,31 @@ def _fetch_asset_live(
     stored = store.count_candles(instrument.id, timeframe)
     force_bootstrap = stored < STRATEGY_MIN_CANDLES
 
-    should_poll, defer_reason = _should_poll_asset(
-        store, asset, now=now, stored=stored, force_bootstrap=force_bootstrap, live=True
-    )
+    if use_alpaca_live:
+        if not is_us_equity_rth(now) and stored >= STRATEGY_MIN_CANDLES:
+            timings[provider_key] = timings.get(provider_key, 0.0) + (time.perf_counter() - t0) * 1000
+            return 0, 0, "deferred (US market closed — last session data retained)"
+        from quantara_engine.market_data.provider_budgets import can_request
+
+        if not can_request(store, "alpaca"):
+            timings[provider_key] = timings.get(provider_key, 0.0) + (time.perf_counter() - t0) * 1000
+            return 0, 0, "deferred (Alpaca budget)"
+        should_poll = True
+        defer_reason = None
+    else:
+        should_poll, defer_reason = _should_poll_asset(
+            store, asset, now=now, stored=stored, force_bootstrap=force_bootstrap, live=True
+        )
     if not should_poll:
         timings[provider_key] = timings.get(provider_key, 0.0) + (time.perf_counter() - t0) * 1000
         return 0, 0, defer_reason
 
     try:
-        provider = get_provider_for_asset(asset)
+        provider = (
+            get_provider_for_asset(asset, role="secondary")
+            if use_alpaca_live
+            else get_provider_for_asset(asset)
+        )
     except ValueError as exc:
         timings[provider_key] = timings.get(provider_key, 0.0) + (time.perf_counter() - t0) * 1000
         return 0, 0, str(exc)
@@ -225,7 +260,9 @@ def _fetch_asset_live(
         count += 1
     timings["persist_5m_ms"] = timings.get("persist_5m_ms", 0.0) + (time.perf_counter() - persist_t0) * 1000
 
-    if asset.primary_provider == ProviderName.TIINGO and count:
+    if use_alpaca_live and count:
+        _mark_alpaca_live_fetch(store, asset.db_symbol, now)
+    elif asset.primary_provider == ProviderName.TIINGO and count:
         _mark_tiingo_fetch(store, asset.db_symbol, now)
 
     derive_t0 = time.perf_counter()
