@@ -6,8 +6,10 @@ import logging
 from datetime import datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 from quantara_workers.jobs.fetch_data import fetch_bulk_job, fetch_live_job
+from quantara_workers.jobs.position_management import position_management_job
 from quantara_workers.jobs.run_backtest import run_backtest_job
 from quantara_workers.jobs.run_strategy import run_strategy_job
 from quantara_workers.jobs.snapshot import snapshot_job
@@ -27,11 +29,32 @@ class WorkerScheduler:
         self._started = False
 
     def register_jobs(self) -> None:
+        # Priority: ingest -> manage exits/marks -> strategy -> snapshot -> bulk history
         self.scheduler.add_job(
             fetch_live_job,
-            "interval",
-            minutes=5,
+            CronTrigger(minute="*/5", second=0),
             id="fetch_live",
+            replace_existing=True,
+            **_JOB_OPTS,
+        )
+        self.scheduler.add_job(
+            position_management_job,
+            CronTrigger(minute="*/5", second=20),
+            id="position_management",
+            replace_existing=True,
+            **_JOB_OPTS,
+        )
+        self.scheduler.add_job(
+            run_strategy_job,
+            CronTrigger(minute="*/5", second=35),
+            id="run_strategy",
+            replace_existing=True,
+            **_JOB_OPTS,
+        )
+        self.scheduler.add_job(
+            snapshot_job,
+            CronTrigger(minute="*/5", second=50),
+            id="snapshot",
             replace_existing=True,
             **_JOB_OPTS,
         )
@@ -40,22 +63,6 @@ class WorkerScheduler:
             "interval",
             minutes=30,
             id="fetch_bulk",
-            replace_existing=True,
-            **_JOB_OPTS,
-        )
-        self.scheduler.add_job(
-            run_strategy_job,
-            "interval",
-            minutes=5,
-            id="run_strategy",
-            replace_existing=True,
-            **_JOB_OPTS,
-        )
-        self.scheduler.add_job(
-            snapshot_job,
-            "interval",
-            minutes=5,
-            id="snapshot",
             replace_existing=True,
             **_JOB_OPTS,
         )

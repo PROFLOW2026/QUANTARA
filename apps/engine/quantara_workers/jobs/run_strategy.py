@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -361,19 +362,48 @@ def _process_competition(s: TradingStore, started_at: datetime) -> int:
 
 def run_strategy_job(store: TradingStore | None = None) -> None:
     started_at = datetime.now(timezone.utc)
+    t0 = time.perf_counter()
 
-    def _run(s: TradingStore) -> None:
+    def _run(s: TradingStore) -> int:
         settings_dict = s.get_settings_dict()
         if not settings_dict.get("paper_trading_enabled", True):
-            return
+            return 0
 
         if s.list_competition_entries():
-            _process_competition(s, started_at)
-        else:
-            logger.warning("No active competition portfolios — strategy runner idle")
+            return _process_competition(s, started_at)
+        logger.warning("No active competition portfolios — strategy runner idle")
+        return 0
 
-    if store is not None:
-        _run(store)
-    else:
-        with session_scope() as session:
-            _run(TradingStore(session))
+    try:
+        if store is not None:
+            jobs = _run(store)
+        else:
+            with session_scope() as session:
+                jobs = _run(TradingStore(session))
+        duration_ms = round((time.perf_counter() - t0) * 1000, 1)
+        logger.info("run_strategy_job finished in %.1fms (jobs=%d)", duration_ms, jobs)
+    except Exception as exc:
+        duration_ms = round((time.perf_counter() - t0) * 1000, 1)
+        logger.exception("run_strategy_job failed after %.1fms", duration_ms)
+        try:
+            with session_scope() as session:
+                s = TradingStore(session)
+                s.update_worker_status(
+                    "strategy_runner",
+                    {
+                        "status": "error",
+                        "last_run": started_at.isoformat(),
+                        "duration_ms": duration_ms,
+                        "error": str(exc),
+                    },
+                )
+                s.save_worker_run(
+                    run_id=str(uuid.uuid4()),
+                    worker_name="strategy_runner",
+                    started_at=started_at,
+                    status="error",
+                    errors={"message": str(exc)},
+                )
+        except Exception:
+            logger.exception("Failed to persist strategy_runner error status")
+        raise

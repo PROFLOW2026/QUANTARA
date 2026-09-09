@@ -13,15 +13,15 @@ from quantara_engine.persistence.store import TradingStore
 logger = logging.getLogger(__name__)
 
 
-def _marks_for_portfolio(s: TradingStore, portfolio_id: str, state) -> dict:
-    """Latest close per instrument using the portfolio's strategy timeframe."""
+def _marks_for_open_positions(s: TradingStore, state) -> dict:
+    """Latest completed candle close per open position instrument/timeframe."""
     marks: dict = {}
-    instance = s.get_paper_strategy_instance(portfolio_id)
-    timeframe = instance.timeframe if instance else "1h"
+    instance = s.get_active_strategy_instance(state.portfolio.id)
+    default_tf = instance.timeframe if instance else "5m"
     for pos in state.open_positions():
         if pos.instrument_id in marks:
             continue
-        candles = s.list_recent_candles(pos.instrument_id, timeframe, limit=1)
+        candles = s.list_recent_candles(pos.instrument_id, default_tf, limit=1)
         if candles:
             marks[pos.instrument_id] = candles[-1].close
     return marks
@@ -29,7 +29,7 @@ def _marks_for_portfolio(s: TradingStore, portfolio_id: str, state) -> dict:
 
 def _snapshot_one(s: TradingStore, portfolio_id: str) -> None:
     state = s.load_portfolio_state(portfolio_id)
-    marks = _marks_for_portfolio(s, portfolio_id, state)
+    marks = _marks_for_open_positions(s, state)
     if marks:
         state.recalculate_equity(marks)
     else:
@@ -73,8 +73,32 @@ def snapshot_job(store: TradingStore | None = None) -> None:
         )
         logger.info("snapshot job completed for %d portfolio(s)", len(portfolio_ids))
 
-    if store is not None:
-        _run(store)
-    else:
-        with session_scope() as session:
-            _run(TradingStore(session))
+    try:
+        if store is not None:
+            _run(store)
+        else:
+            with session_scope() as session:
+                _run(TradingStore(session))
+    except Exception as exc:
+        logger.exception("snapshot_job failed")
+        try:
+            with session_scope() as session:
+                s = TradingStore(session)
+                s.update_worker_status(
+                    "snapshot",
+                    {
+                        "status": "error",
+                        "last_run": started_at.isoformat(),
+                        "error": str(exc),
+                    },
+                )
+                s.save_worker_run(
+                    run_id=str(uuid.uuid4()),
+                    worker_name="snapshot",
+                    started_at=started_at,
+                    status="error",
+                    errors={"message": str(exc)},
+                )
+        except Exception:
+            logger.exception("Failed to persist snapshot error status")
+        raise

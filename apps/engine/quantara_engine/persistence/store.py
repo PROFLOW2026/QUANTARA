@@ -437,6 +437,26 @@ class TradingStore:
         )
         return self._instrument_to_domain(row) if row else None
 
+    def get_instrument_by_id(self, instrument_id: str) -> Instrument | None:
+        row = self.session.get(OrmInstrument, _uuid(instrument_id))
+        return self._instrument_to_domain(row) if row else None
+
+    def get_active_strategy_instance(self, portfolio_id: str) -> StrategyInstance | None:
+        row = self.session.scalar(
+            select(OrmStrategyInstance).where(
+                OrmStrategyInstance.portfolio_id == _uuid(portfolio_id),
+                OrmStrategyInstance.is_active.is_(True),
+            )
+        )
+        if not row:
+            return None
+        version = self.session.get(OrmStrategyVersion, row.strategy_version_id)
+        strategy = (
+            self.session.get(OrmStrategy, version.strategy_id) if version else None
+        )
+        slug = strategy.slug if strategy else "gold-trend-pullback"
+        return self._strategy_instance_to_domain(row, slug)
+
     def get_risk_profile_by_slug(self, slug: str) -> RiskProfile | None:
         try:
             slug_enum = RiskProfileSlug(slug)
@@ -1415,7 +1435,7 @@ class TradingStore:
     ) -> dict[str, Any]:
         from quantara_engine.execution.catch_up import compute_backlog_status
 
-        candles = self.list_candles(instrument_id, timeframe)
+        candles = self.list_recent_candles(instrument_id, timeframe, limit=500)
         last_processed = self.get_timeframe_group_last_processed(instance_ids, instrument_id)
         return compute_backlog_status(
             candles,
