@@ -1396,8 +1396,17 @@ class TradingStore:
         instrument_id: str,
     ) -> datetime | None:
         """Latest candle timestamp fully processed for this instrument by all instances."""
+        processed = self.fully_processed_candle_timestamps(instance_ids, instrument_id)
+        return max(processed) if processed else None
+
+    def fully_processed_candle_timestamps(
+        self,
+        instance_ids: list[str],
+        instrument_id: str,
+    ) -> set[datetime]:
+        """All candle timestamps where every instance in the group has a decision."""
         if not instance_ids:
-            return None
+            return set()
         inst_uuids = [_uuid(i) for i in instance_ids]
         rows = self.session.execute(
             select(OrmDecision.candle_timestamp, func.count())
@@ -1408,9 +1417,7 @@ class TradingStore:
             .group_by(OrmDecision.candle_timestamp)
             .having(func.count() >= len(instance_ids))
         ).all()
-        if not rows:
-            return None
-        return max(row[0] for row in rows)
+        return {row[0] for row in rows}
 
     def list_decision_timestamps_for_group(
         self,

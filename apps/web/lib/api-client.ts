@@ -292,8 +292,21 @@ export interface WorkerTimeframeStatus {
   status?: string;
 }
 
+export interface StrategyFreshness {
+  healthy: boolean;
+  stalled: boolean;
+  status?: string;
+  mode?: string;
+  last_evaluation_at?: string | null;
+  evaluation_age_minutes?: number | null;
+  backlog?: number;
+  market_candle_age_minutes?: Record<string, number | null>;
+  fetch_status?: string;
+}
+
 export interface WorkerStatus {
   healthy: boolean;
+  strategy_freshness?: StrategyFreshness;
   workers: Array<{
     name: string;
     status: "running" | "stopped" | "error";
@@ -301,6 +314,7 @@ export interface WorkerStatus {
     execution_status?: string;
     backlog?: number;
     timeframes?: Record<string, WorkerTimeframeStatus>;
+    freshness?: StrategyFreshness;
   }>;
 }
 

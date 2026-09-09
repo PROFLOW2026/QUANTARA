@@ -28,7 +28,8 @@ def list_catchup_candle_indices(
     *,
     last_processed: datetime | None,
     now: datetime,
-    already_processed_fn,
+    already_processed_fn=None,
+    processed_timestamps: set[datetime] | None = None,
 ) -> list[int]:
     """Indices of completed candles that still need group processing, oldest first."""
     indices: list[int] = []
@@ -37,7 +38,10 @@ def list_catchup_candle_indices(
             continue
         if last_processed is not None and candle.timestamp <= last_processed:
             continue
-        if already_processed_fn(candle.timestamp):
+        if processed_timestamps is not None:
+            if candle.timestamp in processed_timestamps:
+                continue
+        elif already_processed_fn is not None and already_processed_fn(candle.timestamp):
             continue
         indices.append(index)
     return indices

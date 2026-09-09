@@ -686,6 +686,8 @@ def decisions_latest(store: StoreDep):
 
 @router.get("/decisions/by-asset")
 def decisions_by_asset(store: StoreDep, timeframe: str = "5m"):
+    from quantara_workers.jobs.run_strategy import strategy_freshness_summary
+
     symbol_map = store.resolve_instrument_display_symbols()
     items = store.list_latest_decisions_by_asset_timeframe(timeframe)
     now = datetime.now(timezone.utc)
@@ -695,11 +697,16 @@ def decisions_by_asset(store: StoreDep, timeframe: str = "5m"):
         last_ts = d.candle_timestamp
         age_min = (now - last_ts).total_seconds() / 60
         payload["fresh"] = age_min < 30
+        payload["candle_age_minutes"] = round(age_min, 1)
         payload["timeframe"] = timeframe
         trade_opened = d.decision_type.value in ("buy_signal", "sell_signal")
         payload["trade_opened"] = trade_opened
         rows.append(payload)
-    return {"timeframe": timeframe, "decisions": rows}
+    return {
+        "timeframe": timeframe,
+        "decisions": rows,
+        "strategy_freshness": strategy_freshness_summary(store, now),
+    }
 
 
 @router.get("/strategies")
@@ -1071,9 +1078,12 @@ def analytics_today(store: StoreDep, portfolio_id: str = "competition"):
 
 @router.get("/workers/status")
 def workers_status(store: StoreDep):
+    from quantara_workers.jobs.run_strategy import strategy_freshness_summary
+
     db_runs = store.latest_worker_runs()
     cache = runtime_cache.worker_status
     workers = []
+    strategy_freshness = strategy_freshness_summary(store)
     for name in ("data_fetcher", "strategy_runner", "backtest_runner"):
         db_run = db_runs.get(name)
         cached = cache.get(name, {})
@@ -1093,7 +1103,8 @@ def workers_status(store: StoreDep):
         if name == "strategy_runner":
             worker_payload["execution_status"] = cached.get("status", status_val)
             worker_payload["timeframes"] = cached.get("timeframes", {})
-            worker_payload["backlog"] = cached.get("jobs_pending", 0)
+            worker_payload["backlog"] = cached.get("jobs_pending", strategy_freshness.get("backlog", 0))
+            worker_payload["freshness"] = strategy_freshness
         workers.append(worker_payload)
 
     instrument = store.get_instrument_by_symbol("XAUUSD")
@@ -1117,12 +1128,16 @@ def workers_status(store: StoreDep):
                     else worker.get("execution_status", "healthy")
                 )
 
-    healthy = all(
-        w.get("execution_status", w["status"]) in ("healthy", "idle", "running")
+    healthy = strategy_freshness.get("healthy", False) and all(
+        w["status"] == "running"
         for w in workers
-        if w["name"] == "strategy_runner"
-    ) or all(w["status"] == "running" for w in workers)
-    return {"healthy": healthy, "workers": workers}
+        if w["name"] in ("data_fetcher", "backtest_runner")
+    )
+    return {
+        "healthy": healthy,
+        "workers": workers,
+        "strategy_freshness": strategy_freshness,
+    }
 
 
 @router.post("/paper/start")

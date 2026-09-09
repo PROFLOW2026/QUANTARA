@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 FRESHNESS_MAX_AGE_MINUTES = 30
 CANDLE_LOOKBACK = STRATEGY_MIN_CANDLES + 50
 MAX_HISTORICAL_DECISIONS_PER_RUN = 50
+LIVE_CYCLE_MAX_SECONDS = 120
+LIVE_PRIORITY_SYMBOLS = ("BTCUSD", "EURUSD", "XAUUSD")
+HISTORICAL_CYCLE_MAX_SECONDS = 240
+STRATEGY_STALL_THRESHOLD_MINUTES = 12
 
 
 def _check_eligibility(
@@ -93,16 +97,47 @@ def _catchup_indices(
     instrument_id: str,
     now: datetime,
 ) -> list[int]:
-    last_processed = s.get_timeframe_group_last_processed(instance_ids, instrument_id)
+    processed = s.fully_processed_candle_timestamps(instance_ids, instrument_id)
     return list_catchup_candle_indices(
         candles,
         timeframe,
-        last_processed=last_processed,
+        last_processed=None,
         now=now,
-        already_processed_fn=lambda ts: s.timeframe_group_already_processed(
-            instance_ids, instrument_id, ts
-        ),
+        processed_timestamps=processed,
     )
+
+
+def _ordered_symbols() -> list[str]:
+    """Process liquid 24/7 competition assets before optional equity symbols."""
+    all_symbols = list_target_db_symbols()
+    priority = [sym for sym in LIVE_PRIORITY_SYMBOLS if sym in all_symbols]
+    remainder = [sym for sym in all_symbols if sym not in priority]
+    return priority + remainder
+
+
+def _commit_progress(s: TradingStore) -> None:
+    """Persist decisions/status incrementally so long cycles remain observable."""
+    s.session.commit()
+
+
+def _mark_cycle_started(
+    s: TradingStore,
+    *,
+    run_id: str,
+    started_at: datetime,
+    mode: str,
+) -> None:
+    s.update_worker_status(
+        "strategy_runner",
+        {
+            "status": "running",
+            "mode": mode,
+            "cycle_run_id": run_id,
+            "cycle_started_at": started_at.isoformat(),
+            "last_run": started_at.isoformat(),
+        },
+    )
+    _commit_progress(s)
 
 
 def _process_candle_batch(
@@ -175,6 +210,18 @@ def _process_candle_batch(
     return total_decisions
 
 
+def _latest_completed_timestamp(
+    candles: list,
+    timeframe: str,
+    started_at: datetime,
+) -> datetime | None:
+    latest_completed_ts: datetime | None = None
+    for candle in candles:
+        if is_bar_complete(candle.timestamp, timeframe, started_at):
+            latest_completed_ts = candle.timestamp
+    return latest_completed_ts
+
+
 def _process_timeframe_group(
     s: TradingStore,
     instrument,
@@ -183,8 +230,13 @@ def _process_timeframe_group(
     settings_dict: dict,
     started_at: datetime,
     broker: PaperBrokerAdapter,
+    *,
+    live_only: bool,
+    historical_only: bool = False,
+    time_budget_sec: float | None = None,
+    deadline: float | None = None,
 ) -> tuple[int, int, dict]:
-    """Process all missed completed candles sequentially, oldest → newest."""
+    """Process missed completed candles. Live path always runs before historical."""
     eligible, skip_reason = _check_eligibility(s, instrument, timeframe, started_at)
     if not eligible:
         return 0, 0, {
@@ -208,49 +260,71 @@ def _process_timeframe_group(
             instrument.id, timeframe, instance_ids, started_at
         )
 
-    live_idx = indices[-1]
-    historical_indices = indices[:-1]
-    if len(historical_indices) > MAX_HISTORICAL_DECISIONS_PER_RUN:
-        historical_indices = historical_indices[:MAX_HISTORICAL_DECISIONS_PER_RUN]
-
-    latest_completed_ts: datetime | None = None
-    for candle in candles:
-        if is_bar_complete(candle.timestamp, timeframe, started_at):
-            latest_completed_ts = candle.timestamp
-
+    latest_completed_ts = _latest_completed_timestamp(candles, timeframe, started_at)
     total_decisions = 0
     candles_processed = 0
 
-    # Live path first: SL/TP, pending execution, and current-bar strategy.
-    total_decisions += _process_candle_batch(
-        s,
-        instrument,
-        timeframe,
-        group,
-        candles,
-        live_idx,
-        started_at,
-        broker,
-        latest_completed_ts,
-        allow_live_execution=True,
-    )
-    candles_processed += 1
-
-    # Bounded historical catch-up: decisions/analytics only, no Paper exposure.
-    for candle_index in historical_indices:
+    if historical_only:
+        historical_indices = indices[:-1] if len(indices) > 1 else []
+        if len(historical_indices) > MAX_HISTORICAL_DECISIONS_PER_RUN:
+            historical_indices = historical_indices[:MAX_HISTORICAL_DECISIONS_PER_RUN]
+        for candle_index in historical_indices:
+            if deadline is not None and time.perf_counter() >= deadline:
+                logger.info(
+                    "Historical time budget reached for %s %s",
+                    instrument.symbol,
+                    timeframe,
+                )
+                break
+            total_decisions += _process_candle_batch(
+                s,
+                instrument,
+                timeframe,
+                group,
+                candles,
+                candle_index,
+                started_at,
+                broker,
+                latest_completed_ts,
+                allow_live_execution=False,
+            )
+            candles_processed += 1
+    else:
+        live_idx = indices[-1]
         total_decisions += _process_candle_batch(
             s,
             instrument,
             timeframe,
             group,
             candles,
-            candle_index,
+            live_idx,
             started_at,
             broker,
             latest_completed_ts,
-            allow_live_execution=False,
+            allow_live_execution=True,
         )
         candles_processed += 1
+
+        if not live_only:
+            historical_indices = indices[:-1]
+            if len(historical_indices) > MAX_HISTORICAL_DECISIONS_PER_RUN:
+                historical_indices = historical_indices[:MAX_HISTORICAL_DECISIONS_PER_RUN]
+            for candle_index in historical_indices:
+                if deadline is not None and time.perf_counter() >= deadline:
+                    break
+                total_decisions += _process_candle_batch(
+                    s,
+                    instrument,
+                    timeframe,
+                    group,
+                    candles,
+                    candle_index,
+                    started_at,
+                    broker,
+                    latest_completed_ts,
+                    allow_live_execution=False,
+                )
+                candles_processed += 1
 
     tf_status = s.get_timeframe_execution_status(
         instrument.id, timeframe, instance_ids, started_at
@@ -258,7 +332,15 @@ def _process_timeframe_group(
     return candles_processed, total_decisions, tf_status
 
 
-def _process_competition(s: TradingStore, started_at: datetime) -> int:
+def _process_competition(
+    s: TradingStore,
+    started_at: datetime,
+    *,
+    run_id: str,
+    live_only: bool,
+    historical_only: bool = False,
+    time_budget_sec: float,
+) -> int:
     entries = s.list_competition_entries()
     if not entries:
         return 0
@@ -273,8 +355,14 @@ def _process_competition(s: TradingStore, started_at: datetime) -> int:
     portfolios_touched = 0
     timeframe_status: dict[str, dict] = {}
     instrument_status: dict[str, dict] = {}
+    deadline = time.perf_counter() + time_budget_sec
+    skipped_reasons: list[str] = []
 
-    for symbol in list_target_db_symbols():
+    for symbol in _ordered_symbols():
+        if time.perf_counter() >= deadline:
+            logger.warning("Strategy cycle time budget exhausted during %s scan", symbol)
+            break
+
         instrument = s.get_instrument_by_symbol(symbol)
         if not instrument:
             logger.warning("Instrument %s not found — skipping", symbol)
@@ -284,6 +372,8 @@ def _process_competition(s: TradingStore, started_at: datetime) -> int:
         symbol_tf_status: dict[str, dict] = {}
 
         for timeframe in TIMEFRAME_ORDER:
+            if time.perf_counter() >= deadline:
+                break
             group = by_timeframe.get(timeframe, [])
             if not group:
                 continue
@@ -295,12 +385,20 @@ def _process_competition(s: TradingStore, started_at: datetime) -> int:
                 settings_dict,
                 started_at,
                 broker,
+                live_only=live_only,
+                historical_only=historical_only,
+                time_budget_sec=time_budget_sec,
+                deadline=deadline,
             )
             symbol_tf_status[timeframe] = tf_status
+            if tf_status.get("skipped"):
+                reason = str(tf_status.get("skip_reason") or "skipped")
+                skipped_reasons.append(f"{symbol}/{timeframe}:{reason}")
             if candles_processed:
                 groups_evaluated += 1
                 portfolios_touched += len(group) * candles_processed
                 total_decisions += decisions
+                _commit_progress(s)
 
         instrument_status[symbol] = symbol_tf_status
         for timeframe, st in symbol_tf_status.items():
@@ -309,70 +407,118 @@ def _process_competition(s: TradingStore, started_at: datetime) -> int:
             prev["instances"] = int(prev.get("instances", 0)) + int(st.get("instances", 0))
 
     overall_backlog = sum(st.get("backlog", 0) for st in timeframe_status.values())
-    overall_status = "catching_up" if overall_backlog > 0 else "healthy"
+    duration_ms = round((time.perf_counter() - (deadline - time_budget_sec)) * 1000, 1)
 
     if groups_evaluated == 0:
+        reason = "no_eligible_bars"
+        if skipped_reasons:
+            reason = skipped_reasons[0]
         s.update_worker_status(
             "strategy_runner",
             {
                 "status": "waiting",
+                "mode": "historical" if historical_only else "live",
                 "last_run": started_at.isoformat(),
-                "reason": "no_completed_bars",
+                "last_finish": datetime.now(timezone.utc).isoformat(),
+                "duration_ms": duration_ms,
+                "reason": reason,
                 "competition_portfolios": len(entries),
                 "timeframes": timeframe_status,
                 "instruments": instrument_status,
+                "jobs_pending": overall_backlog,
             },
         )
         s.save_worker_run(
-            run_id=str(uuid.uuid4()),
+            run_id=run_id,
             worker_name="strategy_runner",
             started_at=started_at,
             jobs_processed=0,
         )
+        _commit_progress(s)
         return 0
 
+    overall_status = "catching_up" if overall_backlog > 0 else "healthy"
     s.update_worker_status(
         "strategy_runner",
         {
             "status": overall_status,
+            "mode": "historical" if historical_only else "live",
             "last_run": started_at.isoformat(),
+            "last_finish": datetime.now(timezone.utc).isoformat(),
+            "duration_ms": duration_ms,
             "jobs_pending": overall_backlog,
             "decisions": total_decisions,
             "competition_portfolios": len(entries),
             "timeframe_groups_evaluated": groups_evaluated,
             "timeframes": timeframe_status,
             "instruments": instrument_status,
+            "last_evaluation_at": datetime.now(timezone.utc).isoformat(),
         },
     )
     s.save_worker_run(
-        run_id=str(uuid.uuid4()),
+        run_id=run_id,
         worker_name="strategy_runner",
         started_at=started_at,
         jobs_processed=groups_evaluated,
     )
     logger.info(
-        "run_strategy completed (%d candle-batches, %d portfolio-runs, %d decisions, backlog=%d)",
+        "run_strategy %s completed (%d candle-batches, %d portfolio-runs, %d decisions, backlog=%d)",
+        "historical" if historical_only else "live",
         groups_evaluated,
         portfolios_touched,
         total_decisions,
         overall_backlog,
     )
+    _commit_progress(s)
     return portfolios_touched
 
 
-def run_strategy_job(store: TradingStore | None = None) -> None:
+def _execute_strategy_cycle(
+    *,
+    live_only: bool,
+    historical_only: bool,
+    time_budget_sec: float,
+    store: TradingStore | None = None,
+) -> None:
     started_at = datetime.now(timezone.utc)
+    run_id = str(uuid.uuid4())
     t0 = time.perf_counter()
+    mode = "historical" if historical_only else "live"
 
     def _run(s: TradingStore) -> int:
         settings_dict = s.get_settings_dict()
         if not settings_dict.get("paper_trading_enabled", True):
             return 0
 
-        if s.list_competition_entries():
-            return _process_competition(s, started_at)
-        logger.warning("No active competition portfolios — strategy runner idle")
-        return 0
+        _mark_cycle_started(s, run_id=run_id, started_at=started_at, mode=mode)
+        if not s.list_competition_entries():
+            logger.warning("No active competition portfolios — strategy runner idle")
+            s.update_worker_status(
+                "strategy_runner",
+                {
+                    "status": "idle",
+                    "mode": mode,
+                    "last_run": started_at.isoformat(),
+                    "reason": "no_competition_entries",
+                },
+            )
+            s.save_worker_run(
+                run_id=run_id,
+                worker_name="strategy_runner",
+                started_at=started_at,
+                jobs_processed=0,
+            )
+            _commit_progress(s)
+            return 0
+
+        return _process_competition(
+            s,
+            started_at,
+            run_id=run_id,
+            live_only=live_only,
+            historical_only=historical_only,
+            time_budget_sec=time_budget_sec,
+        )
 
     try:
         if store is not None:
@@ -381,10 +527,15 @@ def run_strategy_job(store: TradingStore | None = None) -> None:
             with session_scope() as session:
                 jobs = _run(TradingStore(session))
         duration_ms = round((time.perf_counter() - t0) * 1000, 1)
-        logger.info("run_strategy_job finished in %.1fms (jobs=%d)", duration_ms, jobs)
+        logger.info(
+            "run_strategy_%s_job finished in %.1fms (jobs=%d)",
+            mode,
+            duration_ms,
+            jobs,
+        )
     except Exception as exc:
         duration_ms = round((time.perf_counter() - t0) * 1000, 1)
-        logger.exception("run_strategy_job failed after %.1fms", duration_ms)
+        logger.exception("run_strategy_%s_job failed after %.1fms", mode, duration_ms)
         try:
             with session_scope() as session:
                 s = TradingStore(session)
@@ -392,13 +543,14 @@ def run_strategy_job(store: TradingStore | None = None) -> None:
                     "strategy_runner",
                     {
                         "status": "error",
+                        "mode": mode,
                         "last_run": started_at.isoformat(),
                         "duration_ms": duration_ms,
                         "error": str(exc),
                     },
                 )
                 s.save_worker_run(
-                    run_id=str(uuid.uuid4()),
+                    run_id=run_id,
                     worker_name="strategy_runner",
                     started_at=started_at,
                     status="error",
@@ -407,3 +559,81 @@ def run_strategy_job(store: TradingStore | None = None) -> None:
         except Exception:
             logger.exception("Failed to persist strategy_runner error status")
         raise
+
+
+def run_strategy_job(store: TradingStore | None = None) -> None:
+    """Scheduled live path — newest eligible completed candle only, bounded runtime."""
+    _execute_strategy_cycle(
+        live_only=True,
+        historical_only=False,
+        time_budget_sec=LIVE_CYCLE_MAX_SECONDS,
+        store=store,
+    )
+
+
+def run_strategy_historical_job(store: TradingStore | None = None) -> None:
+    """Bounded historical catch-up — execution disabled, separate scheduler slot."""
+    _execute_strategy_cycle(
+        live_only=True,
+        historical_only=True,
+        time_budget_sec=HISTORICAL_CYCLE_MAX_SECONDS,
+        store=store,
+    )
+
+
+def strategy_freshness_summary(store: TradingStore, now: datetime | None = None) -> dict:
+    """Runtime freshness snapshot for API/UI — read-only helper."""
+    now = now or datetime.now(timezone.utc)
+    settings = store.get_settings_dict()
+    runner = settings.get("worker_status:strategy_runner") or {}
+    fetcher = settings.get("worker_status:data_fetcher") or {}
+
+    last_eval = runner.get("last_evaluation_at") or runner.get("last_finish") or runner.get("last_run")
+    eval_age_min = None
+    if last_eval:
+        try:
+            eval_age_min = round(
+                (now - datetime.fromisoformat(str(last_eval).replace("Z", "+00:00"))).total_seconds()
+                / 60,
+                1,
+            )
+        except ValueError:
+            pass
+
+    cycle_started = runner.get("cycle_started_at")
+    running_stalled = False
+    if runner.get("status") == "running" and cycle_started:
+        try:
+            started = datetime.fromisoformat(str(cycle_started).replace("Z", "+00:00"))
+            running_stalled = (now - started).total_seconds() / 60 > STRATEGY_STALL_THRESHOLD_MINUTES
+        except ValueError:
+            pass
+
+    market_ages: dict[str, float | None] = {}
+    for sym in ("BTCUSD", "EURUSD", "XAUUSD"):
+        inst = store.get_instrument_by_symbol(sym)
+        if not inst:
+            continue
+        ts = store.latest_candle_timestamp(inst.id, "5m")
+        market_ages[sym] = round((now - ts).total_seconds() / 60, 1) if ts else None
+
+    backlog = int(runner.get("jobs_pending") or 0)
+    healthy = (
+        runner.get("status") in ("healthy", "catching_up", "waiting")
+        and not running_stalled
+        and (eval_age_min is None or eval_age_min < STRATEGY_STALL_THRESHOLD_MINUTES)
+    )
+
+    return {
+        "healthy": healthy,
+        "stalled": running_stalled or (
+            eval_age_min is not None and eval_age_min >= STRATEGY_STALL_THRESHOLD_MINUTES
+        ),
+        "status": runner.get("status"),
+        "mode": runner.get("mode"),
+        "last_evaluation_at": last_eval,
+        "evaluation_age_minutes": eval_age_min,
+        "backlog": backlog,
+        "market_candle_age_minutes": market_ages,
+        "fetch_status": fetcher.get("status"),
+    }

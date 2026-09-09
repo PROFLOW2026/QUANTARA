@@ -7,6 +7,7 @@ import { MetricCardCurrency } from "@/components/trading/MetricCard";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import { PriceDisplay } from "@/components/trading/PriceDisplay";
 import { LatestDecisionsPanel } from "@/components/trading/LatestDecisionsPanel";
+import { StrategyFreshnessPanel } from "@/components/trading/StrategyFreshnessPanel";
 import {
   ActiveAssetsSummary,
   ActiveAssetsTable,
@@ -261,8 +262,11 @@ export default function HomePageClient() {
         </Card>
       </div>
 
-      <div className="mt-4">
-        <LatestDecisionsPanel decisions={assetDecisions} timeframe="5m" />
+      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <LatestDecisionsPanel decisions={assetDecisions} timeframe="5m" />
+        </div>
+        <StrategyFreshnessPanel freshness={workers?.strategy_freshness} />
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
