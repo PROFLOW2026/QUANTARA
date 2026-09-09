@@ -6,10 +6,14 @@ from typing import Type
 
 from quantara_engine.strategies.base import BaseStrategy
 from quantara_engine.strategies.gold_trend_pullback.v1_0_0 import GoldTrendPullbackV1
+from quantara_engine.strategies.opening_range_breakout.v1_0_0 import OpeningRangeBreakoutV1
 
 STRATEGY_REGISTRY: dict[str, dict[str, Type[BaseStrategy]]] = {
     "gold-trend-pullback": {
         "1.0.0": GoldTrendPullbackV1,
+    },
+    "opening-range-breakout": {
+        "1.0.0": OpeningRangeBreakoutV1,
     },
 }
 

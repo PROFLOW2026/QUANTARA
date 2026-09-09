@@ -388,6 +388,13 @@ class TradingStore:
                 version["strategy_name"] = strategy["name"] if strategy else "Gold Trend Pullback"
                 version["strategy_slug"] = "gold-trend-pullback"
             return version
+        if ref in ("orb-v1", "opening-range-breakout-1.0.0"):
+            version = self.get_strategy_version("opening-range-breakout", "1.0.0")
+            if version:
+                strategy = self.get_strategy_by_slug("opening-range-breakout")
+                version["strategy_name"] = strategy["name"] if strategy else "Opening Range Breakout"
+                version["strategy_slug"] = "opening-range-breakout"
+            return version
         return None
 
     def latest_worker_runs(self) -> dict[str, OrmWorkerRun]:
@@ -501,15 +508,22 @@ class TradingStore:
         except ValueError:
             return None
 
-    def list_competition_entries(self) -> list[dict[str, Any]]:
+    def list_competition_entries(
+        self,
+        *,
+        experiment_id: str | None = None,
+        strategy_slug: str = "gold-trend-pullback",
+        order_map: dict[str, int] | None = None,
+    ) -> list[dict[str, Any]]:
         """Active competition portfolios with strategy instance and risk profile."""
-        exp_id = self.get_competition_experiment_id()
+        exp_id = experiment_id or self.get_competition_experiment_id()
         if not exp_id:
             return []
 
-        order_map = {p.portfolio_id: p.sort_order for p in ACTIVE_COMPETITION_PORTFOLIOS}
+        if order_map is None:
+            order_map = {p.portfolio_id: p.sort_order for p in ACTIVE_COMPETITION_PORTFOLIOS}
         stmt = (
-            select(OrmStrategyInstance, OrmPortfolio, OrmRiskProfile)
+            select(OrmStrategyInstance, OrmPortfolio, OrmRiskProfile, OrmStrategy)
             .join(OrmPortfolio, OrmStrategyInstance.portfolio_id == OrmPortfolio.id)
             .join(OrmRiskProfile, OrmStrategyInstance.risk_profile_id == OrmRiskProfile.id)
             .join(
@@ -520,18 +534,17 @@ class TradingStore:
             .where(
                 OrmStrategyInstance.experiment_id == _uuid(exp_id),
                 OrmStrategyInstance.is_active.is_(True),
-                OrmStrategy.slug == "gold-trend-pullback",
+                OrmStrategy.slug == strategy_slug,
             )
         )
         rows = self.session.execute(stmt).all()
         entries: list[dict[str, Any]] = []
-        for instance_row, portfolio_row, risk_row in rows:
-            slug = risk_row.slug.value if hasattr(risk_row.slug, "value") else str(risk_row.slug)
+        for instance_row, portfolio_row, risk_row, strategy_row in rows:
             entries.append(
                 {
                     "portfolio": self._portfolio_to_domain(portfolio_row),
                     "instance": self._strategy_instance_to_domain(
-                        instance_row, "gold-trend-pullback"
+                        instance_row, strategy_row.slug
                     ),
                     "risk_profile": self._risk_profile_to_domain(risk_row),
                     "sort_order": order_map.get(_str_id(portfolio_row.id), 99),
@@ -539,6 +552,53 @@ class TradingStore:
             )
         entries.sort(key=lambda e: e["sort_order"])
         return entries
+
+    def is_orb_competition_enabled(self) -> bool:
+        settings = self.get_settings_dict()
+        return bool(settings.get("orb_competition_enabled"))
+
+    def list_orb_competition_entries(self) -> list[dict[str, Any]]:
+        from quantara_engine.competition.orb_constants import (
+            ORB_COMPETITION_EXPERIMENT_ID,
+            ORB_PORTFOLIO_DEF_BY_ID,
+            ORB_STRATEGY_SLUG,
+        )
+
+        if not self.is_orb_competition_enabled():
+            return []
+        return self.list_competition_entries(
+            experiment_id=ORB_COMPETITION_EXPERIMENT_ID,
+            strategy_slug=ORB_STRATEGY_SLUG,
+            order_map={pid: d.sort_order for pid, d in ORB_PORTFOLIO_DEF_BY_ID.items()},
+        )
+
+    def count_trades_on_session_date(
+        self,
+        portfolio_id: str,
+        instrument_id: str,
+        session_date,
+    ) -> int:
+        """Count trades opened on a US RTH session date (ET calendar day)."""
+        from datetime import time as dt_time
+
+        from quantara_engine.market_data.sessions import US_EASTERN
+
+        start_et = datetime.combine(session_date, dt_time(0, 0), tzinfo=US_EASTERN).astimezone(
+            timezone.utc
+        )
+        end_et = start_et + timedelta(days=1)
+        count = self.session.scalar(
+            select(func.count())
+            .select_from(OrmTrade)
+            .where(
+                OrmTrade.portfolio_id == _uuid(portfolio_id),
+                OrmTrade.instrument_id == _uuid(instrument_id),
+                OrmTrade.opened_at >= start_et,
+                OrmTrade.opened_at < end_et,
+                OrmTrade.backtest_run_id.is_(None),
+            )
+        )
+        return int(count or 0)
 
     def list_competition_instance_ids(self) -> list[str]:
         return [e["instance"].id for e in self.list_competition_entries()]
@@ -617,6 +677,30 @@ class TradingStore:
             if row:
                 results.append(self._decision_to_domain(row))
         return results
+
+    def latest_decision_for_instrument(
+        self,
+        instrument_id: str,
+        *,
+        strategy_slug: str | None = None,
+    ) -> DecisionLogEntry | None:
+        stmt = select(OrmDecision).where(OrmDecision.instrument_id == _uuid(instrument_id))
+        if strategy_slug:
+            instance_rows = self.session.scalars(
+                select(OrmStrategyInstance.id)
+                .join(OrmStrategyVersion, OrmStrategyInstance.strategy_version_id == OrmStrategyVersion.id)
+                .join(OrmStrategy, OrmStrategyVersion.strategy_id == OrmStrategy.id)
+                .where(OrmStrategy.slug == strategy_slug)
+            ).all()
+            if not instance_rows:
+                return None
+            stmt = stmt.where(
+                OrmDecision.strategy_instance_id.in_([_uuid(str(i)) for i in instance_rows])
+            )
+        row = self.session.scalar(
+            stmt.order_by(OrmDecision.candle_timestamp.desc(), OrmDecision.created_at.desc()).limit(1)
+        )
+        return self._decision_to_domain(row) if row else None
 
     def resolve_instrument_display_symbols(self) -> dict[str, str]:
         from quantara_engine.market_data.registry import list_target_assets
@@ -867,6 +951,25 @@ class TradingStore:
             backtest_run_id=self._bt_uuid(),
         )
         self.session.merge(row)
+
+    def list_backtest_entry_signals(self, backtest_run_id: str) -> list[dict]:
+        rows = self.session.scalars(
+            select(OrmSignal)
+            .where(
+                OrmSignal.backtest_run_id == _uuid(backtest_run_id),
+                OrmSignal.action.in_([OrmSignalAction.BUY, OrmSignalAction.SELL]),
+            )
+            .order_by(OrmSignal.candle_timestamp.asc())
+        ).all()
+        return [
+            {
+                "id": _str_id(row.id),
+                "action": row.action.value,
+                "candle_timestamp": row.candle_timestamp,
+                "metadata": row.metadata_ or {},
+            }
+            for row in rows
+        ]
 
     def save_decision(self, entry: DecisionLogEntry) -> None:
         row = OrmDecision(

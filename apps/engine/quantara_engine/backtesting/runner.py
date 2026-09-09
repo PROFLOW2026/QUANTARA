@@ -169,6 +169,13 @@ class BacktestRunner:
                     "fill_timing": backtest.execution_assumptions.fill_timing,
                 },
             )
+            if backtest.strategy_instance.strategy_slug == "opening-range-breakout":
+                from quantara_engine.backtesting.orb_analytics import attach_orb_analytics
+
+                signals = store.list_backtest_entry_signals(backtest.id) if store else []
+                backtest.metrics = attach_orb_analytics(
+                    backtest.metrics, backtest.trades, signals
+                )
             backtest.status = BacktestStatus.COMPLETED
             backtest.completed_at = datetime.now(timezone.utc)
 

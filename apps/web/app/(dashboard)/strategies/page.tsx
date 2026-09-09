@@ -8,6 +8,11 @@ import { translateTimeframe } from "@/lib/display-text";
 import { api, ApiError } from "@/lib/api-client";
 import { t } from "@/lib/i18n";
 
+const ROBOT_LABELS: Record<string, string> = {
+  "gold-trend-pullback": "Robot A",
+  "opening-range-breakout": "Robot B",
+};
+
 export default async function StrategiesPage() {
   let strategies = null;
   let error: string | null = null;
@@ -33,6 +38,7 @@ export default async function StrategiesPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>{t("common.name")}</TableHead>
+                  <TableHead>{t("strategies.robot")}</TableHead>
                   <TableHead>{t("strategies.slug")}</TableHead>
                   <TableHead>{t("common.status")}</TableHead>
                   <TableHead>{t("strategies.versions")}</TableHead>
@@ -45,7 +51,12 @@ export default async function StrategiesPage() {
               <TableBody>
                 {strategies.map((s) => (
                   <TableRow key={s.id}>
-                    <TableCell className="font-medium">{s.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <Link href={`/strategies/${s.slug}`} className="hover:underline">
+                        {s.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell>{s.robot_label ?? ROBOT_LABELS[s.slug] ?? "—"}</TableCell>
                     <TableCell className="font-mono text-xs">{s.slug}</TableCell>
                     <TableCell><StatusBadge status={s.status} /></TableCell>
                     <TableCell>{s.versions_count}</TableCell>

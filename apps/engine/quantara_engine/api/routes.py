@@ -20,6 +20,7 @@ from quantara_engine.competition.constants import (
     TIMEFRAME_GROUP_TITLE_HE,
     TIMEFRAME_HE,
 )
+from quantara_engine.competition.orb_service import build_orb_status
 from quantara_engine.competition.service import build_competition_response
 from quantara_engine.core.config import settings
 from quantara_engine.domain.types import ExecutionAssumptions, Mode, PortfolioStatus
@@ -709,6 +710,12 @@ def decisions_by_asset(store: StoreDep, timeframe: str = "5m"):
     }
 
 
+ROBOT_LABELS: dict[str, str] = {
+    "gold-trend-pullback": "Robot A",
+    "opening-range-breakout": "Robot B",
+}
+
+
 @router.get("/strategies")
 def strategies_list(store: StoreDep):
     grouped: dict = {}
@@ -719,6 +726,7 @@ def strategies_list(store: StoreDep):
                 "id": slug,
                 "slug": slug,
                 "name": item["name"],
+                "robot_label": ROBOT_LABELS.get(slug),
                 "status": "active",
                 "versions_count": 0,
                 "instruments": item.get("supported_instruments", []),
@@ -727,6 +735,11 @@ def strategies_list(store: StoreDep):
             }
         grouped[slug]["versions_count"] += 1
     return list(grouped.values())
+
+
+@router.get("/strategies/opening-range-breakout/status")
+def orb_strategy_status(store: StoreDep, symbol: str | None = None):
+    return build_orb_status(store, symbol=symbol)
 
 
 @router.get("/strategies/{slug}/versions")
@@ -851,10 +864,13 @@ def backtest_detail(store: StoreDep, backtest_id: str):
         raise HTTPException(404, "Backtest not found")
     m = bt.get("metrics") or {}
     strat_name, strat_version = _strategy_label(store, bt["strategy_version_id"])
+    version = store.resolve_strategy_version_ref(bt["strategy_version_id"])
+    strategy_slug = version.get("strategy_slug", "") if version else ""
     return {
         "id": bt["id"],
         "status": bt.get("status"),
         "strategy_name": strat_name,
+        "strategy_slug": strategy_slug,
         "strategy_version": strat_version,
         "period_start": bt.get("start_date") or "",
         "period_end": bt.get("end_date") or "",
@@ -966,8 +982,7 @@ def analytics_portfolio(store: StoreDep, portfolio_id: str = "competition"):
     }
 
 
-@router.get("/analytics/strategy")
-def analytics_strategy(store: StoreDep, strategy_version_id: str = "gtp-v1"):
+def _analytics_for_strategy_ref(store: TradingStore, strategy_version_id: str) -> dict:
     version = store.resolve_strategy_version_ref(strategy_version_id)
     if not version:
         raise HTTPException(404, "Strategy version not found")
@@ -977,14 +992,53 @@ def analytics_strategy(store: StoreDep, strategy_version_id: str = "gtp-v1"):
     svc = AnalyticsService()
     stats = svc.strategy_analytics(trades, version["id"])
     return {
-        "strategy_name": version.get("strategy_name", "Gold Trend Pullback"),
+        "strategy_slug": version.get("strategy_slug", ""),
+        "strategy_name": version.get("strategy_name", "Unknown"),
         "strategy_version": version.get("version", "1.0.0"),
+        "robot_label": ROBOT_LABELS.get(version.get("strategy_slug", ""), ""),
+        "trade_count": len(trades),
         "win_rate": stats.get("win_rate", 0),
         "profit_factor": stats.get("profit_factor", 0),
         "expectancy": stats.get("expectancy", 0),
         "long_pnl": stats.get("long_pnl", 0),
         "short_pnl": stats.get("short_pnl", 0),
     }
+
+
+@router.get("/analytics/strategy")
+def analytics_strategy(store: StoreDep, strategy_version_id: str = "gtp-v1"):
+    return _analytics_for_strategy_ref(store, strategy_version_id)
+
+
+@router.get("/analytics/strategy-breakdown")
+def analytics_strategy_breakdown(store: StoreDep):
+    """Mandatory Robot A vs Robot B performance split."""
+    breakdown = []
+    for ref in ("gtp-v1", "orb-v1"):
+        version = store.resolve_strategy_version_ref(ref)
+        if not version:
+            breakdown.append(
+                {
+                    "strategy_slug": "opening-range-breakout" if ref == "orb-v1" else "gold-trend-pullback",
+                    "strategy_name": "Opening Range Breakout" if ref == "orb-v1" else "Gold Trend Pullback",
+                    "strategy_version": "1.0.0",
+                    "robot_label": ROBOT_LABELS.get(
+                        "opening-range-breakout" if ref == "orb-v1" else "gold-trend-pullback"
+                    ),
+                    "trade_count": 0,
+                    "win_rate": 0,
+                    "profit_factor": 0,
+                    "expectancy": 0,
+                    "long_pnl": 0,
+                    "short_pnl": 0,
+                    "configured": False,
+                }
+            )
+            continue
+        payload = _analytics_for_strategy_ref(store, ref)
+        payload["configured"] = True
+        breakdown.append(payload)
+    return {"strategies": breakdown}
 
 
 @router.get("/analytics/costs")

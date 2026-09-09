@@ -214,7 +214,9 @@ def manage_all_open_positions(
     exits = 0
     instrument_cache: dict[str, Instrument | None] = {}
 
-    for entry in store.list_competition_entries():
+    entries = store.list_competition_entries()
+    entries.extend(store.list_orb_competition_entries())
+    for entry in entries:
         portfolio = entry["portfolio"]
         instance = entry["instance"]
         state = store.load_portfolio_state(portfolio.id)

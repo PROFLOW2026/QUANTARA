@@ -197,11 +197,50 @@ export interface Strategy {
   id: string;
   name: string;
   slug: string;
+  robot_label?: string | null;
   status: string;
   versions_count: number;
   instruments: string[];
   timeframes: string[];
   active_instances: number;
+}
+
+export interface OrbAssetStatus {
+  market_open: boolean;
+  market_closed: boolean;
+  opening_range_high: number | null;
+  opening_range_low: number | null;
+  opening_range_size: number | null;
+  range_ready: boolean;
+  current_relation: string | null;
+  trades_today: number;
+  latest_signal: string | null;
+  latest_reason: string | null;
+  latest_signal_at: string | null;
+}
+
+export interface OrbStatusResponse {
+  strategy_id: string;
+  version: string;
+  display_name: string;
+  paper_enabled: boolean;
+  portfolios_count: number;
+  now_utc: string;
+  assets: Record<string, OrbAssetStatus>;
+}
+
+export interface StrategyBreakdownItem {
+  strategy_slug: string;
+  strategy_name: string;
+  strategy_version: string;
+  robot_label?: string;
+  trade_count: number;
+  configured?: boolean;
+  win_rate: number;
+  profit_factor: number;
+  expectancy: number;
+  long_pnl: number;
+  short_pnl: number;
 }
 
 export interface StrategyVersion {
@@ -213,6 +252,39 @@ export interface StrategyVersion {
   trades_count: number;
   backtests_count: number;
   logic_hash?: string;
+}
+
+export interface OrbWeekdayRow {
+  weekday: string;
+  trades: number;
+  wins: number;
+  losses: number;
+  win_rate: number;
+  net_pnl: number;
+  average_R: number | null;
+  expectancy: number;
+  profit_factor: number | null;
+}
+
+export interface OrbRangeWidthRow {
+  range_bucket: string;
+  width_pct_min: number;
+  width_pct_max: number | null;
+  trades: number;
+  wins: number;
+  losses: number;
+  win_rate: number;
+  net_pnl: number;
+  average_R: number | null;
+  expectancy: number;
+  profit_factor: number | null;
+}
+
+export interface OrbBacktestAnalytics {
+  weekday_breakdown: OrbWeekdayRow[];
+  range_width_breakdown: OrbRangeWidthRow[];
+  range_width_buckets: Array<{ label: string; width_pct_min: number; width_pct_max: number | null }>;
+  trade_details: Array<Record<string, unknown>>;
 }
 
 export interface BacktestMetrics {
@@ -232,12 +304,14 @@ export interface BacktestMetrics {
   expectancy?: number;
   equity_curve?: Array<{ date: string; equity: number }>;
   drawdown_curve?: Array<{ date: string; drawdown_pct: number }>;
+  orb_analytics?: OrbBacktestAnalytics;
 }
 
 export interface Backtest {
   id: string;
   name?: string;
   strategy_name: string;
+  strategy_slug?: string;
   strategy_version: string;
   period_start: string;
   period_end: string;
@@ -683,6 +757,10 @@ export const api = {
   getStrategies: () => apiFetch<Strategy[]>("/strategies"),
   getStrategyVersions: (slug: string) =>
     apiFetch<StrategyVersion[]>(`/strategies/${slug}/versions`),
+  getOrbStatus: (symbol?: string) => {
+    const qs = symbol ? `?symbol=${encodeURIComponent(symbol)}` : "";
+    return apiFetch<OrbStatusResponse>(`/strategies/opening-range-breakout/status${qs}`);
+  },
   getBacktests: () => apiFetch<Backtest[]>("/backtests"),
   getBacktest: (id: string) => apiFetch<Backtest>(`/backtests/${id}`),
   getBacktestTrades: (id: string) =>
@@ -704,6 +782,8 @@ export const api = {
     const qs = params ? "?" + new URLSearchParams(params).toString() : "";
     return apiFetch<AnalyticsStrategy>(`/analytics/strategy${qs}`);
   },
+  getAnalyticsStrategyBreakdown: () =>
+    apiFetch<{ strategies: StrategyBreakdownItem[] }>("/analytics/strategy-breakdown"),
   getAnalyticsCosts: (portfolioId?: string) =>
     apiFetch<AnalyticsCosts>(`/analytics/costs${portfolioQs(portfolioId)}`),
   getAnalyticsToday: (portfolioId?: string) =>

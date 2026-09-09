@@ -40,6 +40,7 @@
     "created": "נוצר",
     "updated": "עודכן",
     "name": "שם",
+    "symbol": "סימול",
     "type": "סוג",
     "message": "הודעה",
     "long": "קנייה (Long)",
@@ -295,7 +296,19 @@
     "param_atr_period": "ATR — תקופה",
     "param_atr_sl_multiplier": "Stop Loss — ATR ×",
     "param_atr_tp_multiplier": "Take Profit — ATR ×",
-    "param_min_candles": "מינימום נרות היסטוריים"
+    "param_min_candles": "מינימום נרות היסטוריים",
+    "robot": "רובוט",
+    "overview": "סקירה",
+    "orb_status": "סטטוס ORB",
+    "orb_assets": "נכסי ORB",
+    "paper_enabled": "מסחר נייר פעיל",
+    "portfolios": "תיקים",
+    "range_high": "גבוה טווח",
+    "range_low": "נמוך טווח",
+    "range_size": "גודל טווח",
+    "relation": "יחס לטווח",
+    "latest_signal": "אות אחרון",
+    "trades_today": "עסקאות היום"
   },
   "backtests": {
     "title": "בדיקות היסטוריות",
@@ -325,7 +338,13 @@
     "worst_trade": "העסקה הגרועה ביותר",
     "expectancy": "תוחלת לעסקה",
     "final_capital": "הון סופי",
-    "small_sample_note": "מספר עסקאות קטן — הנתונים עדיין לא מייצגים ביצועים יציבים."
+    "small_sample_note": "מספר עסקאות קטן — הנתונים עדיין לא מייצגים ביצועים יציבים.",
+    "orb_weekday": "ORB — ביצועים לפי יום בשבוע",
+    "orb_range_width": "ORB — ביצועים לפי רוחב טווח פתיחה",
+    "weekday": "יום",
+    "range_bucket": "קטגוריית רוחב",
+    "average_r": "R ממוצע",
+    "orb_backtest_note": "ניתוח ימי שבוע ורוחב טווח פתיחה זמין בתוצאות בדיקה היסטורית של ORB."
   },
   "experiments": {
     "title": "ניסויים",
@@ -337,6 +356,7 @@
     "title": "ביצועים",
     "tab_portfolio": "ביצועי תיק",
     "tab_strategy": "ביצועי אסטרטגיה",
+    "strategy_breakdown": "פירוט לפי אסטרטגיה (Robot A / B)",
     "tab_costs": "עלויות",
     "equity_curve": "עקומת שווי תיק",
     "drawdown": "ירידה מהשיא",

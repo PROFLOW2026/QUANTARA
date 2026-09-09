@@ -112,6 +112,7 @@ class StrategyContext:
     instrument_id: str
     timeframe: str
     parameters: dict[str, Any]
+    runtime: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

@@ -159,6 +159,7 @@ def _process_candle_batch(
     latest_completed_ts: datetime | None,
     *,
     allow_live_execution: bool,
+    per_portfolio_eval: bool = False,
 ) -> int:
     """Process one candle index across all portfolios in the timeframe group."""
     candle = candles[candle_index]
@@ -166,19 +167,22 @@ def _process_candle_batch(
     if s.timeframe_group_already_processed(instance_ids, instrument.id, candle.timestamp):
         return 0
 
-    template = group[0]
-    eval_processor = CandleProcessor(
-        portfolio_state=s.load_portfolio_state(template["portfolio"].id),
-        strategy_instance=template["instance"],
-        instrument=instrument,
-        risk_profile=template["risk_profile"],
-        broker=broker,
-        clock=BacktestClock(),
-        store=None,
-        mode=Mode.PAPER,
-    )
-    eval_processor.all_candles = candles
-    shared_signal, _ = eval_processor.evaluate_signal(candle_index)
+    shared_signal = None
+    if not per_portfolio_eval:
+        template = group[0]
+        eval_processor = CandleProcessor(
+            portfolio_state=s.load_portfolio_state(template["portfolio"].id),
+            strategy_instance=template["instance"],
+            instrument=instrument,
+            risk_profile=template["risk_profile"],
+            broker=broker,
+            clock=BacktestClock(),
+            store=s,
+            mode=Mode.PAPER,
+            execution_now=started_at,
+        )
+        eval_processor.all_candles = candles
+        shared_signal, _ = eval_processor.evaluate_signal(candle_index)
 
     total_decisions = 0
     for entry in group:
@@ -204,7 +208,11 @@ def _process_candle_batch(
         pending = s.list_pending_order_intents(portfolio.id, instance.id)
         processor.pending_intents = pending
         processor._persisted_intents = {intent.id for intent in pending}
-        processor.process_candle(candle_index, shared_signal=shared_signal)
+        if per_portfolio_eval:
+            signal, _ = processor.evaluate_signal(candle_index)
+            processor.process_candle(candle_index, shared_signal=signal)
+        else:
+            processor.process_candle(candle_index, shared_signal=shared_signal)
         total_decisions += len(processor.decisions)
 
     mode_label = "live" if allow_live_execution else "historical"
@@ -243,6 +251,7 @@ def _process_timeframe_group(
     historical_only: bool = False,
     time_budget_sec: float | None = None,
     deadline: float | None = None,
+    per_portfolio_eval: bool = False,
 ) -> tuple[int, int, dict]:
     """Process missed completed candles. Live path always runs before historical."""
     eligible, skip_reason = _check_eligibility(s, instrument, timeframe, started_at)
@@ -295,6 +304,7 @@ def _process_timeframe_group(
                 broker,
                 latest_completed_ts,
                 allow_live_execution=False,
+                per_portfolio_eval=per_portfolio_eval,
             )
             candles_processed += 1
     else:
@@ -310,6 +320,7 @@ def _process_timeframe_group(
             broker,
             latest_completed_ts,
             allow_live_execution=True,
+            per_portfolio_eval=per_portfolio_eval,
         )
         candles_processed += 1
 
@@ -331,6 +342,7 @@ def _process_timeframe_group(
                     broker,
                     latest_completed_ts,
                     allow_live_execution=False,
+                    per_portfolio_eval=per_portfolio_eval,
                 )
                 candles_processed += 1
 
@@ -340,20 +352,23 @@ def _process_timeframe_group(
     return candles_processed, total_decisions, tf_status
 
 
-def _process_competition(
+def _process_experiment(
     s: TradingStore,
+    entries: list[dict],
+    symbols: list[str],
+    timeframes: tuple[str, ...],
+    settings_dict: dict,
     started_at: datetime,
     *,
-    run_id: str,
     live_only: bool,
-    historical_only: bool = False,
+    historical_only: bool,
     time_budget_sec: float,
-) -> int:
-    entries = s.list_competition_entries()
+    deadline: float,
+    per_portfolio_eval: bool = False,
+) -> tuple[int, int, int, dict[str, dict], dict[str, dict], list[str]]:
     if not entries:
-        return 0
+        return 0, 0, 0, {}, {}, []
 
-    settings_dict = s.get_settings_dict()
     by_timeframe: dict[str, list[dict]] = defaultdict(list)
     for entry in entries:
         by_timeframe[entry["instance"].timeframe].append(entry)
@@ -363,10 +378,9 @@ def _process_competition(
     portfolios_touched = 0
     timeframe_status: dict[str, dict] = {}
     instrument_status: dict[str, dict] = {}
-    deadline = time.perf_counter() + time_budget_sec
     skipped_reasons: list[str] = []
 
-    for symbol in _ordered_symbols():
+    for symbol in symbols:
         if time.perf_counter() >= deadline:
             logger.warning("Strategy cycle time budget exhausted during %s scan", symbol)
             break
@@ -379,12 +393,18 @@ def _process_competition(
         broker = PaperBrokerAdapter(instrument.id, ExecutionAssumptions())
         symbol_tf_status: dict[str, dict] = {}
 
-        for timeframe in TIMEFRAME_ORDER:
+        for timeframe in timeframes:
             if time.perf_counter() >= deadline:
                 break
             group = by_timeframe.get(timeframe, [])
             if not group:
                 continue
+            if per_portfolio_eval:
+                group = [
+                    e for e in group if e["instance"].instrument_id == instrument.id
+                ]
+                if not group:
+                    continue
             candles_processed, decisions, tf_status = _process_timeframe_group(
                 s,
                 instrument,
@@ -397,6 +417,7 @@ def _process_competition(
                 historical_only=historical_only,
                 time_budget_sec=time_budget_sec,
                 deadline=deadline,
+                per_portfolio_eval=per_portfolio_eval,
             )
             symbol_tf_status[timeframe] = tf_status
             if tf_status.get("skipped"):
@@ -414,7 +435,86 @@ def _process_competition(
             prev["backlog"] = int(prev.get("backlog", 0)) + int(st.get("backlog", 0))
             prev["instances"] = int(prev.get("instances", 0)) + int(st.get("instances", 0))
 
-    overall_backlog = sum(st.get("backlog", 0) for st in timeframe_status.values())
+    return (
+        groups_evaluated,
+        portfolios_touched,
+        total_decisions,
+        timeframe_status,
+        instrument_status,
+        skipped_reasons,
+    )
+
+
+def _process_competition(
+    s: TradingStore,
+    started_at: datetime,
+    *,
+    run_id: str,
+    live_only: bool,
+    historical_only: bool = False,
+    time_budget_sec: float,
+) -> int:
+    from quantara_engine.competition.constants import TIMEFRAME_ORDER
+    from quantara_engine.competition.orb_constants import ORB_ASSETS, ORB_TIMEFRAME
+
+    settings_dict = s.get_settings_dict()
+    deadline = time.perf_counter() + time_budget_sec
+
+    robot_a = s.list_competition_entries()
+    (
+        groups_a,
+        touched_a,
+        decisions_a,
+        tf_a,
+        inst_a,
+        skipped_a,
+    ) = _process_experiment(
+        s,
+        robot_a,
+        _ordered_symbols(),
+        TIMEFRAME_ORDER,
+        settings_dict,
+        started_at,
+        live_only=live_only,
+        historical_only=historical_only,
+        time_budget_sec=time_budget_sec,
+        deadline=deadline,
+    )
+
+    orb_entries = s.list_orb_competition_entries()
+    (
+        groups_b,
+        touched_b,
+        decisions_b,
+        tf_b,
+        inst_b,
+        skipped_b,
+    ) = _process_experiment(
+        s,
+        orb_entries,
+        list(ORB_ASSETS),
+        (ORB_TIMEFRAME,),
+        settings_dict,
+        started_at,
+        live_only=live_only,
+        historical_only=historical_only,
+        time_budget_sec=time_budget_sec,
+        deadline=deadline,
+        per_portfolio_eval=True,
+    )
+
+    groups_evaluated = groups_a + groups_b
+    portfolios_touched = touched_a + touched_b
+    total_decisions = decisions_a + decisions_b
+    skipped_reasons = skipped_a + skipped_b
+    timeframe_status = {**tf_a, **{f"orb_{k}": v for k, v in tf_b.items()}}
+    instrument_status = {**inst_a, **{f"orb_{k}": v for k, v in inst_b.items()}}
+    entries_count = len(robot_a) + len(orb_entries)
+
+    overall_backlog = sum(
+        int(st.get("backlog", 0))
+        for st in (*tf_a.values(), *tf_b.values())
+    )
     duration_ms = round((time.perf_counter() - (deadline - time_budget_sec)) * 1000, 1)
 
     if groups_evaluated == 0:
@@ -430,7 +530,7 @@ def _process_competition(
                 "last_finish": datetime.now(timezone.utc).isoformat(),
                 "duration_ms": duration_ms,
                 "reason": reason,
-                "competition_portfolios": len(entries),
+                "competition_portfolios": entries_count,
                 "timeframes": timeframe_status,
                 "instruments": instrument_status,
                 "jobs_pending": overall_backlog,
@@ -456,7 +556,7 @@ def _process_competition(
             "duration_ms": duration_ms,
             "jobs_pending": overall_backlog,
             "decisions": total_decisions,
-            "competition_portfolios": len(entries),
+            "competition_portfolios": entries_count,
             "timeframe_groups_evaluated": groups_evaluated,
             "timeframes": timeframe_status,
             "instruments": instrument_status,
@@ -500,6 +600,11 @@ def _execute_strategy_cycle(
 
         _mark_cycle_started(s, run_id=run_id, started_at=started_at, mode=mode)
         expired_intents = s.cancel_stale_pending_intents(ACTIVE_COMPETITION_EXPERIMENT_ID, started_at)
+        from quantara_engine.competition.orb_constants import ORB_COMPETITION_EXPERIMENT_ID
+
+        expired_intents += s.cancel_stale_pending_intents(
+            ORB_COMPETITION_EXPERIMENT_ID, started_at
+        )
         if expired_intents:
             logger.info("Expired %d stale pending_execution intent(s)", expired_intents)
             _commit_progress(s)

@@ -221,6 +221,29 @@ class CandleProcessor:
         self.store.save_snapshot(snap)
         self._flush_store()
 
+    def _build_strategy_runtime(self, candle: Candle) -> dict:
+        runtime: dict = {"execution_now": self.execution_now.isoformat()}
+        open_for_instance = [
+            p
+            for p in self.state.open_positions()
+            if p.strategy_instance_id == self.instance.id
+            and p.instrument_id == self.instrument.id
+        ]
+        runtime["has_open_position"] = bool(open_for_instance)
+        if self.instance.strategy_slug == "opening-range-breakout" and self.store:
+            from quantara_engine.strategies.opening_range_breakout.session import (
+                rth_session_date,
+            )
+
+            session_date = rth_session_date(candle.timestamp)
+            if session_date:
+                runtime["trades_today"] = self.store.count_trades_on_session_date(
+                    self.state.portfolio.id,
+                    self.instrument.id,
+                    session_date,
+                )
+        return runtime
+
     def evaluate_signal(self, candle_index: int):
         """Evaluate strategy once on candles up to index (no persistence)."""
         candle = self.all_candles[candle_index]
@@ -233,6 +256,7 @@ class CandleProcessor:
             instrument_id=candle.instrument_id,
             timeframe=candle.timeframe,
             parameters=params,
+            runtime=self._build_strategy_runtime(candle),
         )
         return strategy.evaluate(visible, ctx), candle
 
