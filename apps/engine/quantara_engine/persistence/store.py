@@ -600,8 +600,15 @@ class TradingStore:
         )
         return int(count or 0)
 
+    def list_all_competition_entries(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        """Return (robot_a, robot_b, combined) active paper competition entries."""
+        robot_a = self.list_competition_entries()
+        robot_b = self.list_orb_competition_entries() if self.is_orb_competition_enabled() else []
+        return robot_a, robot_b, robot_a + robot_b
+
     def list_competition_instance_ids(self) -> list[str]:
-        return [e["instance"].id for e in self.list_competition_entries()]
+        _, _, combined = self.list_all_competition_entries()
+        return [e["instance"].id for e in combined]
 
     def list_decisions_for_portfolio(
         self,
@@ -1736,6 +1743,7 @@ class TradingStore:
         limit: int = 50,
     ) -> list[dict[str, Any]]:
         from quantara_engine.competition.constants import PORTFOLIO_DEF_BY_ID, RISK_SLUG_HE, TIMEFRAME_HE
+        from quantara_engine.competition.orb_constants import ORB_PORTFOLIO_DEF_BY_ID
 
         rows = self.session.execute(
             select(OrmTrade, OrmStrategyInstance, OrmPortfolio, OrmRiskProfile)
@@ -1752,12 +1760,21 @@ class TradingStore:
 
         results: list[dict[str, Any]] = []
         for trade, instance, portfolio, risk in rows:
-            portfolio_def = PORTFOLIO_DEF_BY_ID.get(str(portfolio.id))
+            pid = str(portfolio.id)
+            portfolio_def = PORTFOLIO_DEF_BY_ID.get(pid)
+            orb_def = ORB_PORTFOLIO_DEF_BY_ID.get(pid)
+            display_name = (
+                portfolio_def.name_he
+                if portfolio_def
+                else orb_def.name_he
+                if orb_def
+                else portfolio.name
+            )
             results.append(
                 {
                     "trade_id": str(trade.id),
-                    "portfolio_id": str(portfolio.id),
-                    "portfolio_name": portfolio_def.name_he if portfolio_def else portfolio.name,
+                    "portfolio_id": pid,
+                    "portfolio_name": display_name,
                     "timeframe": instance.timeframe,
                     "timeframe_he": TIMEFRAME_HE.get(instance.timeframe, instance.timeframe),
                     "risk_slug": risk.slug,
@@ -1780,7 +1797,8 @@ class TradingStore:
             hour=0, minute=0, second=0, microsecond=0
         )
         instance_ids = self.list_competition_instance_ids()
-        portfolio_ids = [e["portfolio"].id for e in self.list_competition_entries()]
+        _, _, all_entries = self.list_all_competition_entries()
+        portfolio_ids = [e["portfolio"].id for e in all_entries]
         if not instance_ids:
             return {
                 "market_checks_today": 0,

@@ -605,18 +605,33 @@ def competition_summary(store: StoreDep):
 
 @router.get("/portfolios")
 def portfolios_list(store: StoreDep):
-    entries = store.list_competition_entries()
+    from quantara_engine.competition.orb_constants import ORB_PORTFOLIO_DEF_BY_ID, ORB_STRATEGY_SLUG
+
+    robot_a_entries, robot_b_entries, all_entries = store.list_all_competition_entries()
+    robot_b_ids = {e["portfolio"].id for e in robot_b_entries}
     items = []
-    for entry in entries:
+    for entry in all_entries:
         p = entry["portfolio"]
+        is_orb = p.id in robot_b_ids
         portfolio_def = PORTFOLIO_DEF_BY_ID.get(p.id)
+        orb_def = ORB_PORTFOLIO_DEF_BY_ID.get(p.id)
+        display_name = (
+            portfolio_def.name_he
+            if portfolio_def
+            else orb_def.name_he
+            if orb_def
+            else p.name
+        )
         open_positions = store.list_positions(p.id, open_only=True)
         open_pos = open_positions[0] if open_positions else None
         items.append(
             {
                 "id": p.id,
-                "name": portfolio_def.name_he if portfolio_def else p.name,
+                "name": display_name,
                 "kind": "competition",
+                "robot_label": "Robot B" if is_orb else "Robot A",
+                "strategy_slug": ORB_STRATEGY_SLUG if is_orb else "gold-trend-pullback",
+                "strategy_name": "Opening Range Breakout" if is_orb else "Trend Pullback",
                 "timeframe": entry["instance"].timeframe,
                 "timeframe_he": TIMEFRAME_HE.get(entry["instance"].timeframe, entry["instance"].timeframe),
                 "risk_slug": entry["risk_profile"].slug,
@@ -633,6 +648,7 @@ def portfolios_list(store: StoreDep):
                 "sort_order": entry["sort_order"],
             }
         )
+    items.sort(key=lambda row: (row["robot_label"], row.get("sort_order", 99)))
     return items
 
 
@@ -1069,6 +1085,7 @@ def analytics_competition(store: StoreDep):
         "leaderboard": payload["leaderboard"],
         "combined": payload["combined"],
         "experiment": payload["experiment"],
+        "robot_groups": payload.get("robot_groups", []),
     }
 
 

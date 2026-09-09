@@ -548,6 +548,9 @@ export interface PortfolioListItem {
   id: string;
   name: string;
   kind: "competition";
+  robot_label?: string;
+  strategy_slug?: string;
+  strategy_name?: string;
   risk_slug?: string;
   risk_per_trade_pct?: number;
   timeframe?: string;
@@ -603,9 +606,23 @@ export interface CompetitionTimeframeGroup {
   portfolios: CompetitionPortfolioSummary[];
 }
 
+export interface RobotGroupSummary {
+  robot_label: string;
+  strategy_name: string;
+  strategy_slug: string;
+  experiment_id: string;
+  portfolio_count: number;
+  initial_capital: number;
+  current_equity: number;
+  combined_pnl: number;
+}
+
 export interface CompetitionPortfolioSummary {
   id: string;
   name: string;
+  robot_label?: string;
+  strategy_slug?: string;
+  strategy_name?: string;
   timeframe?: string;
   timeframe_he?: string;
   risk_slug: string;
@@ -649,7 +666,12 @@ export interface CompetitionResponse {
     total_initial_capital: number;
     portfolio_initial_capital: number;
     portfolio_count: number;
+    robot_a_portfolio_count?: number;
+    robot_b_portfolio_count?: number;
+    robot_a_initial_capital?: number;
+    robot_b_initial_capital?: number;
   };
+  robot_groups?: RobotGroupSummary[];
   combined?: {
     initial_equity: number;
     current_equity: number;
@@ -777,6 +799,7 @@ export const api = {
       leaderboard: CompetitionResponse["leaderboard"];
       combined: CompetitionResponse["combined"];
       experiment: CompetitionResponse["experiment"];
+      robot_groups: RobotGroupSummary[];
     }>("/analytics/competition"),
   getAnalyticsStrategy: (params?: Record<string, string>) => {
     const qs = params ? "?" + new URLSearchParams(params).toString() : "";

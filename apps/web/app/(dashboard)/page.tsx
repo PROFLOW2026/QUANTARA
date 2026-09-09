@@ -126,7 +126,11 @@ export default function HomePageClient() {
 
   const portfolios = competition?.portfolios ?? [];
   const combinedEquity = competition?.combined?.current_equity ?? 0;
-  const initialCapital = competition?.experiment?.total_initial_capital ?? 30_000;
+  const initialCapital = competition?.combined?.initial_equity
+    ?? competition?.experiment?.total_initial_capital
+    ?? 30_000;
+  const robotACount = competition?.experiment?.robot_a_portfolio_count ?? 15;
+  const robotBCount = competition?.experiment?.robot_b_portfolio_count ?? 0;
   const combinedRealized = portfolios.reduce((sum, row) => sum + row.realized_pnl, 0);
   const combinedUnrealized = portfolios.reduce((sum, row) => sum + row.unrealized_pnl, 0);
   const combinedTotalPnl = combinedRealized + combinedUnrealized;
@@ -152,6 +156,12 @@ export default function HomePageClient() {
           <CardContent>
             <p className="font-mono text-2xl">{portfolioCount}</p>
             <p className="mt-1 text-xs text-muted">{t("home.competition_card_title")}</p>
+            <div className="mt-2 space-y-1 text-xs text-muted">
+              <p>{t("home.robot_a_portfolios")}: {robotACount}</p>
+              {robotBCount > 0 ? (
+                <p>{t("home.robot_b_portfolios")}: {robotBCount}</p>
+              ) : null}
+            </div>
           </CardContent>
         </Card>
         <MetricCardCurrency
