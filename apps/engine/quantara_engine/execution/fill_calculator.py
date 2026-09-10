@@ -52,5 +52,10 @@ def clamp_exit_base_price(
     base_price: Decimal,
     candle_low: Decimal,
     candle_high: Decimal,
+    *,
+    allow_outside_ohlc: bool = False,
 ) -> Decimal:
+    """Clamp intrabar trigger prices to OHLC. Gap/open exits may lie outside the range."""
+    if allow_outside_ohlc:
+        return base_price
     return max(candle_low, min(candle_high, base_price))

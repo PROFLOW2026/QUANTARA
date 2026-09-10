@@ -7,9 +7,12 @@ import time
 import uuid
 from datetime import datetime, timezone
 
+from quantara_engine.competition.constants import ACTIVE_COMPETITION_EXPERIMENT_ID
+from quantara_engine.competition.orb_constants import ORB_COMPETITION_EXPERIMENT_ID
 from quantara_engine.db.session import session_scope
 from quantara_engine.execution.live_intents import execute_pending_intents_live
 from quantara_engine.persistence.store import TradingStore
+from quantara_engine.trading.trading_controls import allows_new_entries, load_trading_control
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +25,14 @@ def execute_intents_job(store: TradingStore | None = None) -> None:
         settings = s.get_settings_dict()
         if not settings.get("paper_trading_enabled", True):
             return {"status": "skipped", "reason": "paper_trading_disabled"}
+        if not allows_new_entries(load_trading_control(settings)):
+            expired = s.cancel_stale_pending_intents(ACTIVE_COMPETITION_EXPERIMENT_ID, started_at)
+            expired += s.cancel_stale_pending_intents(ORB_COMPETITION_EXPERIMENT_ID, started_at)
+            return {
+                "status": "skipped",
+                "reason": "new_entries_blocked",
+                "expired_intents": expired,
+            }
         report = execute_pending_intents_live(s, started_at)
         duration_ms = round((time.perf_counter() - t0) * 1000, 1)
         status = "healthy" if not report.get("errors") else "degraded"

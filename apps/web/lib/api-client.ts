@@ -466,12 +466,31 @@ export interface AnalyticsCosts {
   spread_impact: number;
 }
 
+export type TradingControlState =
+  | "running"
+  | "pause_new_entries"
+  | "pause_trading"
+  | "flattening"
+  | "stopped";
+
+export interface TradingControlStatus {
+  state: TradingControlState;
+  updated_at?: string | null;
+  flatten_started_at?: string | null;
+  open_positions_at_flatten?: number;
+  open_positions_remaining?: number;
+  flatten_progress_pct?: number | null;
+  assets_awaiting_market_reopen?: string[];
+  pending_market_reopen?: string[];
+}
+
 export interface Settings {
   timezone: string;
   default_risk_profile: string;
   paper_trading_enabled: boolean;
   initial_capital: number;
   trading_halted: boolean;
+  trading_control?: TradingControlStatus;
   execution_defaults: {
     spread: number;
     slippage: number;
@@ -843,4 +862,7 @@ export const api = {
     apiFetch<void>("/paper/stop", { method: "POST" }),
   resumeTrading: () =>
     apiFetch<void>("/paper/start", { method: "POST" }),
+  getTradingControl: () => apiFetch<TradingControlStatus>("/trading-control"),
+  setTradingControl: (action: string) =>
+    apiFetch<TradingControlStatus>(`/trading-control/${action}`, { method: "POST" }),
 };

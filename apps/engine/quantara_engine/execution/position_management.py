@@ -188,7 +188,7 @@ def _persist_marks(
         store.update_open_position_mark(
             pos.id, pos.current_price, pos.unrealized_pnl, flush=flush
         )
-    store.update_portfolio(state.portfolio, flush=flush)
+    store.update_portfolios_equity_snapshot_batch([state.portfolio])
 
 
 def process_position_management(
@@ -244,12 +244,14 @@ def process_position_management(
         trigger = detect_exit_trigger(open_position, candle)
         if trigger:
             reason, trigger_price = trigger
+            gap_exit = trigger_price == candle.open
             order, fill = broker.execute_exit_at_trigger(
                 open_position.direction,
                 open_position.quantity,
                 candle,
                 trigger_price,
                 state.portfolio.id,
+                gap_exit=gap_exit,
             )
             trade = state.close_position(open_position, fill, reason, candle.timestamp)
             decision = DecisionLogEntry(
@@ -332,14 +334,14 @@ def _persist_pm_writes(
     store: TradingStore,
     *,
     portfolio_states: dict[str, PortfolioState],
-    modified_portfolio_ids: set[str],
+    exit_portfolio_ids: set[str],
+    mark_portfolio_ids: set[str],
     mark_updates: dict[str, tuple[Decimal, Decimal]],
     pending_exits: list[dict[str, Any]],
     cursors: dict[str, str],
     initial_cursors: dict[str, str],
 ) -> None:
-    """Lock order: position closes → position marks → portfolios → snapshots (insert)."""
-    # Lock order: position closes → position marks → portfolios → snapshots (insert).
+    """Lock order: position closes → position marks → portfolios (equity only for marks)."""
     exit_chunk = 15
     for offset in range(0, len(pending_exits), exit_chunk):
         store.persist_exit_executions_batch(pending_exits[offset : offset + exit_chunk])
@@ -354,14 +356,15 @@ def _persist_pm_writes(
             ]
         )
 
-    if modified_portfolio_ids:
-        portfolios = [
+    mark_only_ids = mark_portfolio_ids - exit_portfolio_ids
+    if mark_only_ids:
+        mark_portfolios = [
             portfolio_states[pid].portfolio
-            for pid in sorted(modified_portfolio_ids)
+            for pid in sorted(mark_only_ids)
             if pid in portfolio_states
         ]
-        if portfolios:
-            store.update_portfolios_batch(portfolios)
+        if mark_portfolios:
+            store.update_portfolios_equity_snapshot_batch(mark_portfolios)
 
     if cursors != initial_cursors:
         store.update_settings(POSITION_MANAGEMENT_CURSORS_KEY, cursors, flush=False)
@@ -374,8 +377,19 @@ def manage_all_open_positions(
     now: datetime,
 ) -> dict:
     """Run SL/TP + mark management — in-memory evaluation, batched persistence."""
+    from quantara_engine.execution.flatten_positions import process_flatten_cycle
+    from quantara_engine.trading.trading_controls import (
+        allows_position_management,
+        load_trading_control,
+        requires_flatten,
+    )
+
     report = PMRunReport()
     t_total = time.perf_counter()
+
+    control = load_trading_control(store.get_settings_dict())
+    if not allows_position_management(control):
+        return report.to_dict()
 
     entries = store.list_competition_entries()
     entries.extend(store.list_orb_competition_entries())
@@ -387,8 +401,28 @@ def manage_all_open_positions(
     portfolio_states = store.batch_load_portfolio_states(portfolio_ids)
     report.timing_ms["preload"] = round((time.perf_counter() - t0) * 1000, 1)
 
-    work: list[tuple[Position, StrategyInstance, Instrument]] = []
     instrument_cache: dict[str, Instrument | None] = {}
+    pending_exits: list[dict[str, Any]] = []
+    exit_portfolio_ids: set[str] = set()
+    mark_portfolio_ids: set[str] = set()
+    mark_updates: dict[str, tuple[Decimal, Decimal]] = {}
+
+    if requires_flatten(control):
+        flatten_report = process_flatten_cycle(
+            store,
+            now,
+            portfolio_states=portfolio_states,
+            open_by_portfolio=open_by_portfolio,
+            instance_by_id=instance_by_id,
+            instrument_cache=instrument_cache,
+            pending_exits=pending_exits,
+        )
+        report.results.append({"flatten": flatten_report})
+        for bundle in pending_exits:
+            exit_portfolio_ids.add(bundle["portfolio_state"].portfolio.id)
+        open_by_portfolio = batch_open_positions_by_portfolio(store, portfolio_ids)
+
+    work: list[tuple[Position, StrategyInstance, Instrument]] = []
     for positions in open_by_portfolio.values():
         for position in positions:
             instance = instance_by_id.get(position.strategy_instance_id)
@@ -413,9 +447,6 @@ def manage_all_open_positions(
     report.timing_ms["candle_prefetch"] = round((time.perf_counter() - t0) * 1000, 1)
 
     work.sort(key=lambda row: (row[0].portfolio_id, row[0].id))
-    pending_exits: list[dict[str, Any]] = []
-    modified_portfolio_ids: set[str] = set()
-    mark_updates: dict[str, tuple[Decimal, Decimal]] = {}
 
     t0 = time.perf_counter()
     for position, instance, instrument in work:
@@ -465,13 +496,14 @@ def manage_all_open_positions(
             if status == "closed":
                 report.positions_closed += 1
                 report.exits += 1
-                modified_portfolio_ids.add(pid)
+                exit_portfolio_ids.add(pid)
+                mark_portfolio_ids.add(pid)
                 report.positions_successful += 1
             elif status == "managed":
                 marks = int(result.get("marks_updated") or 0)
                 if marks:
                     report.positions_marked += 1
-                    modified_portfolio_ids.add(pid)
+                    mark_portfolio_ids.add(pid)
                     open_pos = _find_open_position(state, position.id)
                     if open_pos is not None:
                         mark_updates[position.id] = (
@@ -493,7 +525,8 @@ def manage_all_open_positions(
         _persist_pm_writes(
             store,
             portfolio_states=portfolio_states,
-            modified_portfolio_ids=modified_portfolio_ids,
+            exit_portfolio_ids=exit_portfolio_ids,
+            mark_portfolio_ids=mark_portfolio_ids,
             mark_updates=mark_updates,
             pending_exits=pending_exits,
             cursors=cursors,

@@ -100,6 +100,7 @@ def _processor(
     return CandleProcessor(
         portfolio_state=PortfolioState(portfolio=portfolio),
         strategy_instance=instance,
+        execute_pending_in_process=True,
         instrument=instrument,
         risk_profile=risk,
         broker=broker,

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PageHeader, ErrorBanner } from "@/components/layout/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { translateRiskProfile } from "@/lib/display-text";
+import { OwnerTradingControls } from "@/components/trading/OwnerTradingControls";
 import { api, ApiError, type Settings } from "@/lib/api-client";
 import { t } from "@/lib/i18n";
 
@@ -92,7 +93,8 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader><CardTitle>{t("settings.trading_control")}</CardTitle></CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            <OwnerTradingControls />
             <button
               onClick={handleHaltToggle}
               disabled={saving}

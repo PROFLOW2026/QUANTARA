@@ -94,16 +94,16 @@ def test_orb_uses_shared_signal_not_per_portfolio_eval():
     from quantara_workers.jobs import run_strategy as rs
 
     empty = (0, 0, 0, {}, {}, [])
-    with patch.object(rs, "_process_experiment", return_value=empty) as process:
-        store = MagicMock()
-        store.get_settings_dict.return_value = {"paper_trading_enabled": True}
-        store.list_competition_entries.return_value = [MagicMock()]
-        store.list_orb_competition_entries.return_value = [MagicMock()]
-        store.cancel_stale_pending_intents.return_value = 0
-        with patch(
-            "quantara_engine.execution.live_intents.execute_pending_intents_live",
-            return_value={"expired_intents": 0, "fills_attempted": 0},
-        ):
+    with patch.object(rs, "_process_experiment", return_value=empty) as process_a:
+        with patch.object(rs, "_process_orb_live_sweep", return_value=empty) as process_b:
+            store = MagicMock()
+            store.get_settings_dict.return_value = {
+                "paper_trading_enabled": True,
+                "trading_control_state": {"state": "running"},
+            }
+            store.list_competition_entries.return_value = [MagicMock()]
+            store.list_orb_competition_entries.return_value = [MagicMock()]
+            store.cancel_stale_pending_intents.return_value = 0
             rs._execute_strategy_cycle(
                 live_only=True,
                 historical_only=False,
@@ -111,8 +111,8 @@ def test_orb_uses_shared_signal_not_per_portfolio_eval():
                 store=store,
             )
 
-    robot_b_kwargs = process.call_args_list[1].kwargs
-    assert robot_b_kwargs["per_portfolio_eval"] is False
+    assert process_a.call_count == 1
+    assert process_b.call_count == 1
 
 
 def test_process_candle_batch_evaluates_signal_once_for_group():

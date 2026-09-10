@@ -64,3 +64,4 @@ packages/db/migrations/meta/
 
 # Misc
 *.pem
+.vercel

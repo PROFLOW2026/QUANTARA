@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+from quantara_engine.domain.types import Mode, Portfolio, PortfolioStatus
 from quantara_workers.jobs.run_strategy import (
     LIVE_CYCLE_MAX_SECONDS,
     LIVE_ROBOT_A_BUDGET_SEC,
@@ -25,9 +27,22 @@ def _mock_instrument(symbol="BTCUSD"):
     return inst
 
 
+def _portfolio(portfolio_id: str) -> Portfolio:
+    return Portfolio(
+        id=portfolio_id,
+        name=f"Portfolio {portfolio_id}",
+        mode=Mode.PAPER,
+        initial_capital=Decimal("2000"),
+        balance=Decimal("2000"),
+        equity=Decimal("2000"),
+        peak_equity=Decimal("2000"),
+        status=PortfolioStatus.ACTIVE,
+    )
+
+
 def _entry(instance_id: str, portfolio_id: str, timeframe: str = "5m", instrument_id: str = "inst-1"):
     return {
-        "portfolio": MagicMock(id=portfolio_id),
+        "portfolio": _portfolio(portfolio_id),
         "instance": MagicMock(id=instance_id, timeframe=timeframe, instrument_id=instrument_id),
         "risk_profile": MagicMock(),
     }
@@ -51,29 +66,25 @@ def test_large_robot_a_backlog_does_not_block_orb_live_pass():
     store.list_competition_entries.return_value = [_entry("a1", "p1")]
     store.list_orb_competition_entries.return_value = [_entry("b1", "p2", instrument_id="inst-SPY")]
 
-    with patch("quantara_workers.jobs.run_strategy._process_experiment") as process:
-        process.side_effect = [
-            (9, 15, 10, {"5m": {"backlog": 50}}, {"XAUUSD": {}}, []),
-            (5, 25, 5, {"5m": {"backlog": 0}}, {"SPY": {}}, []),
-        ]
-        _process_competition(
-            store,
-            datetime.now(timezone.utc),
-            run_id="run-1",
-            live_only=True,
-            historical_only=False,
-            time_budget_sec=LIVE_CYCLE_MAX_SECONDS,
-        )
+    with patch("quantara_workers.jobs.run_strategy._process_experiment") as process_a:
+        with patch("quantara_workers.jobs.run_strategy._process_orb_live_sweep") as process_b:
+            process_a.return_value = (9, 15, 10, {"5m": {"backlog": 50}}, {"XAUUSD": {}}, [])
+            process_b.return_value = (5, 25, 5, {"5m": {"backlog": 0}}, {"SPY": {}}, [])
+            _process_competition(
+                store,
+                datetime.now(timezone.utc),
+                run_id="run-1",
+                live_only=True,
+                historical_only=False,
+                time_budget_sec=LIVE_CYCLE_MAX_SECONDS,
+            )
 
-    assert process.call_count == 2
-    robot_a_kwargs = process.call_args_list[0].kwargs
-    robot_b_kwargs = process.call_args_list[1].kwargs
+    assert process_a.call_count == 1
+    assert process_b.call_count == 1
+    robot_a_kwargs = process_a.call_args.kwargs
     assert robot_a_kwargs["live_only"] is True
     assert robot_a_kwargs["historical_only"] is False
     assert robot_a_kwargs["order_by_timeframe_first"] is True
-    assert robot_b_kwargs["per_portfolio_eval"] is False
-    assert robot_b_kwargs["live_only"] is True
-    assert robot_b_kwargs["historical_only"] is False
 
 
 def test_live_pass_processes_only_newest_candle_not_backlog():
@@ -193,10 +204,21 @@ def test_snapshot_includes_all_competition_portfolios():
     robot_b = [_entry(f"b{i}", f"pb{i}") for i in range(25)]
     store = MagicMock()
     store.list_all_competition_entries.return_value = (robot_a, robot_b, robot_a + robot_b)
+    store.session = MagicMock()
 
-    snapshot_job(store=store)
+    with patch(
+        "quantara_workers.jobs.snapshot.batch_open_positions_by_portfolio",
+        return_value={},
+    ):
+        with patch(
+            "quantara_workers.jobs.snapshot.batch_latest_candle_closes",
+            return_value={},
+        ):
+            snapshot_job(store=store)
 
-    assert store.save_snapshot.call_count == 40
+    assert store.save_snapshots_batch.call_count == 1
+    batch = store.save_snapshots_batch.call_args[0][0]
+    assert len(batch) == 40
     status = store.update_worker_status.call_args[0][1]
     assert status["portfolios_snapshotted"] == 40
 

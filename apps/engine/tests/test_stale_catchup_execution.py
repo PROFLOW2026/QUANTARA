@@ -83,6 +83,7 @@ def _processor(
         mode=Mode.PAPER,
         latest_completed_timestamp=latest_completed,
         execution_now=latest_completed,
+        execute_pending_in_process=True,
     )
     proc.all_candles = [candle]
     intent = OrderIntent(

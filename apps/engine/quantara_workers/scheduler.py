@@ -85,24 +85,25 @@ class WorkerScheduler:
             replace_existing=True,
             **_FETCH_LIVE_OPTS,
         )
+        # PM before new strategy entries — existing positions must exit on fresh candles first.
+        self.scheduler.add_job(
+            position_management_job,
+            CronTrigger(minute="*/5", second=7),
+            id="position_management",
+            replace_existing=True,
+            **_HOUSEKEEPING_OPTS,
+        )
         self.scheduler.add_job(
             run_strategy_job,
-            CronTrigger(minute="*/5", second=12),
+            CronTrigger(minute="*/5", second=18),
             id="run_strategy",
             replace_existing=True,
             **_LIVE_STRATEGY_OPTS,
         )
         self.scheduler.add_job(
             execute_intents_job,
-            CronTrigger(minute="*/5", second=25),
+            CronTrigger(minute="*/5", second=32),
             id="execute_intents",
-            replace_existing=True,
-            **_HOUSEKEEPING_OPTS,
-        )
-        self.scheduler.add_job(
-            position_management_job,
-            CronTrigger(minute="*/5", second=38),
-            id="position_management",
             replace_existing=True,
             **_HOUSEKEEPING_OPTS,
         )

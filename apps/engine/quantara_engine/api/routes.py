@@ -1241,6 +1241,9 @@ def workers_status(store: StoreDep):
 def paper_start(store: StoreDep):
     store.update_settings("paper_trading_enabled", True)
     store.set_competition_portfolio_status(PortfolioStatus.ACTIVE)
+    from quantara_engine.trading.trading_controls import TradingControlState, transition_to
+
+    transition_to(store, TradingControlState.RUNNING)
     return {"status": "active"}
 
 
@@ -1248,7 +1251,58 @@ def paper_start(store: StoreDep):
 def paper_stop(store: StoreDep):
     store.update_settings("paper_trading_enabled", False)
     store.set_competition_portfolio_status(PortfolioStatus.HALTED)
+    from quantara_engine.trading.trading_controls import TradingControlState, transition_to
+
+    transition_to(store, TradingControlState.PAUSE_TRADING)
     return {"status": "halted"}
+
+
+@router.get("/trading-control")
+def get_trading_control(store: StoreDep):
+    from quantara_engine.trading.trading_controls import TradingControlState, load_trading_control
+
+    snap = load_trading_control(store.get_settings_dict())
+    open_count = store.count_open_competition_positions()
+    progress = None
+    if snap.state == TradingControlState.FLATTENING and snap.open_positions_at_flatten > 0:
+        done = max(0, snap.open_positions_at_flatten - open_count)
+        progress = round(done / snap.open_positions_at_flatten * 100, 1)
+    return {
+        **snap.to_dict(),
+        "open_positions_remaining": open_count,
+        "flatten_progress_pct": progress,
+        "assets_awaiting_market_reopen": list(snap.pending_market_reopen),
+    }
+
+
+@router.post("/trading-control/{action}")
+def post_trading_control(action: str, store: StoreDep):
+    from quantara_engine.trading.trading_controls import TradingControlState, load_trading_control, transition_to
+
+    open_count = store.count_open_competition_positions()
+    action = action.replace("-", "_").lower()
+    if action in ("running", "resume", "resume_trading"):
+        snap = transition_to(store, TradingControlState.RUNNING)
+    elif action in ("pause_new_entries", "pause_entries"):
+        snap = transition_to(store, TradingControlState.PAUSE_NEW_ENTRIES)
+    elif action in ("pause_trading", "pause"):
+        snap = transition_to(store, TradingControlState.PAUSE_TRADING)
+    elif action in ("flatten", "stop_and_close_all", "flatten_all"):
+        snap = transition_to(
+            store,
+            TradingControlState.FLATTENING,
+            open_positions=open_count,
+        )
+    elif action in ("stopped", "stop"):
+        snap = transition_to(store, TradingControlState.STOPPED)
+    else:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
+    return {
+        **snap.to_dict(),
+        "open_positions_remaining": store.count_open_competition_positions(),
+    }
 
 
 @router.get("/settings")

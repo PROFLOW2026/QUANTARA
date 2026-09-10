@@ -72,5 +72,8 @@ def test_live_and_historical_triggers_are_offset():
     hist_trigger = ws.scheduler.get_job("run_strategy_historical").trigger
     assert isinstance(live_trigger, CronTrigger)
     assert isinstance(hist_trigger, CronTrigger)
-    assert live_trigger.fields[7].expressions[0].first == 12
+    assert live_trigger.fields[7].expressions[0].first == 18
+    pm_trigger = ws.scheduler.get_job("position_management").trigger
+    assert isinstance(pm_trigger, CronTrigger)
+    assert pm_trigger.fields[7].expressions[0].first == 7
     assert hist_trigger.fields[6].expressions[0].first == 10

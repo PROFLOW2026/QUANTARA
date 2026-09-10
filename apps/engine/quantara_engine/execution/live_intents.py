@@ -27,7 +27,19 @@ def _expire_stale_intents(store: TradingStore, now: datetime) -> int:
 
 def execute_pending_intents_live(store: TradingStore, now: datetime | None = None) -> dict:
     """Fill eligible pending intents without running strategy logic."""
+    from quantara_engine.trading.trading_controls import allows_new_entries, load_trading_control
+
     now = now or datetime.now(timezone.utc)
+    if not allows_new_entries(load_trading_control(store.get_settings_dict())):
+        expired = _expire_stale_intents(store, now)
+        return {
+            "status": "skipped",
+            "reason": "new_entries_blocked",
+            "expired_intents": expired,
+            "fills_attempted": 0,
+            "portfolios_checked": 0,
+            "errors": [],
+        }
     expired = _expire_stale_intents(store, now)
     fills = 0
     portfolios_checked = 0

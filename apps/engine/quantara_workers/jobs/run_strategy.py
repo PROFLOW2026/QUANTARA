@@ -199,12 +199,18 @@ def _process_candle_batch(
         eval_processor.all_candles = candles
         shared_signal, _ = eval_processor.evaluate_signal(candle_index)
 
+    portfolio_ids = [entry["portfolio"].id for entry in group]
+    prefetched_states = s.batch_load_portfolio_states(portfolio_ids)
+
     total_decisions = 0
     for entry in group:
         portfolio = entry["portfolio"]
         instance = entry["instance"]
         risk_profile = entry["risk_profile"]
-        state = s.load_portfolio_state(portfolio.id)
+        state = prefetched_states.get(portfolio.id)
+        if state is None:
+            state = s.load_portfolio_state(portfolio.id)
+            prefetched_states[portfolio.id] = state
         processor = CandleProcessor(
             portfolio_state=state,
             strategy_instance=instance,
@@ -218,6 +224,7 @@ def _process_candle_batch(
             allow_live_execution=allow_live_execution,
             execution_now=started_at,
             manage_exits=False,
+            execute_pending_in_process=False,
         )
         processor.all_candles = candles
         pending = s.list_pending_order_intents(portfolio.id, instance.id)
@@ -475,6 +482,86 @@ def _process_experiment(
     )
 
 
+def _process_orb_live_sweep(
+    s: TradingStore,
+    entries: list[dict],
+    symbols: list[str],
+    timeframe: str,
+    settings_dict: dict,
+    started_at: datetime,
+    deadline: float,
+) -> tuple[int, int, int, dict[str, dict], dict[str, dict], list[str]]:
+    """One live candle per ORB asset in symbol order — prevents US equity starvation."""
+    if not entries:
+        return 0, 0, 0, {}, {}, []
+
+    by_timeframe: dict[str, list[dict]] = defaultdict(list)
+    for entry in entries:
+        by_timeframe[entry["instance"].timeframe].append(entry)
+    group = by_timeframe.get(timeframe, [])
+    if not group:
+        return 0, 0, 0, {}, {}, []
+
+    total_decisions = 0
+    groups_evaluated = 0
+    portfolios_touched = 0
+    instrument_status: dict[str, dict] = {}
+    timeframe_status: dict[str, dict] = {}
+    skipped_reasons: list[str] = []
+
+    for symbol in symbols:
+        if time.perf_counter() >= deadline:
+            skipped_reasons.append(f"{symbol}/{timeframe}:deadline_exhausted")
+            logger.warning("ORB live sweep deadline reached before %s", symbol)
+            continue
+
+        instrument = s.get_instrument_by_symbol(symbol)
+        if not instrument:
+            logger.warning("Instrument %s not found — skipping ORB sweep", symbol)
+            continue
+
+        symbol_group = [e for e in group if e["instance"].instrument_id == instrument.id]
+        if not symbol_group:
+            continue
+
+        broker = PaperBrokerAdapter(instrument.id, ExecutionAssumptions())
+        candles_processed, decisions, tf_status = _process_timeframe_group(
+            s,
+            instrument,
+            timeframe,
+            symbol_group,
+            settings_dict,
+            started_at,
+            broker,
+            live_only=True,
+            historical_only=False,
+            deadline=deadline,
+        )
+        instrument_status[symbol] = {timeframe: tf_status}
+        if tf_status.get("skipped"):
+            skipped_reasons.append(f"{symbol}/{timeframe}:{tf_status.get('skip_reason')}")
+        if candles_processed:
+            groups_evaluated += 1
+            portfolios_touched += len(symbol_group) * candles_processed
+            total_decisions += decisions
+            _commit_progress(s)
+
+    timeframe_status[timeframe] = {
+        "backlog": sum(
+            int(v.get(timeframe, {}).get("backlog", 0)) for v in instrument_status.values()
+        ),
+        "instances": len(group),
+    }
+    return (
+        groups_evaluated,
+        portfolios_touched,
+        total_decisions,
+        timeframe_status,
+        instrument_status,
+        skipped_reasons,
+    )
+
+
 def _process_competition(
     s: TradingStore,
     started_at: datetime,
@@ -526,18 +613,14 @@ def _process_competition(
             tf_b,
             inst_b,
             skipped_b,
-        ) = _process_experiment(
+        ) = _process_orb_live_sweep(
             s,
             orb_entries,
             list(ORB_ASSETS),
-            (ORB_TIMEFRAME,),
+            ORB_TIMEFRAME,
             settings_dict,
             started_at,
-            live_only=True,
-            historical_only=False,
-            time_budget_sec=LIVE_ROBOT_B_BUDGET_SEC,
-            deadline=deadline_b,
-            per_portfolio_eval=False,
+            deadline_b,
         )
         robot_b_duration_ms = round((time.perf_counter() - robot_b_t0) * 1000, 1)
     else:
@@ -685,6 +768,22 @@ def _execute_strategy_cycle(
         settings_dict = s.get_settings_dict()
         if not settings_dict.get("paper_trading_enabled", True):
             return 0
+        from quantara_engine.trading.trading_controls import (
+            allows_strategy_evaluation,
+            load_trading_control,
+        )
+
+        if not allows_strategy_evaluation(load_trading_control(settings_dict)):
+            s.update_worker_status(
+                "strategy_runner",
+                {
+                    "status": "paused",
+                    "mode": mode,
+                    "last_run": started_at.isoformat(),
+                    "reason": "trading_control_pause",
+                },
+            )
+            return 0
 
         _mark_cycle_started(s, run_id=run_id, started_at=started_at, mode=mode)
         expired_intents = s.cancel_stale_pending_intents(ACTIVE_COMPETITION_EXPERIMENT_ID, started_at)
@@ -724,17 +823,6 @@ def _execute_strategy_cycle(
             historical_only=historical_only,
             time_budget_sec=time_budget_sec,
         )
-        if live_only and not historical_only:
-            from quantara_engine.execution.live_intents import execute_pending_intents_live
-
-            exec_report = execute_pending_intents_live(s, started_at)
-            if exec_report.get("expired_intents") or exec_report.get("fills_attempted"):
-                logger.info(
-                    "Post-strategy execute_intents: expired=%d fills=%d",
-                    exec_report.get("expired_intents", 0),
-                    exec_report.get("fills_attempted", 0),
-                )
-                _commit_progress(s)
         return jobs
 
     try:

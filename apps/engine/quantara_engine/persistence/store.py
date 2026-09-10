@@ -166,6 +166,24 @@ class TradingStore:
     def list_competition_portfolios(self) -> list[Portfolio]:
         return [entry["portfolio"] for entry in self.list_competition_entries()]
 
+    def count_open_competition_positions(self) -> int:
+        """Open paper positions across Robot A + Robot B competition portfolios."""
+        _, _, entries = self.list_all_competition_entries()
+        pids = [_uuid(e["portfolio"].id) for e in entries]
+        if not pids:
+            return 0
+        return int(
+            self.session.scalar(
+                select(func.count())
+                .select_from(OrmPosition)
+                .where(
+                    OrmPosition.portfolio_id.in_(pids),
+                    OrmPosition.status == OrmPositionStatus.OPEN,
+                )
+            )
+            or 0
+        )
+
     def _competition_combined_portfolio(self, entries: list[dict[str, Any]] | None = None) -> Portfolio:
         """Synthetic aggregate over active competition portfolios."""
         entries = entries if entries is not None else self.list_competition_entries()
@@ -447,6 +465,7 @@ class TradingStore:
             "paper_trading_enabled": paper_enabled,
             "initial_capital": s.get("default_initial_capital", 10000),
             "trading_halted": not paper_enabled,
+            "trading_control": self.get_settings_dict().get("trading_control_state") or {"state": "running"},
             "execution_defaults": {
                 "spread": s.get("paper_default_spread", 0.30),
                 "slippage": s.get("paper_default_slippage_pct", 0.0001),
@@ -1617,6 +1636,24 @@ class TradingStore:
         ).all()
         return {_str_id(row[0]): Decimal(str(row[1])) for row in rows}
 
+    def sync_portfolios_balance_from_ledger(
+        self,
+        portfolios: list[Portfolio],
+        *,
+        flush: bool = False,
+    ) -> None:
+        """Reconcile balance/equity from trade ledger — canonical ACCOUNT BALANCE model."""
+        if not portfolios:
+            return
+        from quantara_engine.portfolio.balance_reconciliation import apply_canonical_balance
+
+        realized_map = self.sum_realized_pnl_for_portfolio_ids([p.id for p in portfolios])
+        for portfolio in portfolios:
+            apply_canonical_balance(portfolio, realized_map.get(portfolio.id, Decimal("0")))
+        self.update_portfolios_batch(portfolios)
+        if flush:
+            self.session.flush()
+
     def update_open_position_marks_batch(
         self,
         updates: list[tuple[str, Decimal, Decimal]],
@@ -2047,9 +2084,7 @@ class TradingStore:
             return
         self.update_position_closed(position.id, filled_at, fill.fill_price, flush=flush)
         self.save_trade(trade)
-        self.update_portfolio(portfolio_state.portfolio, flush=flush)
-        if flush:
-            self.session.flush()
+        self.sync_portfolios_balance_from_ledger([portfolio_state.portfolio], flush=flush)
 
     def persist_exit_executions_batch(
         self,
@@ -2116,7 +2151,7 @@ class TradingStore:
         for bundle in bundles:
             self.save_trade(bundle["trade"])
 
-        self.update_portfolios_batch(list(portfolios.values()))
+        self.sync_portfolios_balance_from_ledger(list(portfolios.values()))
         if snapshots:
             self.save_snapshots_batch(snapshots)
         self.session.flush()

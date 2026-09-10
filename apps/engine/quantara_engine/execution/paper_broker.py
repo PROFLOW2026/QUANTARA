@@ -68,8 +68,15 @@ class PaperBrokerAdapter:
         candle,
         trigger_price: Decimal,
         portfolio_id: str = "",
+        *,
+        gap_exit: bool = False,
     ) -> tuple[Order, FillResult]:
-        clamped = clamp_exit_base_price(trigger_price, candle.low, candle.high)
+        clamped = clamp_exit_base_price(
+            trigger_price,
+            candle.low,
+            candle.high,
+            allow_outside_ohlc=gap_exit,
+        )
         fill = calculate_fill_price(
             direction=position_direction,
             side="exit",

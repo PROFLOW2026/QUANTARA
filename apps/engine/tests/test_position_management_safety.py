@@ -57,6 +57,10 @@ class _FakeStore:
     def update_portfolio(self, portfolio, flush=True):
         self.state.portfolio = portfolio
 
+    def update_portfolios_equity_snapshot_batch(self, portfolios, chunk_size=15):
+        for portfolio in portfolios:
+            self.state.portfolio = portfolio
+
     def persist_exit_execution(self, **kwargs):
         self.last_exit = kwargs
 

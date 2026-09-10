@@ -94,6 +94,7 @@ class CandleProcessor:
         allow_live_execution: bool = True,
         execution_now: datetime | None = None,
         manage_exits: bool = True,
+        execute_pending_in_process: bool = False,
     ) -> None:
         self.state = portfolio_state
         self.instance = strategy_instance
@@ -109,6 +110,7 @@ class CandleProcessor:
         self.allow_live_execution = allow_live_execution
         self.execution_now = execution_now or datetime.now(timezone.utc)
         self.manage_exits = manage_exits
+        self.execute_pending_in_process = execute_pending_in_process
         if store is not None:
             store.mode = mode
             store.backtest_run_id = backtest_run_id
@@ -204,17 +206,21 @@ class CandleProcessor:
             position_id=position.id if position else None,
         )
         if position and trade:
-                self.store.update_position_closed(
-                    position.id, candle.timestamp, fill.fill_price
-                )
-                self.store.save_trade(trade)
-        self.store.update_portfolio(self.state.portfolio, flush=False)
+            if self.store.trade_exists_for_position(position.id):
+                return
+            self.store.update_position_closed(
+                position.id, candle.timestamp, fill.fill_price
+            )
+            self.store.save_trade(trade)
+            self.store.sync_portfolios_balance_from_ledger([self.state.portfolio], flush=False)
+        elif side == "entry":
+            self.store.update_portfolios_equity_snapshot_batch([self.state.portfolio])
         self._flush_store()
 
     def _persist_snapshot(self, snap) -> None:
         if not self.store:
             return
-        self.store.update_portfolio(self.state.portfolio, flush=False)
+        self.store.update_portfolios_equity_snapshot_batch([self.state.portfolio])
         self.store.save_snapshot(snap)
         self._flush_store()
 
@@ -265,7 +271,8 @@ class CandleProcessor:
         candle = self.all_candles[candle_index]
         self._execute_pending(candle)
         if self.store:
-            self.store.update_portfolio(self.state.portfolio, flush=False)
+            self.store.sync_portfolios_balance_from_ledger([self.state.portfolio], flush=False)
+            self.store.update_portfolios_equity_snapshot_batch([self.state.portfolio])
             for pos in self.state.open_positions():
                 self.store.update_open_position_mark(
                     pos.id, pos.current_price, pos.unrealized_pnl, flush=False
@@ -303,11 +310,11 @@ class CandleProcessor:
         if isinstance(self.clock, BacktestClock):
             self.clock.set_candle_time(candle.timestamp)
 
-        if self.allow_live_execution:
-            # 1. Execute pending intents at this candle open
+        if self.allow_live_execution and self.execute_pending_in_process:
             self._execute_pending(candle)
 
-            # 2. SL/TP + mark updates — paper competition defers to position_management_job
+        if self.allow_live_execution:
+            # SL/TP + mark updates — paper competition defers to position_management_job
             #    and snapshot_job to avoid 160-row portfolio lock storms during strategy eval.
             if self.manage_exits:
                 self._check_sl_tp(candle)
@@ -474,12 +481,14 @@ class CandleProcessor:
             if not position.strategy_version_id:
                 position.strategy_version_id = self.instance.strategy_version_id
             reason, trigger_price = trigger
+            gap_exit = trigger_price == candle.open
             order, fill = self.broker.execute_exit_at_trigger(
                 position.direction,
                 position.quantity,
                 candle,
                 trigger_price,
                 self.state.portfolio.id,
+                gap_exit=gap_exit,
             )
             trade = self.state.close_position(position, fill, reason, candle.timestamp)
             self._persist_execution(None, order, fill, "exit", candle, position, trade)
@@ -492,6 +501,22 @@ class CandleProcessor:
         if self.state.portfolio.status != PortfolioStatus.ACTIVE:
             self._log(candle, DecisionType.TRADING_HALTED, "Portfolio halted")
             return
+
+        if self.store:
+            from quantara_engine.trading.trading_controls import (
+                allows_new_entries,
+                load_trading_control,
+            )
+
+            control = load_trading_control(self.store.get_settings_dict())
+            if not allows_new_entries(control):
+                self._log(
+                    candle,
+                    DecisionType.TRADING_HALTED,
+                    f"New entries blocked — trading control: {control.state.value}",
+                    signal_id,
+                )
+                return
 
         if not self.allow_live_execution:
             return
