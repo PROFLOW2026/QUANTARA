@@ -45,18 +45,18 @@ def reset_paper_competition(*, dry_run: bool = False) -> dict:
     report: dict = {"dry_run": dry_run, "reset_at": reset_at.isoformat()}
 
     with engine.connect() as conn:
+        portfolio_ids = list(PORTFOLIO_IDS)
         instance_rows = conn.execute(
             text(
                 """
                 SELECT id::text, portfolio_id::text
                 FROM strategy_instances
-                WHERE experiment_id = ANY(CAST(:exp_ids AS uuid[]))
+                WHERE portfolio_id = ANY(CAST(:pids AS uuid[]))
                 """
             ),
-            {"exp_ids": list(EXPERIMENT_IDS)},
+            {"pids": portfolio_ids},
         ).all()
         instance_ids = [r[0] for r in instance_rows]
-        portfolio_ids = [r[1] for r in instance_rows]
 
         report["portfolios"] = len(portfolio_ids)
         report["instances"] = len(instance_ids)
