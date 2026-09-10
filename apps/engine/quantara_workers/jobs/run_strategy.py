@@ -229,6 +229,9 @@ def _process_candle_batch(
             processor.process_candle(candle_index, shared_signal=effective_signal)
         total_decisions += len(processor.decisions)
 
+    if allow_live_execution:
+        s.flush()
+
     mode_label = "live" if allow_live_execution else "historical"
     logger.info(
         "Processed %s %s candle %s (%d portfolios)",

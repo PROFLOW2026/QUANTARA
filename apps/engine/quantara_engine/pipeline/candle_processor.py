@@ -208,13 +208,13 @@ class CandleProcessor:
                     position.id, candle.timestamp, fill.fill_price
                 )
                 self.store.save_trade(trade)
-        self.store.update_portfolio(self.state.portfolio)
+        self.store.update_portfolio(self.state.portfolio, flush=False)
         self._flush_store()
 
     def _persist_snapshot(self, snap) -> None:
         if not self.store:
             return
-        self.store.update_portfolio(self.state.portfolio)
+        self.store.update_portfolio(self.state.portfolio, flush=False)
         self.store.save_snapshot(snap)
         self._flush_store()
 
@@ -265,10 +265,10 @@ class CandleProcessor:
         candle = self.all_candles[candle_index]
         self._execute_pending(candle)
         if self.store:
-            self.store.update_portfolio(self.state.portfolio)
+            self.store.update_portfolio(self.state.portfolio, flush=False)
             for pos in self.state.open_positions():
                 self.store.update_open_position_mark(
-                    pos.id, pos.current_price, pos.unrealized_pnl
+                    pos.id, pos.current_price, pos.unrealized_pnl, flush=False
                 )
             self._flush_store()
 
@@ -279,10 +279,10 @@ class CandleProcessor:
         self._check_sl_tp(candle)
         self.state.recalculate_equity({self.instrument.id: candle.close})
         if self.store:
-            self.store.update_portfolio(self.state.portfolio)
+            self.store.update_portfolio(self.state.portfolio, flush=False)
             for pos in self.state.open_positions():
                 self.store.update_open_position_mark(
-                    pos.id, pos.current_price, pos.unrealized_pnl
+                    pos.id, pos.current_price, pos.unrealized_pnl, flush=False
                 )
             self._flush_store()
         snap = self.state.create_snapshot(candle.timestamp)
@@ -307,19 +307,17 @@ class CandleProcessor:
             # 1. Execute pending intents at this candle open
             self._execute_pending(candle)
 
-            # 2. SL/TP exits — paper competition defers to position_management_job
+            # 2. SL/TP + mark updates — paper competition defers to position_management_job
+            #    and snapshot_job to avoid 160-row portfolio lock storms during strategy eval.
             if self.manage_exits:
                 self._check_sl_tp(candle)
-
-            # 3. Update unrealized P&L at close (instrument-scoped mark)
-            self.state.recalculate_equity({self.instrument.id: candle.close})
-            if self.store:
-                self.store.update_portfolio(self.state.portfolio)
-                for pos in self.state.open_positions():
-                    self.store.update_open_position_mark(
-                        pos.id, pos.current_price, pos.unrealized_pnl
-                    )
-                self._flush_store()
+                self.state.recalculate_equity({self.instrument.id: candle.close})
+                if self.store:
+                    self.store.update_portfolio(self.state.portfolio, flush=False)
+                    for pos in self.state.open_positions():
+                        self.store.update_open_position_mark(
+                            pos.id, pos.current_price, pos.unrealized_pnl, flush=False
+                        )
 
         from quantara_engine.domain.types import Signal
 
@@ -334,7 +332,7 @@ class CandleProcessor:
         visible = self.all_candles[: candle_index + 1]
         self._handle_signal_decisions(signal, candle, signal_id, visible)
 
-        if self.allow_live_execution:
+        if self.allow_live_execution and self.manage_exits:
             snap = self.state.create_snapshot(candle.timestamp)
             self._persist_snapshot(snap)
 

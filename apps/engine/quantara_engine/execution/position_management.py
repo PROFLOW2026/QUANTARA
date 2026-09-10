@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import logging
+import time
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any
 
 from quantara_engine.domain.types import (
     DecisionLogEntry,
@@ -16,6 +19,8 @@ from quantara_engine.domain.types import (
 from quantara_engine.execution.exit_triggers import detect_exit_trigger
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
 from quantara_engine.market_data.polling import is_bar_complete
+from quantara_engine.persistence.batch_summary import batch_open_positions_by_portfolio
+from quantara_engine.portfolio.service import PortfolioSnapshot, PortfolioState
 
 if TYPE_CHECKING:
     from quantara_engine.domain.types import Instrument, Position, StrategyInstance
@@ -25,6 +30,40 @@ logger = logging.getLogger(__name__)
 
 POSITION_MANAGEMENT_CURSORS_KEY = "position_management_cursors"
 MAX_CANDLES_PER_POSITION_PER_RUN = 200
+
+
+@dataclass
+class PMRunReport:
+    positions_attempted: int = 0
+    positions_successful: int = 0
+    positions_failed: int = 0
+    positions_closed: int = 0
+    positions_marked: int = 0
+    positions_checked: int = 0
+    exits: int = 0
+    deadlocks: int = 0
+    retries: int = 0
+    stop_iteration: int = 0
+    errors: list[dict[str, Any]] = field(default_factory=list)
+    results: list[dict[str, Any]] = field(default_factory=list)
+    timing_ms: dict[str, float] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "positions_attempted": self.positions_attempted,
+            "positions_successful": self.positions_successful,
+            "positions_failed": self.positions_failed,
+            "positions_closed": self.positions_closed,
+            "positions_marked": self.positions_marked,
+            "positions_checked": self.positions_checked,
+            "exits": self.exits,
+            "deadlocks": self.deadlocks,
+            "retries": self.retries,
+            "stop_iteration": self.stop_iteration,
+            "errors": self.errors,
+            "results": self.results,
+            "timing_ms": self.timing_ms,
+        }
 
 
 def _get_cursors(store: TradingStore) -> dict[str, str]:
@@ -42,17 +81,28 @@ def set_last_managed_timestamp(
     store: TradingStore,
     position_id: str,
     timestamp: datetime,
+    *,
+    cursors: dict[str, str] | None = None,
+    flush: bool = True,
 ) -> None:
-    cursors = _get_cursors(store)
-    cursors[position_id] = timestamp.isoformat()
-    store.update_settings(POSITION_MANAGEMENT_CURSORS_KEY, cursors)
+    target = cursors if cursors is not None else _get_cursors(store)
+    target[position_id] = timestamp.isoformat()
+    if cursors is None or flush:
+        store.update_settings(POSITION_MANAGEMENT_CURSORS_KEY, target, flush=flush)
 
 
-def clear_position_management_cursor(store: TradingStore, position_id: str) -> None:
-    cursors = _get_cursors(store)
-    if position_id in cursors:
-        del cursors[position_id]
-        store.update_settings(POSITION_MANAGEMENT_CURSORS_KEY, cursors)
+def clear_position_management_cursor(
+    store: TradingStore,
+    position_id: str,
+    *,
+    cursors: dict[str, str] | None = None,
+    flush: bool = True,
+) -> None:
+    target = cursors if cursors is not None else _get_cursors(store)
+    if position_id in target:
+        del target[position_id]
+        if cursors is None or flush:
+            store.update_settings(POSITION_MANAGEMENT_CURSORS_KEY, target, flush=flush)
 
 
 def _management_candles(
@@ -63,11 +113,12 @@ def _management_candles(
     *,
     last_managed: datetime | None,
     now: datetime,
+    prefetched: list | None = None,
 ) -> list:
     floor = last_managed or position.opened_at
     if floor is None:
         return []
-    candles = store.list_candles(
+    candles = prefetched if prefetched is not None else store.list_candles(
         instrument.id,
         timeframe,
         since=floor,
@@ -85,16 +136,59 @@ def _management_candles(
     return pending
 
 
-def _apply_mark(
+def _prefetch_candles_by_pair(
     store: TradingStore,
-    state,
-    position: Position,
-    candle,
-) -> None:
+    positions: list[tuple[Position, StrategyInstance, Instrument]],
+    cursors: dict[str, str],
+) -> dict[tuple[str, str], list]:
+    floors: dict[tuple[str, str], datetime] = {}
+    for position, instance, instrument in positions:
+        key = (instrument.id, instance.timeframe)
+        last_raw = cursors.get(position.id)
+        last_managed = (
+            datetime.fromisoformat(last_raw.replace("Z", "+00:00")) if last_raw else None
+        )
+        floor = last_managed or position.opened_at
+        if floor is None:
+            continue
+        prev = floors.get(key)
+        if prev is None or floor < prev:
+            floors[key] = floor
+
+    out: dict[tuple[str, str], list] = {}
+    for (instrument_id, timeframe), since in floors.items():
+        out[(instrument_id, timeframe)] = store.list_candles(
+            instrument_id,
+            timeframe,
+            since=since,
+            limit=MAX_CANDLES_PER_POSITION_PER_RUN,
+        )
+    return out
+
+
+def _find_open_position(state: PortfolioState, position_id: str) -> Position | None:
+    for pos in state.open_positions():
+        if pos.id == position_id:
+            return pos
+    return None
+
+
+def _apply_mark(state: PortfolioState, position: Position, candle) -> None:
     state.recalculate_equity({position.instrument_id: candle.close})
     position.current_price = candle.close
-    store.update_open_position_mark(position.id, position.current_price, position.unrealized_pnl)
-    store.update_portfolio(state.portfolio)
+
+
+def _persist_marks(
+    store: TradingStore,
+    state: PortfolioState,
+    *,
+    flush: bool = False,
+) -> None:
+    for pos in state.open_positions():
+        store.update_open_position_mark(
+            pos.id, pos.current_price, pos.unrealized_pnl, flush=flush
+        )
+    store.update_portfolio(state.portfolio, flush=flush)
 
 
 def process_position_management(
@@ -105,13 +199,25 @@ def process_position_management(
     instrument: Instrument,
     now: datetime,
     broker: PaperBrokerAdapter | None = None,
+    cursors: dict[str, str] | None = None,
+    portfolio_state: PortfolioState | None = None,
+    defer_writes: bool = False,
+    pending_exits: list[dict[str, Any]] | None = None,
+    pending_decisions: list[DecisionLogEntry] | None = None,
+    pending_exit_snapshots: list[PortfolioSnapshot] | None = None,
 ) -> dict:
     """Process completed candles since last management for one open position."""
     if position.status.value != "open":
         return {"position_id": position.id, "status": "skipped_not_open"}
 
     broker = broker or PaperBrokerAdapter(instrument.id, ExecutionAssumptions())
-    last_managed = get_last_managed_timestamp(store, position.id)
+    cursor_state = cursors if cursors is not None else _get_cursors(store)
+    last_managed_raw = cursor_state.get(position.id)
+    last_managed = (
+        datetime.fromisoformat(last_managed_raw.replace("Z", "+00:00"))
+        if last_managed_raw
+        else None
+    )
     candles = _management_candles(
         store,
         position,
@@ -123,17 +229,16 @@ def process_position_management(
     if not candles:
         return {"position_id": position.id, "status": "no_pending_candles"}
 
-    state = store.load_portfolio_state(position.portfolio_id)
-    position = next(p for p in state.open_positions() if p.id == position.id)
+    state = portfolio_state or store.load_portfolio_state(position.portfolio_id)
+    if _find_open_position(state, position.id) is None:
+        return {"position_id": position.id, "status": "skipped_not_open_in_state"}
+
     marks = 0
 
     for candle in candles:
-        open_position = next(
-            (p for p in state.open_positions() if p.id == position.id),
-            None,
-        )
+        open_position = _find_open_position(state, position.id)
         if open_position is None:
-            set_last_managed_timestamp(store, position.id, candle.timestamp)
+            cursor_state[position.id] = candle.timestamp.isoformat()
             break
 
         trigger = detect_exit_trigger(open_position, candle)
@@ -147,34 +252,51 @@ def process_position_management(
                 state.portfolio.id,
             )
             trade = state.close_position(open_position, fill, reason, candle.timestamp)
-            store.persist_exit_execution(
-                order=order,
-                fill=fill,
-                position=open_position,
-                trade=trade,
-                portfolio_state=state,
+            decision = DecisionLogEntry(
+                id=new_id(),
                 strategy_instance_id=instance.id,
-                filled_at=candle.timestamp,
+                instrument_id=instrument.id,
+                candle_timestamp=candle.timestamp,
+                decision_type=(
+                    DecisionType.SL_TRIGGERED
+                    if reason == ExitReason.SL
+                    else DecisionType.TP_TRIGGERED
+                ),
+                message=f"{reason.value.upper()} hit at {trigger_price}",
+                signal_id=None,
+                metadata={"position_management": True},
             )
-            decision_type = (
-                DecisionType.SL_TRIGGERED if reason == ExitReason.SL else DecisionType.TP_TRIGGERED
-            )
-            store.save_decision(
-                DecisionLogEntry(
-                    id=new_id(),
+            exit_snapshot = state.create_snapshot(candle.timestamp)
+
+            if defer_writes:
+                if pending_exits is not None:
+                    pending_exits.append(
+                        {
+                            "order": order,
+                            "fill": fill,
+                            "position": open_position,
+                            "trade": trade,
+                            "portfolio_state": state,
+                            "strategy_instance_id": instance.id,
+                            "filled_at": candle.timestamp,
+                            "decision": decision,
+                            "snapshot": exit_snapshot,
+                        }
+                    )
+            else:
+                store.persist_exit_execution(
+                    order=order,
+                    fill=fill,
+                    position=open_position,
+                    trade=trade,
+                    portfolio_state=state,
                     strategy_instance_id=instance.id,
-                    instrument_id=instrument.id,
-                    candle_timestamp=candle.timestamp,
-                    decision_type=decision_type,
-                    message=f"{reason.value.upper()} hit at {trigger_price}",
-                    signal_id=None,
-                    metadata={"position_management": True},
+                    filled_at=candle.timestamp,
                 )
-            )
-            snap = state.create_snapshot(candle.timestamp)
-            store.save_snapshot(snap)
-            store.update_portfolio(state.portfolio)
-            clear_position_management_cursor(store, position.id)
+                store.save_decision(decision)
+                store.save_snapshot(exit_snapshot)
+
+            cursor_state.pop(position.id, None)
             logger.info(
                 "Position %s closed via %s at %s",
                 position.id,
@@ -191,9 +313,12 @@ def process_position_management(
                 "candles_processed": marks + 1,
             }
 
-        _apply_mark(store, state, open_position, candle)
-        set_last_managed_timestamp(store, position.id, candle.timestamp)
+        _apply_mark(state, open_position, candle)
+        cursor_state[position.id] = candle.timestamp.isoformat()
         marks += 1
+
+    if marks and not defer_writes:
+        _persist_marks(store, state, flush=True)
 
     return {
         "position_id": position.id,
@@ -203,54 +328,185 @@ def process_position_management(
     }
 
 
+def _persist_pm_writes(
+    store: TradingStore,
+    *,
+    portfolio_states: dict[str, PortfolioState],
+    modified_portfolio_ids: set[str],
+    mark_updates: dict[str, tuple[Decimal, Decimal]],
+    pending_exits: list[dict[str, Any]],
+    cursors: dict[str, str],
+    initial_cursors: dict[str, str],
+) -> None:
+    """Lock order: position closes → position marks → portfolios → snapshots (insert)."""
+    # Lock order: position closes → position marks → portfolios → snapshots (insert).
+    exit_chunk = 15
+    for offset in range(0, len(pending_exits), exit_chunk):
+        store.persist_exit_executions_batch(pending_exits[offset : offset + exit_chunk])
+
+    if mark_updates:
+        store.update_open_position_marks_batch(
+            [
+                (position_id, mark, upnl)
+                for position_id, (mark, upnl) in sorted(
+                    mark_updates.items(), key=lambda row: row[0]
+                )
+            ]
+        )
+
+    if modified_portfolio_ids:
+        portfolios = [
+            portfolio_states[pid].portfolio
+            for pid in sorted(modified_portfolio_ids)
+            if pid in portfolio_states
+        ]
+        if portfolios:
+            store.update_portfolios_batch(portfolios)
+
+    if cursors != initial_cursors:
+        store.update_settings(POSITION_MANAGEMENT_CURSORS_KEY, cursors, flush=False)
+
+    store.flush()
+
+
 def manage_all_open_positions(
     store: TradingStore,
     now: datetime,
 ) -> dict:
-    """Run SL/TP + mark management for every open paper position."""
-    results: list[dict] = []
-    errors: list[dict] = []
-    positions_checked = 0
-    exits = 0
-    instrument_cache: dict[str, Instrument | None] = {}
+    """Run SL/TP + mark management — in-memory evaluation, batched persistence."""
+    report = PMRunReport()
+    t_total = time.perf_counter()
 
     entries = store.list_competition_entries()
     entries.extend(store.list_orb_competition_entries())
-    for entry in entries:
-        portfolio = entry["portfolio"]
-        instance = entry["instance"]
-        state = store.load_portfolio_state(portfolio.id)
+    instance_by_id = {entry["instance"].id: entry["instance"] for entry in entries}
+    portfolio_ids = list({entry["portfolio"].id for entry in entries})
 
-        for position in state.open_positions():
-            if position.strategy_instance_id != instance.id:
+    t0 = time.perf_counter()
+    open_by_portfolio = batch_open_positions_by_portfolio(store, portfolio_ids)
+    portfolio_states = store.batch_load_portfolio_states(portfolio_ids)
+    report.timing_ms["preload"] = round((time.perf_counter() - t0) * 1000, 1)
+
+    work: list[tuple[Position, StrategyInstance, Instrument]] = []
+    instrument_cache: dict[str, Instrument | None] = {}
+    for positions in open_by_portfolio.values():
+        for position in positions:
+            instance = instance_by_id.get(position.strategy_instance_id)
+            if not instance:
                 continue
-            positions_checked += 1
             if position.instrument_id not in instrument_cache:
                 instrument_cache[position.instrument_id] = store.get_instrument_by_id(
                     position.instrument_id
                 )
             instrument = instrument_cache[position.instrument_id]
             if not instrument:
-                errors.append({"position_id": position.id, "error": "instrument_not_found"})
+                report.errors.append({"position_id": position.id, "error": "instrument_not_found"})
+                report.positions_failed += 1
                 continue
-            try:
-                result = process_position_management(
-                    store,
-                    position=position,
-                    instance=instance,
-                    instrument=instrument,
-                    now=now,
-                )
-                results.append(result)
-                if result.get("status") == "closed":
-                    exits += 1
-            except Exception as exc:
-                logger.exception("Position management failed for %s", position.id)
-                errors.append({"position_id": position.id, "error": str(exc)})
+            work.append((position, instance, instrument))
 
-    return {
-        "positions_checked": positions_checked,
-        "exits": exits,
-        "results": results,
-        "errors": errors,
-    }
+    cursors = _get_cursors(store)
+    initial_cursors = dict(cursors)
+
+    t0 = time.perf_counter()
+    candle_cache = _prefetch_candles_by_pair(store, work, cursors)
+    report.timing_ms["candle_prefetch"] = round((time.perf_counter() - t0) * 1000, 1)
+
+    work.sort(key=lambda row: (row[0].portfolio_id, row[0].id))
+    pending_exits: list[dict[str, Any]] = []
+    modified_portfolio_ids: set[str] = set()
+    mark_updates: dict[str, tuple[Decimal, Decimal]] = {}
+
+    t0 = time.perf_counter()
+    for position, instance, instrument in work:
+        report.positions_checked += 1
+        prefetched = candle_cache.get((instrument.id, instance.timeframe))
+        last_raw = cursors.get(position.id)
+        last_managed = (
+            datetime.fromisoformat(last_raw.replace("Z", "+00:00")) if last_raw else None
+        )
+        if not _management_candles(
+            store,
+            position,
+            instrument,
+            instance.timeframe,
+            last_managed=last_managed,
+            now=now,
+            prefetched=prefetched,
+        ):
+            continue
+
+        report.positions_attempted += 1
+        pid = position.portfolio_id
+        state = portfolio_states.get(pid)
+        if state is None:
+            report.positions_failed += 1
+            report.errors.append({"position_id": position.id, "error": "portfolio_state_missing"})
+            continue
+
+        if _find_open_position(state, position.id) is None:
+            report.positions_successful += 1
+            continue
+
+        try:
+            result = process_position_management(
+                store,
+                position=position,
+                instance=instance,
+                instrument=instrument,
+                now=now,
+                cursors=cursors,
+                portfolio_state=state,
+                defer_writes=True,
+                pending_exits=pending_exits,
+            )
+            report.results.append(result)
+            status = result.get("status")
+            if status == "closed":
+                report.positions_closed += 1
+                report.exits += 1
+                modified_portfolio_ids.add(pid)
+                report.positions_successful += 1
+            elif status == "managed":
+                marks = int(result.get("marks_updated") or 0)
+                if marks:
+                    report.positions_marked += 1
+                    modified_portfolio_ids.add(pid)
+                    open_pos = _find_open_position(state, position.id)
+                    if open_pos is not None:
+                        mark_updates[position.id] = (
+                            open_pos.current_price,
+                            open_pos.unrealized_pnl,
+                        )
+                report.positions_successful += 1
+            else:
+                report.positions_successful += 1
+        except Exception as exc:
+            logger.exception("Position management failed for %s", position.id)
+            report.positions_failed += 1
+            report.errors.append({"position_id": position.id, "error": str(exc)})
+
+    report.timing_ms["evaluation"] = round((time.perf_counter() - t0) * 1000, 1)
+
+    t0 = time.perf_counter()
+    try:
+        _persist_pm_writes(
+            store,
+            portfolio_states=portfolio_states,
+            modified_portfolio_ids=modified_portfolio_ids,
+            mark_updates=mark_updates,
+            pending_exits=pending_exits,
+            cursors=cursors,
+            initial_cursors=initial_cursors,
+        )
+    except Exception as exc:
+        logger.exception("PM persist phase failed")
+        report.errors.append({"phase": "persist", "error": str(exc)})
+        if "deadlock" in str(exc).lower():
+            report.deadlocks += 1
+        raise
+
+    report.timing_ms["persist"] = round((time.perf_counter() - t0) * 1000, 1)
+    report.timing_ms["total"] = round((time.perf_counter() - t_total) * 1000, 1)
+
+    return report.to_dict()

@@ -942,7 +942,14 @@ class TradingStore:
     def invalidate_settings_cache(self) -> None:
         self._settings_cache = None
 
-    def update_settings(self, key: str, value: Any, description: str | None = None) -> None:
+    def update_settings(
+        self,
+        key: str,
+        value: Any,
+        description: str | None = None,
+        *,
+        flush: bool = True,
+    ) -> None:
         row = self.session.scalar(select(OrmSetting).where(OrmSetting.key == key))
         if row:
             row.value = value
@@ -952,7 +959,8 @@ class TradingStore:
             self.session.add(
                 OrmSetting(id=uuid.uuid4(), key=key, value=value, description=description)
             )
-        self.session.flush()
+        if flush:
+            self.session.flush()
         self.invalidate_settings_cache()
 
     # ------------------------------------------------------------------ Candles
@@ -1260,6 +1268,8 @@ class TradingStore:
         order: Order,
         strategy_instance_id: str,
         signal_id: str | None = None,
+        *,
+        flush: bool = True,
     ) -> None:
         intent_id = order.intent_id
         if not intent_id:
@@ -1281,7 +1291,8 @@ class TradingStore:
             backtest_run_id=self._bt_uuid(),
         )
         self.session.merge(row)
-        self.session.flush()
+        if flush:
+            self.session.flush()
 
     def save_fill(
         self,
@@ -1354,6 +1365,8 @@ class TradingStore:
         position_id: str,
         closed_at: datetime,
         current_price: Decimal | None = None,
+        *,
+        flush: bool = True,
     ) -> None:
         row = self.session.get(OrmPosition, _uuid(position_id))
         if not row:
@@ -1363,20 +1376,53 @@ class TradingStore:
         if current_price is not None:
             row.current_price = current_price
         row.unrealized_pnl = Decimal("0")
-        self.session.flush()
+        if flush:
+            self.session.flush()
+
+    def update_positions_closed_batch(
+        self,
+        closes: list[tuple[str, datetime, Decimal | None]],
+        *,
+        chunk_size: int = 10,
+    ) -> None:
+        if not closes:
+            return
+        closes = sorted(closes, key=lambda row: row[0])
+        for offset in range(0, len(closes), chunk_size):
+            chunk = closes[offset : offset + chunk_size]
+            ids = [_uuid(position_id) for position_id, _, _ in chunk]
+            rows = {
+                _str_id(row.id): row
+                for row in self.session.scalars(
+                    select(OrmPosition).where(OrmPosition.id.in_(ids))
+                ).all()
+            }
+            for position_id, closed_at, current_price in chunk:
+                row = rows.get(position_id)
+                if not row:
+                    continue
+                row.status = OrmPositionStatus.CLOSED
+                row.closed_at = closed_at
+                if current_price is not None:
+                    row.current_price = current_price
+                row.unrealized_pnl = Decimal("0")
+            self.session.flush()
 
     def update_open_position_mark(
         self,
         position_id: str,
         mark_price: Decimal,
         unrealized_pnl: Decimal,
+        *,
+        flush: bool = True,
     ) -> None:
         row = self.session.get(OrmPosition, _uuid(position_id))
         if not row:
             return
         row.current_price = mark_price
         row.unrealized_pnl = unrealized_pnl
-        self.session.flush()
+        if flush:
+            self.session.flush()
 
     def resolve_strategy_version_id(self, strategy_instance_id: str) -> str:
         row = self.session.get(OrmStrategyInstance, _uuid(strategy_instance_id))
@@ -1431,7 +1477,7 @@ class TradingStore:
         )
         self.session.merge(row)
 
-    def update_portfolio(self, portfolio: Portfolio) -> None:
+    def update_portfolio(self, portfolio: Portfolio, *, flush: bool = True) -> None:
         row = self.session.get(OrmPortfolio, _uuid(portfolio.id))
         if not row:
             return
@@ -1443,7 +1489,8 @@ class TradingStore:
         row.status = OrmPortfolioStatus(portfolio.status.value)
         row.halt_reason = portfolio.halt_reason
         row.peak_equity = portfolio.peak_equity
-        self.session.flush()
+        if flush:
+            self.session.flush()
 
     def save_snapshot(self, snapshot: PortfolioSnapshot) -> str:
         snap_id = str(uuid.uuid4())
@@ -1484,47 +1531,63 @@ class TradingStore:
                 )
             )
 
-    def update_portfolios_batch(self, portfolios: list[Portfolio]) -> None:
+    def update_portfolios_batch(
+        self,
+        portfolios: list[Portfolio],
+        *,
+        chunk_size: int = 15,
+    ) -> None:
         if not portfolios:
             return
         portfolios = sorted(portfolios, key=lambda p: p.id)
-        ids = [_uuid(p.id) for p in portfolios]
-        rows = {
-            _str_id(row.id): row
-            for row in self.session.scalars(
-                select(OrmPortfolio).where(OrmPortfolio.id.in_(ids))
-            ).all()
-        }
-        for portfolio in portfolios:
-            row = rows.get(portfolio.id)
-            if not row:
-                continue
-            row.balance = portfolio.balance
-            row.unrealized_pnl = portfolio.unrealized_pnl
-            row.equity = portfolio.equity
-            row.exposure_notional = portfolio.exposure_notional
-            row.reserved_capital = portfolio.reserved_capital
-            row.status = OrmPortfolioStatus(portfolio.status.value)
-            row.halt_reason = portfolio.halt_reason
-            row.peak_equity = portfolio.peak_equity
+        for offset in range(0, len(portfolios), chunk_size):
+            chunk = portfolios[offset : offset + chunk_size]
+            ids = [_uuid(p.id) for p in chunk]
+            rows = {
+                _str_id(row.id): row
+                for row in self.session.scalars(
+                    select(OrmPortfolio).where(OrmPortfolio.id.in_(ids))
+                ).all()
+            }
+            for portfolio in chunk:
+                row = rows.get(portfolio.id)
+                if not row:
+                    continue
+                row.balance = portfolio.balance
+                row.unrealized_pnl = portfolio.unrealized_pnl
+                row.equity = portfolio.equity
+                row.exposure_notional = portfolio.exposure_notional
+                row.reserved_capital = portfolio.reserved_capital
+                row.status = OrmPortfolioStatus(portfolio.status.value)
+                row.halt_reason = portfolio.halt_reason
+                row.peak_equity = portfolio.peak_equity
+            self.session.flush()
 
-    def update_open_position_marks_batch(self, updates: list[tuple[str, Decimal, Decimal]]) -> None:
+    def update_open_position_marks_batch(
+        self,
+        updates: list[tuple[str, Decimal, Decimal]],
+        *,
+        chunk_size: int = 10,
+    ) -> None:
         if not updates:
             return
         updates = sorted(updates, key=lambda row: row[0])
-        ids = [_uuid(position_id) for position_id, _, _ in updates]
-        rows = {
-            _str_id(row.id): row
-            for row in self.session.scalars(
-                select(OrmPosition).where(OrmPosition.id.in_(ids))
-            ).all()
-        }
-        for position_id, mark_price, unrealized_pnl in updates:
-            row = rows.get(position_id)
-            if not row:
-                continue
-            row.current_price = mark_price
-            row.unrealized_pnl = unrealized_pnl
+        for offset in range(0, len(updates), chunk_size):
+            chunk = updates[offset : offset + chunk_size]
+            ids = [_uuid(position_id) for position_id, _, _ in chunk]
+            rows = {
+                _str_id(row.id): row
+                for row in self.session.scalars(
+                    select(OrmPosition).where(OrmPosition.id.in_(ids))
+                ).all()
+            }
+            for position_id, mark_price, unrealized_pnl in chunk:
+                row = rows.get(position_id)
+                if not row:
+                    continue
+                row.current_price = mark_price
+                row.unrealized_pnl = unrealized_pnl
+            self.session.flush()
 
     # ------------------------------------------------------------------ Load
 
@@ -1585,6 +1648,43 @@ class TradingStore:
             trades=[],
             snapshots=[],
         )
+
+    def batch_load_portfolio_states(self, portfolio_ids: list[str]) -> dict[str, PortfolioState]:
+        """Load open-position portfolio states for PM — two queries total."""
+        if not portfolio_ids:
+            return {}
+        unique_ids = sorted(set(portfolio_ids))
+        uuids = [_uuid(pid) for pid in unique_ids]
+
+        portfolio_rows = self.session.scalars(
+            select(OrmPortfolio).where(OrmPortfolio.id.in_(uuids))
+        ).all()
+        portfolios = { _str_id(row.id): self._portfolio_to_domain(row) for row in portfolio_rows }
+
+        position_rows = self.session.scalars(
+            select(OrmPosition).where(
+                OrmPosition.portfolio_id.in_(uuids),
+                OrmPosition.status == OrmPositionStatus.OPEN,
+            )
+        ).all()
+        positions_by_portfolio: dict[str, list[Position]] = {pid: [] for pid in unique_ids}
+        all_positions: list[Position] = []
+        for row in position_rows:
+            pos = self._position_to_domain(row)
+            all_positions.append(pos)
+            positions_by_portfolio.setdefault(_str_id(row.portfolio_id), []).append(pos)
+        self._hydrate_position_strategy_versions(all_positions)
+
+        return {
+            pid: PortfolioState(
+                portfolio=portfolios[pid],
+                positions=positions_by_portfolio.get(pid, []),
+                trades=[],
+                snapshots=[],
+            )
+            for pid in unique_ids
+            if pid in portfolios
+        }
 
     # ------------------------------------------------------------------ Backtest
 
@@ -1872,8 +1972,14 @@ class TradingStore:
         portfolio_state: PortfolioState,
         strategy_instance_id: str,
         filled_at: datetime,
+        flush: bool = True,
     ) -> None:
-        self.save_order(order, strategy_instance_id=strategy_instance_id, signal_id=None)
+        self.save_order(
+            order,
+            strategy_instance_id=strategy_instance_id,
+            signal_id=None,
+            flush=flush,
+        )
         self.save_fill(
             fill_id=new_id(),
             order_id=order.id,
@@ -1883,9 +1989,76 @@ class TradingStore:
             quantity=position.quantity,
             position_id=position.id,
         )
-        self.update_position_closed(position.id, filled_at, fill.fill_price)
+        self.update_position_closed(position.id, filled_at, fill.fill_price, flush=flush)
         self.save_trade(trade)
-        self.update_portfolio(portfolio_state.portfolio)
+        self.update_portfolio(portfolio_state.portfolio, flush=flush)
+        if flush:
+            self.session.flush()
+
+    def persist_exit_executions_batch(
+        self,
+        bundles: list[dict[str, Any]],
+    ) -> None:
+        """Persist exit bundles in lock order: orders/fills → position closes → trades → portfolios."""
+        if not bundles:
+            return
+        bundles = sorted(bundles, key=lambda b: b["position"].id)
+        fill_rows: list[tuple[str, str, FillResult, datetime, Decimal, str]] = []
+        closes: list[tuple[str, datetime, Decimal | None]] = []
+        portfolios: dict[str, Portfolio] = {}
+        snapshots: list[PortfolioSnapshot] = []
+
+        for bundle in bundles:
+            order = bundle["order"]
+            fill = bundle["fill"]
+            position = bundle["position"]
+            trade = bundle["trade"]
+            portfolio_state = bundle["portfolio_state"]
+            strategy_instance_id = bundle["strategy_instance_id"]
+            filled_at = bundle["filled_at"]
+
+            self.save_order(
+                order,
+                strategy_instance_id=strategy_instance_id,
+                signal_id=None,
+                flush=False,
+            )
+            fill_id = new_id()
+            fill_rows.append(
+                (fill_id, order.id, fill, filled_at, position.quantity, position.id)
+            )
+            closes.append((position.id, filled_at, fill.fill_price))
+            decision = bundle.get("decision")
+            if decision is not None:
+                self.save_decision(decision)
+            snap = bundle.get("snapshot")
+            if snap is not None:
+                snapshots.append(snap)
+            portfolios[portfolio_state.portfolio.id] = portfolio_state.portfolio
+
+        # Orders must exist before fills (FK).
+        self.session.flush()
+
+        for fill_id, order_id, fill, filled_at, quantity, position_id in fill_rows:
+            self.save_fill(
+                fill_id=fill_id,
+                order_id=order_id,
+                fill=fill,
+                side="exit",
+                filled_at=filled_at,
+                quantity=quantity,
+                position_id=position_id,
+            )
+
+        self.update_positions_closed_batch(closes)
+
+        for bundle in bundles:
+            self.save_trade(bundle["trade"])
+
+        self.update_portfolios_batch(list(portfolios.values()))
+        if snapshots:
+            self.save_snapshots_batch(snapshots)
+        self.session.flush()
 
     def cancel_pending_intent(self, intent_id: str, reason: str) -> None:
         self.update_order_intent_status(intent_id, IntentStatus.EXPIRED, reason)

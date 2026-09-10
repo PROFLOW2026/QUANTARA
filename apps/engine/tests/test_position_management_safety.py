@@ -20,9 +20,6 @@ from quantara_engine.domain.types import (
 )
 from quantara_engine.execution.position_management import process_position_management
 from quantara_engine.portfolio.service import PortfolioState
-from quantara_workers.jobs.snapshot import _marks_for_open_positions
-
-
 class _FakeStore:
     def __init__(self, candles: list[Candle], state: PortfolioState, instance: StrategyInstance):
         self.candles = candles
@@ -52,12 +49,12 @@ class _FakeStore:
     def load_portfolio_state(self, portfolio_id):
         return self.state
 
-    def update_open_position_mark(self, position_id, mark, upnl):
+    def update_open_position_mark(self, position_id, mark, upnl, flush=True):
         pos = next(p for p in self.state.open_positions() if p.id == position_id)
         pos.current_price = mark
         pos.unrealized_pnl = upnl
 
-    def update_portfolio(self, portfolio):
+    def update_portfolio(self, portfolio, flush=True):
         self.state.portfolio = portfolio
 
     def persist_exit_execution(self, **kwargs):
@@ -213,5 +210,6 @@ def test_mark_updates_without_exit():
     )
     assert result["status"] == "managed"
     assert float(state.open_positions()[0].current_price) == float(safe.close)
-    marks = _marks_for_open_positions(store, state)
-    assert float(marks["btc"]) == float(safe.close)
+    assert float(state.open_positions()[0].unrealized_pnl) == float(
+        state.portfolio.unrealized_pnl
+    )

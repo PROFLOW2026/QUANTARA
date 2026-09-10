@@ -108,7 +108,7 @@ class WorkerScheduler:
         )
         self.scheduler.add_job(
             snapshot_job,
-            CronTrigger(minute="*/5", second=50),
+            CronTrigger(minute="1-59/5", second=55),
             id="snapshot",
             replace_existing=True,
             **_HOUSEKEEPING_OPTS,
