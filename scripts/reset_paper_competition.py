@@ -163,10 +163,10 @@ def reset_paper_competition(*, dry_run: bool = False) -> dict:
                 """,
             ),
             (
-                "signals",
+                "order_intents",
                 """
-                DELETE FROM signals
-                WHERE strategy_instance_id = ANY(CAST(:iids AS uuid[]))
+                DELETE FROM order_intents
+                WHERE portfolio_id = ANY(CAST(:pids AS uuid[]))
                   AND backtest_run_id IS NULL
                 """,
             ),
@@ -179,10 +179,10 @@ def reset_paper_competition(*, dry_run: bool = False) -> dict:
                 """,
             ),
             (
-                "order_intents",
+                "signals",
                 """
-                DELETE FROM order_intents
-                WHERE portfolio_id = ANY(CAST(:pids AS uuid[]))
+                DELETE FROM signals
+                WHERE strategy_instance_id = ANY(CAST(:iids AS uuid[]))
                   AND backtest_run_id IS NULL
                 """,
             ),
