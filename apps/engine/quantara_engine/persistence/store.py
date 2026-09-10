@@ -506,7 +506,7 @@ class TradingStore:
     def _fetch_usdjpy_rate_from_provider(self, instrument_id: str) -> Decimal:
         from quantara_engine.market_data.adapters.twelvedata import TwelveDataMarketDataProvider
         from quantara_engine.market_data.registry import AssetDefinition, AssetClass, ProviderName
-        from quantara_engine.portfolio.currency import USDJPY_PROVIDER_SYMBOL
+        from quantara_engine.portfolio.currency import USDJPY_DB_SYMBOL, USDJPY_PROVIDER_SYMBOL
 
         asset = AssetDefinition(
             canonical_symbol="USD/JPY",

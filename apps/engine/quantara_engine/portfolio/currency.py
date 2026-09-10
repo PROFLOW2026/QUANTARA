@@ -138,7 +138,7 @@ def build_currency_context(
 def usdjpy_instrument_row() -> dict:
     """Deterministic USDJPY conversion instrument metadata."""
     return {
-        "id": uuid.UUID("00000000-0000-0000-0000-00000000usd1"),
+        "id": uuid.UUID("00000000-0000-0000-0000-000000000501"),
         "symbol": USDJPY_DB_SYMBOL,
         "name": "USD/JPY",
         "asset_class": "forex",
