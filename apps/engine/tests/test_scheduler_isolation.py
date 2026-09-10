@@ -17,13 +17,27 @@ def test_strategy_live_job_uses_dedicated_executor_and_no_coalesce():
     assert job.misfire_grace_time == 240
 
 
-def test_ingest_jobs_share_pool_and_do_not_use_strategy_executor():
+def test_fetch_live_uses_dedicated_executor_not_blocked_by_bulk():
     ws = WorkerScheduler()
     ws.register_jobs()
-    for job_id in ("fetch_live", "position_management", "snapshot"):
+    live = ws.scheduler.get_job("fetch_live")
+    bulk = ws.scheduler.get_job("fetch_bulk")
+    assert live is not None
+    assert bulk is not None
+    assert live.executor == "fetch_live"
+    assert bulk.executor == "fetch_bulk"
+    assert live.executor != bulk.executor
+    assert live.coalesce is False
+
+
+def test_housekeeping_jobs_share_pool_separate_from_ingest():
+    ws = WorkerScheduler()
+    ws.register_jobs()
+    for job_id in ("execute_intents", "position_management", "snapshot"):
         job = ws.scheduler.get_job(job_id)
         assert job is not None
-        assert job.executor == "ingest"
+        assert job.executor == "housekeeping"
+        assert job.executor != "fetch_live"
         assert job.executor != "strategy_live"
 
 
@@ -42,9 +56,13 @@ def test_historical_strategy_job_isolated_from_live():
 def test_scheduler_has_isolated_executors():
     ws = WorkerScheduler()
     ws.register_jobs()
-    assert {"ingest", "strategy_live", "strategy_historical"}.issubset(
-        set(ws.scheduler._executors.keys())
-    )
+    assert {
+        "fetch_live",
+        "fetch_bulk",
+        "housekeeping",
+        "strategy_live",
+        "strategy_historical",
+    }.issubset(set(ws.scheduler._executors.keys()))
 
 
 def test_live_and_historical_triggers_are_offset():
@@ -54,5 +72,5 @@ def test_live_and_historical_triggers_are_offset():
     hist_trigger = ws.scheduler.get_job("run_strategy_historical").trigger
     assert isinstance(live_trigger, CronTrigger)
     assert isinstance(hist_trigger, CronTrigger)
-    assert live_trigger.fields[7].expressions[0].first == 35
+    assert live_trigger.fields[7].expressions[0].first == 12
     assert hist_trigger.fields[6].expressions[0].first == 10

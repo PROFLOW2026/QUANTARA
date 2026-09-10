@@ -3,45 +3,97 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
+from sqlalchemy.exc import OperationalError
+
 from quantara_engine.db.session import session_scope
+from quantara_engine.persistence.batch_summary import (
+    batch_latest_candle_closes,
+    batch_open_positions_by_portfolio,
+)
 from quantara_engine.persistence.store import TradingStore
+from quantara_engine.portfolio.service import PortfolioState
 
 logger = logging.getLogger(__name__)
 
+MAX_DEADLOCK_RETRIES = 3
+DEADLOCK_RETRY_BASE_SECONDS = 0.25
 
-def _marks_for_open_positions(s: TradingStore, state) -> dict:
-    """Latest completed candle close per open position instrument/timeframe."""
-    marks: dict = {}
-    instance = s.get_active_strategy_instance(state.portfolio.id)
-    default_tf = instance.timeframe if instance else "5m"
-    for pos in state.open_positions():
-        if pos.instrument_id in marks:
-            continue
-        candles = s.list_recent_candles(pos.instrument_id, default_tf, limit=1)
-        if candles:
-            marks[pos.instrument_id] = candles[-1].close
+
+def _batch_marks(
+    s: TradingStore,
+    entries: list[dict],
+    open_by_portfolio: dict[str, list],
+) -> dict[tuple[str, str], Decimal]:
+    """Latest candle close per (instrument_id, timeframe) needed for open positions."""
+    pairs: set[tuple[str, str]] = set()
+    tf_by_portfolio = {e["portfolio"].id: e["instance"].timeframe for e in entries}
+    for pid, positions in open_by_portfolio.items():
+        tf = tf_by_portfolio.get(pid, "5m")
+        for pos in positions:
+            pairs.add((pos.instrument_id, tf))
+
+    marks: dict[tuple[str, str], Decimal] = {}
+    by_tf: dict[str, list[str]] = {}
+    for instrument_id, tf in pairs:
+        by_tf.setdefault(tf, []).append(instrument_id)
+
+    for tf, instrument_ids in by_tf.items():
+        unique_ids = list(dict.fromkeys(instrument_ids))
+        closes = batch_latest_candle_closes(s, unique_ids, tf)
+        for instrument_id, close in closes.items():
+            marks[(instrument_id, tf)] = close
     return marks
 
 
-def _snapshot_one(s: TradingStore, portfolio_id: str) -> None:
-    state = s.load_portfolio_state(portfolio_id)
-    marks = _marks_for_open_positions(s, state)
-    if marks:
-        state.recalculate_equity(marks)
-    else:
-        state.portfolio.unrealized_pnl = Decimal("0")
-        state.portfolio.equity = state.portfolio.balance
-        state.portfolio.exposure_notional = Decimal("0")
-        state.portfolio.reserved_capital = Decimal("0")
-    snap = state.create_snapshot(datetime.now(timezone.utc))
-    s.save_snapshot(snap)
-    s.update_portfolio(state.portfolio)
-    for pos in state.open_positions():
-        s.update_open_position_mark(pos.id, pos.current_price, pos.unrealized_pnl)
+def _run_batch_snapshots(s: TradingStore, entries: list[dict], started_at: datetime) -> int:
+    portfolio_ids = [e["portfolio"].id for e in entries]
+    if not portfolio_ids:
+        return 0
+
+    tf_by_portfolio = {e["portfolio"].id: e["instance"].timeframe for e in entries}
+    open_by_portfolio = batch_open_positions_by_portfolio(s, portfolio_ids)
+    marks_by_pair = _batch_marks(s, entries, open_by_portfolio)
+
+    snapshots = []
+    portfolios_to_update = []
+    position_mark_updates: list[tuple[str, Decimal, Decimal]] = []
+
+    for entry in entries:
+        portfolio = entry["portfolio"]
+        positions = open_by_portfolio.get(portfolio.id, [])
+        state = PortfolioState(portfolio=portfolio, positions=positions)
+        tf = tf_by_portfolio.get(portfolio.id, "5m")
+        marks = {
+            pos.instrument_id: marks_by_pair[(pos.instrument_id, tf)]
+            for pos in state.open_positions()
+            if (pos.instrument_id, tf) in marks_by_pair
+        }
+        if marks:
+            state.recalculate_equity(marks)
+        else:
+            state.portfolio.unrealized_pnl = Decimal("0")
+            state.portfolio.equity = state.portfolio.balance
+            state.portfolio.exposure_notional = Decimal("0")
+            state.portfolio.reserved_capital = Decimal("0")
+
+        snapshots.append(state.create_snapshot(started_at))
+        portfolios_to_update.append(state.portfolio)
+        for pos in state.open_positions():
+            position_mark_updates.append(
+                (pos.id, pos.current_price, pos.unrealized_pnl)
+            )
+
+    # Match execute_intents lock order: positions → portfolios (snapshots last, insert-only).
+    s.update_open_position_marks_batch(position_mark_updates)
+    s.update_portfolios_batch(portfolios_to_update)
+    s.save_snapshots_batch(snapshots)
+    s.session.flush()
+    return len(portfolio_ids)
 
 
 def snapshot_job(store: TradingStore | None = None) -> None:
@@ -49,36 +101,52 @@ def snapshot_job(store: TradingStore | None = None) -> None:
 
     def _run(s: TradingStore) -> None:
         _, _, entries = s.list_all_competition_entries()
-        portfolio_ids = [e["portfolio"].id for e in entries]
-        if not portfolio_ids:
+        count = _run_batch_snapshots(s, entries, started_at)
+        if count == 0:
             logger.warning("No active competition portfolios — snapshot job skipped")
             return
-
-        for portfolio_id in portfolio_ids:
-            _snapshot_one(s, portfolio_id)
 
         s.update_worker_status(
             "snapshot",
             {
                 "status": "healthy",
                 "last_run": started_at.isoformat(),
-                "portfolios_snapshotted": len(portfolio_ids),
+                "portfolios_snapshotted": count,
             },
         )
         s.save_worker_run(
             run_id=str(uuid.uuid4()),
             worker_name="snapshot",
             started_at=started_at,
-            jobs_processed=len(portfolio_ids),
+            jobs_processed=count,
         )
-        logger.info("snapshot job completed for %d portfolio(s)", len(portfolio_ids))
+        logger.info("snapshot job completed for %d portfolio(s)", count)
 
     try:
-        if store is not None:
-            _run(store)
-        else:
-            with session_scope() as session:
-                _run(TradingStore(session))
+        last_exc: Exception | None = None
+        for attempt in range(MAX_DEADLOCK_RETRIES):
+            try:
+                if store is not None:
+                    _run(store)
+                else:
+                    with session_scope() as session:
+                        _run(TradingStore(session))
+                return
+            except OperationalError as exc:
+                last_exc = exc
+                if "deadlock" not in str(exc).lower() or attempt >= MAX_DEADLOCK_RETRIES - 1:
+                    raise
+                delay = DEADLOCK_RETRY_BASE_SECONDS * (2**attempt)
+                logger.warning(
+                    "snapshot deadlock (attempt %d/%d), retry in %.2fs: %s",
+                    attempt + 1,
+                    MAX_DEADLOCK_RETRIES,
+                    delay,
+                    exc,
+                )
+                time.sleep(delay)
+        if last_exc is not None:
+            raise last_exc
     except Exception as exc:
         logger.exception("snapshot_job failed")
         try:

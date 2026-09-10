@@ -56,7 +56,7 @@ def build_orb_status(store: TradingStore, symbol: str | None = None) -> dict[str
             "trades_today": trades_today,
             "latest_signal": latest_dec.decision_type.value if latest_dec else None,
             "latest_reason": latest_dec.message if latest_dec else None,
-            "latest_signal_at": latest_dec.created_at.isoformat() if latest_dec else None,
+            "latest_signal_at": latest_dec.candle_timestamp.isoformat() if latest_dec else None,
         }
 
     enabled = store.is_orb_competition_enabled()

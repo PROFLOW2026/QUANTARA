@@ -1,4 +1,4 @@
-"""Live Paper execution timing — canonical N+1 open semantics with bounded grace."""
+"""Live Paper execution timing — canonical N+1 open semantics with timeframe-aware grace."""
 
 from __future__ import annotations
 
@@ -6,15 +6,40 @@ from datetime import datetime, timedelta, timezone
 
 from quantara_engine.market_data.polling import timeframe_minutes
 
-# After signal bar N closes, fill is scheduled at N+1 open.
-# Processing/provider latency gets one extra bar of grace before expiry.
+# Baseline 5m constants (preserved for backward-compatible defaults).
 LIVE_EXECUTION_GRACE_MINUTES = 8
-
-# Intent must be created within this many minutes of the N+1 open timestamp.
 INTENT_CREATION_TOLERANCE_MINUTES = 5
-
-# Beyond this age from signal candle, never open new exposure (≈3 × 5m bars).
 STALE_SIGNAL_MAX_AGE_MINUTES = 15
+
+
+def intent_creation_tolerance_minutes(timeframe: str) -> int:
+    """Minutes after N+1 open by which the intent must exist."""
+    bar = timeframe_minutes(timeframe)
+    if bar <= 5:
+        return INTENT_CREATION_TOLERANCE_MINUTES
+    return bar
+
+
+def execution_grace_minutes(timeframe: str) -> int:
+    """Extra minutes after the execution bar closes before expiry."""
+    bar = timeframe_minutes(timeframe)
+    if bar <= 5:
+        return LIVE_EXECUTION_GRACE_MINUTES
+    return bar + LIVE_EXECUTION_GRACE_MINUTES
+
+
+def stale_signal_max_age_minutes(timeframe: str) -> int:
+    """Maximum signal age (~3 bars) before live entry is forbidden."""
+    bar = timeframe_minutes(timeframe)
+    return 3 * bar
+
+
+def freshness_max_age_minutes(timeframe: str) -> int:
+    """Maximum signal age for live intent creation at strategy evaluation."""
+    bar = timeframe_minutes(timeframe)
+    if bar <= 5:
+        return 30
+    return stale_signal_max_age_minutes(timeframe) + intent_creation_tolerance_minutes(timeframe)
 
 
 def next_execution_timestamp(signal_candle_timestamp: datetime, timeframe: str) -> datetime:
@@ -28,13 +53,14 @@ def execution_grace_deadline(
     execution_candle_timestamp: datetime,
     timeframe: str,
     *,
-    grace_minutes: int = LIVE_EXECUTION_GRACE_MINUTES,
+    grace_minutes: int | None = None,
 ) -> datetime:
     """Last moment a pending intent may still fill at the scheduled N+1 open."""
     if execution_candle_timestamp.tzinfo is None:
         execution_candle_timestamp = execution_candle_timestamp.replace(tzinfo=timezone.utc)
     bar_minutes = timeframe_minutes(timeframe)
-    return execution_candle_timestamp + timedelta(minutes=bar_minutes + grace_minutes)
+    grace = grace_minutes if grace_minutes is not None else execution_grace_minutes(timeframe)
+    return execution_candle_timestamp + timedelta(minutes=bar_minutes + grace)
 
 
 def intent_past_execution_window(
@@ -44,18 +70,20 @@ def intent_past_execution_window(
     intent_created_at: datetime,
     timeframe: str,
     now: datetime,
-    grace_minutes: int = LIVE_EXECUTION_GRACE_MINUTES,
+    grace_minutes: int | None = None,
 ) -> bool:
     """True when an intent can no longer be filled without creating stale exposure."""
+    grace = grace_minutes if grace_minutes is not None else execution_grace_minutes(timeframe)
+    tolerance = intent_creation_tolerance_minutes(timeframe)
     exec_ts = execution_candle_timestamp or next_execution_timestamp(
         signal_candle_timestamp, timeframe
     )
-    deadline = execution_grace_deadline(exec_ts, timeframe, grace_minutes=grace_minutes)
+    deadline = execution_grace_deadline(exec_ts, timeframe, grace_minutes=grace)
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     if intent_created_at.tzinfo is None:
         intent_created_at = intent_created_at.replace(tzinfo=timezone.utc)
-    creation_deadline = exec_ts + timedelta(minutes=INTENT_CREATION_TOLERANCE_MINUTES)
+    creation_deadline = exec_ts + timedelta(minutes=tolerance)
     if intent_created_at > creation_deadline:
         return True
     return now > deadline
@@ -68,18 +96,21 @@ def live_fill_allowed(
     signal_candle_timestamp: datetime,
     now: datetime,
     timeframe: str,
-    grace_minutes: int = LIVE_EXECUTION_GRACE_MINUTES,
+    grace_minutes: int | None = None,
 ) -> tuple[bool, str | None]:
     """Return (allowed, rejection_reason) for filling at N+1 open with bounded latency."""
+    grace = grace_minutes if grace_minutes is not None else execution_grace_minutes(timeframe)
+    stale_max = stale_signal_max_age_minutes(timeframe)
+
     if execution_candle_timestamp != candle_timestamp:
         return False, "execution_candle_mismatch"
 
     age_min = (now - signal_candle_timestamp).total_seconds() / 60
-    if age_min > STALE_SIGNAL_MAX_AGE_MINUTES:
+    if age_min > stale_max:
         return False, f"stale_signal_age ({round(age_min, 1)}m)"
 
     deadline = execution_grace_deadline(
-        execution_candle_timestamp, timeframe, grace_minutes=grace_minutes
+        execution_candle_timestamp, timeframe, grace_minutes=grace
     )
     if now > deadline:
         return False, "execution_window_passed"

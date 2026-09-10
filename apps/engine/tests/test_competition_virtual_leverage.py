@@ -29,7 +29,7 @@ INSTRUMENT = Instrument(
 
 
 def test_active_competition_portfolio_ids_registered():
-    assert len(ACTIVE_COMPETITION_PORTFOLIOS) == 15
+    assert len(ACTIVE_COMPETITION_PORTFOLIOS) == 120
     timeframes = {p.timeframe for p in ACTIVE_COMPETITION_PORTFOLIOS}
     assert timeframes == {"1h", "15m", "5m"}
     assert is_competition_portfolio(ACTIVE_COMPETITION_PORTFOLIOS[0].portfolio_id)
@@ -74,7 +74,11 @@ def test_legacy_cap_collapses_higher_tiers():
 
 
 def test_competition_virtual_leverage_differentiates_tiers():
-    one_hour = [p for p in ACTIVE_COMPETITION_PORTFOLIOS if p.timeframe == "1h"]
+    one_hour = [
+        p
+        for p in ACTIVE_COMPETITION_PORTFOLIOS
+        if p.timeframe == "1h" and p.symbol == "XAUUSD"
+    ]
     results: list[tuple[Decimal, Decimal]] = []
     for entry in one_hour:
         portfolio = Portfolio(

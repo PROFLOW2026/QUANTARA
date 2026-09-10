@@ -147,6 +147,10 @@ class TradingStore:
         self.session = session
         self.mode = mode
         self.backtest_run_id = backtest_run_id
+        self._settings_cache: dict[str, Any] | None = None
+        self._competition_entries_cache: (
+            tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]] | None
+        ) = None
 
     def flush(self) -> None:
         self.session.flush()
@@ -216,10 +220,11 @@ class TradingStore:
         raise ValueError(f"Unknown portfolio ref: {ref}")
 
     def sum_competition_realized_pnl(self) -> Decimal:
-        total = Decimal("0")
-        for portfolio in self.list_competition_portfolios():
-            total += self.sum_realized_pnl(portfolio.id)
-        return total
+        from quantara_engine.persistence.batch_summary import sum_realized_pnl_for_portfolios
+
+        _, _, combined = self.list_all_competition_entries()
+        portfolio_ids = [e["portfolio"].id for e in combined]
+        return sum_realized_pnl_for_portfolios(self, portfolio_ids)
 
     def list_competition_positions(
         self,
@@ -227,16 +232,16 @@ class TradingStore:
         open_only: bool = True,
         status: str | None = None,
     ) -> list[Position]:
-        positions: list[Position] = []
-        for portfolio in self.list_competition_portfolios():
-            positions.extend(
-                self.list_positions(
-                    portfolio.id,
-                    open_only=open_only,
-                    status=status,
-                )
-            )
-        return positions
+        from quantara_engine.persistence.batch_summary import list_positions_for_portfolios
+
+        _, _, combined = self.list_all_competition_entries()
+        portfolio_ids = [e["portfolio"].id for e in combined]
+        return list_positions_for_portfolios(
+            self,
+            portfolio_ids,
+            open_only=open_only,
+            status=status,
+        )
 
     def list_competition_trades_all(self, *, limit: int = 500) -> list[Trade]:
         trades: list[Trade] = []
@@ -523,7 +528,13 @@ class TradingStore:
         if order_map is None:
             order_map = {p.portfolio_id: p.sort_order for p in ACTIVE_COMPETITION_PORTFOLIOS}
         stmt = (
-            select(OrmStrategyInstance, OrmPortfolio, OrmRiskProfile, OrmStrategy)
+            select(
+                OrmStrategyInstance,
+                OrmPortfolio,
+                OrmRiskProfile,
+                OrmStrategy,
+                OrmStrategyVersion,
+            )
             .join(OrmPortfolio, OrmStrategyInstance.portfolio_id == OrmPortfolio.id)
             .join(OrmRiskProfile, OrmStrategyInstance.risk_profile_id == OrmRiskProfile.id)
             .join(
@@ -539,12 +550,14 @@ class TradingStore:
         )
         rows = self.session.execute(stmt).all()
         entries: list[dict[str, Any]] = []
-        for instance_row, portfolio_row, risk_row, strategy_row in rows:
+        for instance_row, portfolio_row, risk_row, strategy_row, version_row in rows:
             entries.append(
                 {
                     "portfolio": self._portfolio_to_domain(portfolio_row),
                     "instance": self._strategy_instance_to_domain(
-                        instance_row, strategy_row.slug
+                        instance_row,
+                        strategy_row.slug,
+                        version_row=version_row,
                     ),
                     "risk_profile": self._risk_profile_to_domain(risk_row),
                     "sort_order": order_map.get(_str_id(portfolio_row.id), 99),
@@ -602,9 +615,54 @@ class TradingStore:
 
     def list_all_competition_entries(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
         """Return (robot_a, robot_b, combined) active paper competition entries."""
+        if self._competition_entries_cache is not None:
+            return self._competition_entries_cache
         robot_a = self.list_competition_entries()
         robot_b = self.list_orb_competition_entries() if self.is_orb_competition_enabled() else []
-        return robot_a, robot_b, robot_a + robot_b
+        self._competition_entries_cache = (robot_a, robot_b, robot_a + robot_b)
+        return self._competition_entries_cache
+
+    def batch_portfolio_dashboard_stats(
+        self, portfolio_ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Bulk trade + open-position metrics for dashboard endpoints."""
+        from quantara_engine.persistence.batch_summary import (
+            TradeBatchMetrics,
+            batch_open_positions_by_portfolio,
+            batch_trade_metrics,
+        )
+
+        trade_stats = batch_trade_metrics(self, portfolio_ids)
+        open_by_portfolio = batch_open_positions_by_portfolio(self, portfolio_ids)
+        out: dict[str, dict[str, Any]] = {}
+        for pid in portfolio_ids:
+            trades: TradeBatchMetrics = trade_stats.get(pid, TradeBatchMetrics())
+            open_positions = open_by_portfolio.get(pid, [])
+            first = open_positions[0] if open_positions else None
+            out[pid] = {
+                "closed_trades_count": trades.closed_trades_count,
+                "realized_pnl": trades.realized_pnl,
+                "win_rate": trades.win_rate,
+                "open_positions": open_positions,
+                "open_positions_count": len(open_positions),
+                "open_direction": first.direction if first else None,
+            }
+        return out
+
+    def batch_asset_trading_metrics(self, portfolio_ids: list[str]) -> dict[str, dict[str, Any]]:
+        from quantara_engine.persistence.batch_summary import batch_asset_metrics
+
+        metrics = batch_asset_metrics(self, portfolio_ids)
+        return {
+            iid: {
+                "open_positions": m.open_positions,
+                "closed_trades": m.closed_trades,
+                "realized_pnl": float(m.realized_pnl),
+                "unrealized_pnl": float(m.unrealized_pnl),
+                "total_pnl": float(m.realized_pnl + m.unrealized_pnl),
+            }
+            for iid, m in metrics.items()
+        }
 
     def list_competition_instance_ids(self) -> list[str]:
         _, _, combined = self.list_all_competition_entries()
@@ -691,7 +749,7 @@ class TradingStore:
     ) -> list[DecisionLogEntry]:
         """Latest decision per asset/strategy for all active paper competition robots on a timeframe."""
         from quantara_engine.competition.orb_constants import ORB_ASSETS
-        from quantara_engine.market_data.registry import list_target_assets
+        from quantara_engine.competition.robot_a_universe import list_robot_a_tradable_db_symbols
 
         results: list[DecisionLogEntry] = []
 
@@ -700,8 +758,8 @@ class TradingStore:
         ]
         if entries_a:
             instance_ids_a = [e["instance"].id for e in entries_a]
-            for asset in list_target_assets():
-                instrument = self.get_instrument_by_symbol(asset.db_symbol)
+            for symbol in list_robot_a_tradable_db_symbols():
+                instrument = self.get_instrument_by_symbol(symbol)
                 if not instrument:
                     continue
                 decision = self._latest_decision_for_instances(instance_ids_a, instrument.id)
@@ -875,8 +933,14 @@ class TradingStore:
         return self._strategy_instance_to_domain(row, strategy_slug) if row else None
 
     def get_settings_dict(self) -> dict[str, Any]:
+        if self._settings_cache is not None:
+            return self._settings_cache
         rows = self.session.scalars(select(OrmSetting)).all()
-        return {row.key: row.value for row in rows}
+        self._settings_cache = {row.key: row.value for row in rows}
+        return self._settings_cache
+
+    def invalidate_settings_cache(self) -> None:
+        self._settings_cache = None
 
     def update_settings(self, key: str, value: Any, description: str | None = None) -> None:
         row = self.session.scalar(select(OrmSetting).where(OrmSetting.key == key))
@@ -889,6 +953,7 @@ class TradingStore:
                 OrmSetting(id=uuid.uuid4(), key=key, value=value, description=description)
             )
         self.session.flush()
+        self.invalidate_settings_cache()
 
     # ------------------------------------------------------------------ Candles
 
@@ -921,6 +986,42 @@ class TradingStore:
             )
         )
         self.session.execute(stmt)
+
+    def upsert_candles_batch(self, candles: list[DomainCandle]) -> int:
+        """Bulk upsert candles in one statement (bootstrap-safe on remote Postgres)."""
+        if not candles:
+            return 0
+        values = [
+            {
+                "id": uuid.uuid4(),
+                "instrument_id": _uuid(candle.instrument_id),
+                "timeframe": candle.timeframe,
+                "timestamp": candle.timestamp,
+                "open": candle.open,
+                "high": candle.high,
+                "low": candle.low,
+                "close": candle.close,
+                "volume": candle.volume,
+                "source": candle.source,
+                "is_complete": candle.is_complete,
+            }
+            for candle in candles
+        ]
+        stmt = insert(OrmCandle).values(values)
+        excluded = stmt.excluded
+        stmt = stmt.on_conflict_do_update(
+            constraint="candles_instrument_timeframe_timestamp_source_unique",
+            set_={
+                "open": excluded.open,
+                "high": excluded.high,
+                "low": excluded.low,
+                "close": excluded.close,
+                "volume": excluded.volume,
+                "is_complete": excluded.is_complete,
+            },
+        )
+        self.session.execute(stmt)
+        return len(candles)
 
     def list_candles(
         self,
@@ -1105,18 +1206,54 @@ class TradingStore:
         self,
         strategy_instance_id: str,
         signal_candle_timestamp: datetime,
+        direction: str | None = None,
     ) -> OrderIntent | None:
-        row = self.session.scalar(
-            select(OrmOrderIntent)
+        stmt = select(OrmOrderIntent).where(
+            OrmOrderIntent.strategy_instance_id == _uuid(strategy_instance_id),
+            OrmOrderIntent.signal_candle_timestamp == signal_candle_timestamp,
+            OrmOrderIntent.status == OrderIntentStatus.PENDING_EXECUTION,
+            OrmOrderIntent.backtest_run_id.is_(None),
+        )
+        if direction is not None:
+            from quantara_engine.models.enums import Direction as OrmDirection
+
+            stmt = stmt.where(OrmOrderIntent.direction == OrmDirection(direction))
+        row = self.session.scalar(stmt.limit(1))
+        return self._order_intent_to_domain(row) if row else None
+
+    def has_duplicate_entry_for_signal(
+        self,
+        strategy_instance_id: str,
+        signal_candle_timestamp: datetime,
+        signal_action: str,
+    ) -> bool:
+        """True when the exact same signal candle+direction already has a pending or filled entry."""
+        from quantara_engine.models.enums import Direction as OrmDirection
+
+        direction = (
+            OrmDirection.LONG if signal_action == "buy" else OrmDirection.SHORT
+        )
+        pending = self.find_pending_intent_for_signal_candle(
+            strategy_instance_id,
+            signal_candle_timestamp,
+            direction.value,
+        )
+        if pending:
+            return True
+        fill_row = self.session.scalar(
+            select(OrmFill.id)
+            .join(OrmOrder, OrmOrder.id == OrmFill.order_id)
+            .join(OrmOrderIntent, OrmOrder.intent_id == OrmOrderIntent.id)
             .where(
                 OrmOrderIntent.strategy_instance_id == _uuid(strategy_instance_id),
                 OrmOrderIntent.signal_candle_timestamp == signal_candle_timestamp,
-                OrmOrderIntent.status == OrderIntentStatus.PENDING_EXECUTION,
+                OrmOrderIntent.direction == direction,
+                OrmFill.side == "entry",
                 OrmOrderIntent.backtest_run_id.is_(None),
             )
             .limit(1)
         )
-        return self._order_intent_to_domain(row) if row else None
+        return fill_row is not None
 
     def save_order(
         self,
@@ -1328,6 +1465,67 @@ class TradingStore:
         self.session.flush()
         return snap_id
 
+    def save_snapshots_batch(self, snapshots: list[PortfolioSnapshot]) -> None:
+        for snapshot in snapshots:
+            self.session.add(
+                OrmPortfolioSnapshot(
+                    id=uuid.uuid4(),
+                    portfolio_id=_uuid(snapshot.portfolio_id),
+                    timestamp=snapshot.timestamp,
+                    balance=snapshot.balance,
+                    equity=snapshot.equity,
+                    exposure_notional=snapshot.exposure_notional,
+                    reserved_capital=snapshot.reserved_capital,
+                    unrealized_pnl=snapshot.unrealized_pnl,
+                    drawdown_pct=snapshot.drawdown_pct,
+                    open_positions_count=snapshot.open_positions_count,
+                    mode=_mode_to_orm(self.mode),
+                    backtest_run_id=self._bt_uuid(),
+                )
+            )
+
+    def update_portfolios_batch(self, portfolios: list[Portfolio]) -> None:
+        if not portfolios:
+            return
+        portfolios = sorted(portfolios, key=lambda p: p.id)
+        ids = [_uuid(p.id) for p in portfolios]
+        rows = {
+            _str_id(row.id): row
+            for row in self.session.scalars(
+                select(OrmPortfolio).where(OrmPortfolio.id.in_(ids))
+            ).all()
+        }
+        for portfolio in portfolios:
+            row = rows.get(portfolio.id)
+            if not row:
+                continue
+            row.balance = portfolio.balance
+            row.unrealized_pnl = portfolio.unrealized_pnl
+            row.equity = portfolio.equity
+            row.exposure_notional = portfolio.exposure_notional
+            row.reserved_capital = portfolio.reserved_capital
+            row.status = OrmPortfolioStatus(portfolio.status.value)
+            row.halt_reason = portfolio.halt_reason
+            row.peak_equity = portfolio.peak_equity
+
+    def update_open_position_marks_batch(self, updates: list[tuple[str, Decimal, Decimal]]) -> None:
+        if not updates:
+            return
+        updates = sorted(updates, key=lambda row: row[0])
+        ids = [_uuid(position_id) for position_id, _, _ in updates]
+        rows = {
+            _str_id(row.id): row
+            for row in self.session.scalars(
+                select(OrmPosition).where(OrmPosition.id.in_(ids))
+            ).all()
+        }
+        for position_id, mark_price, unrealized_pnl in updates:
+            row = rows.get(position_id)
+            if not row:
+                continue
+            row.current_price = mark_price
+            row.unrealized_pnl = unrealized_pnl
+
     # ------------------------------------------------------------------ Load
 
     def load_portfolio_state(self, portfolio_id: str) -> PortfolioState:
@@ -1365,6 +1563,27 @@ class TradingStore:
             positions=positions,
             trades=trades,
             snapshots=snapshots,
+        )
+
+    def load_portfolio_for_snapshot(self, portfolio_id: str) -> PortfolioState:
+        """Lightweight state for snapshot job — open positions only, no history."""
+        portfolio_row = self.session.get(OrmPortfolio, _uuid(portfolio_id))
+        if not portfolio_row:
+            raise ValueError(f"Portfolio not found: {portfolio_id}")
+
+        portfolio = self._portfolio_to_domain(portfolio_row)
+        position_rows = self.session.scalars(
+            select(OrmPosition).where(
+                OrmPosition.portfolio_id == _uuid(portfolio_id),
+                OrmPosition.status == OrmPositionStatus.OPEN,
+            )
+        ).all()
+        positions = [self._position_to_domain(row) for row in position_rows]
+        return PortfolioState(
+            portfolio=portfolio,
+            positions=positions,
+            trades=[],
+            snapshots=[],
         )
 
     # ------------------------------------------------------------------ Backtest
@@ -2126,8 +2345,11 @@ class TradingStore:
         self,
         row: OrmStrategyInstance,
         strategy_slug: str,
+        *,
+        version_row: OrmStrategyVersion | None = None,
     ) -> StrategyInstance:
-        version_row = self.session.get(OrmStrategyVersion, row.strategy_version_id)
+        if version_row is None:
+            version_row = self.session.get(OrmStrategyVersion, row.strategy_version_id)
         version = version_row.version if version_row else "1.0.0"
         return StrategyInstance(
             id=_str_id(row.id),

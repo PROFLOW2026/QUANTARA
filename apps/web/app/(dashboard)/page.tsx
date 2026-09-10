@@ -10,7 +10,6 @@ import { StrategyFreshnessPanel } from "@/components/trading/StrategyFreshnessPa
 import {
   ActiveAssetsSummary,
   ActiveAssetsTable,
-  AssetResultsTable,
   ProviderHealthPanel,
 } from "@/components/trading/ActiveAssetsPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,58 +46,61 @@ export default function HomePageClient() {
   const [assetAnalytics, setAssetAnalytics] = useState<AssetAnalyticsResponse | null>(null);
   const [marketStatus, setMarketStatus] = useState<MarketProviderStatus | null>(null);
   const [engineConnectionError, setEngineConnectionError] = useState(false);
+  const [competitionUnavailable, setCompetitionUnavailable] = useState(false);
   const [todayError, setTodayError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
     try {
-      const results = await Promise.allSettled([
+      const fastResults = await Promise.allSettled([
         api.getWorkersStatus(),
-        api.getDecisionsByAsset("5m"),
-        api.getAnalyticsToday(),
-        loadCompetitionView(),
-        api.getAssetAnalytics(),
         api.getMarketStatus(),
+        api.getAssetAnalytics(),
       ]);
 
-      const coreResult = results[0];
+      const coreResult = fastResults[0];
       const coreFailed =
         coreResult.status === "rejected" &&
         isEngineConnectionError((coreResult as PromiseRejectedResult).reason);
       setEngineConnectionError(coreFailed);
+      setWorkers(coreResult.status === "fulfilled" ? coreResult.value : null);
+      setMarketStatus(fastResults[1].status === "fulfilled" ? fastResults[1].value : null);
+      setAssetAnalytics(fastResults[2].status === "fulfilled" ? fastResults[2].value : null);
 
-      if (coreResult.status === "fulfilled") {
-        setWorkers(coreResult.value);
-      } else {
-        setWorkers(null);
-      }
+      if (showLoading) setLoading(false);
 
-      if (results[1].status === "fulfilled") {
-        setAssetDecisions(results[1].value.decisions ?? []);
+      const slowResults = await Promise.allSettled([
+        api.getDecisionsByAsset("5m"),
+        api.getAnalyticsToday(),
+        loadCompetitionView(),
+      ]);
+
+      if (slowResults[0].status === "fulfilled") {
+        setAssetDecisions(slowResults[0].value.decisions ?? []);
       } else {
         setAssetDecisions([]);
       }
 
-      if (results[2].status === "fulfilled") {
-        setToday(results[2].value);
+      if (slowResults[1].status === "fulfilled") {
+        setToday(slowResults[1].value);
         setTodayError(null);
       } else {
         setToday(null);
         setTodayError(t("common.section_unavailable"));
       }
 
-      if (results[3].status === "fulfilled") setCompetition(results[3].value);
-      else setCompetition(null);
-
-      if (results[4].status === "fulfilled") setAssetAnalytics(results[4].value);
-      else setAssetAnalytics(null);
-
-      if (results[5].status === "fulfilled") setMarketStatus(results[5].value);
-      else setMarketStatus(null);
+      if (slowResults[2].status === "fulfilled") {
+        setCompetition(slowResults[2].value);
+        setCompetitionUnavailable(false);
+      } else {
+        setCompetition(null);
+        setCompetitionUnavailable(true);
+      }
     } catch (e) {
       setEngineConnectionError(isEngineConnectionError(e));
       setTodayError(null);
+      setCompetitionUnavailable(true);
     } finally {
       setLoading(false);
     }
@@ -112,19 +114,31 @@ export default function HomePageClient() {
     return () => clearInterval(id);
   }, [fetchAll]);
 
-  const portfolios = competition?.portfolios ?? [];
-  const combinedEquity = competition?.combined?.current_equity ?? 0;
-  const initialCapital = competition?.combined?.initial_equity
-    ?? competition?.experiment?.total_initial_capital
-    ?? 30_000;
-  const robotACount = competition?.experiment?.robot_a_portfolio_count ?? 15;
-  const robotBCount = competition?.experiment?.robot_b_portfolio_count ?? 0;
-  const combinedRealized = portfolios.reduce((sum, row) => sum + row.realized_pnl, 0);
-  const combinedUnrealized = portfolios.reduce((sum, row) => sum + row.unrealized_pnl, 0);
-  const combinedTotalPnl = combinedRealized + combinedUnrealized;
-  const openPositions = competition?.combined?.open_positions_total ?? 0;
-  const closedTrades = portfolios.reduce((sum, row) => sum + row.trades_count, 0);
-  const portfolioCount = competition?.experiment?.portfolio_count ?? portfolios.length;
+  const competitionReady = Boolean(competition?.active && !competitionUnavailable);
+  const portfolios = competitionReady ? (competition?.portfolios ?? []) : [];
+  const combinedEquity = competitionReady ? competition?.combined?.current_equity : null;
+  const initialCapital = competitionReady
+    ? (competition?.combined?.initial_equity ?? competition?.experiment?.total_initial_capital ?? null)
+    : null;
+  const robotACount = competitionReady ? competition?.experiment?.robot_a_portfolio_count : null;
+  const robotBCount = competitionReady ? competition?.experiment?.robot_b_portfolio_count : null;
+  const combinedRealized = competitionReady
+    ? portfolios.reduce((sum, row) => sum + row.realized_pnl, 0)
+    : null;
+  const combinedUnrealized = competitionReady
+    ? portfolios.reduce((sum, row) => sum + row.unrealized_pnl, 0)
+    : null;
+  const combinedTotalPnl =
+    combinedRealized != null && combinedUnrealized != null
+      ? combinedRealized + combinedUnrealized
+      : null;
+  const openPositions = competitionReady ? competition?.combined?.open_positions_total : null;
+  const closedTrades = competitionReady
+    ? portfolios.reduce((sum, row) => sum + row.trades_count, 0)
+    : null;
+  const portfolioCount = competitionReady
+    ? (competition?.experiment?.portfolio_count ?? portfolios.length)
+    : null;
   const assetRows = assetAnalytics?.assets ?? [];
   const activeProviders = ["Twelve Data", "Tiingo", "Alpaca"];
   const strategyRunner = workers?.workers?.find((w) => w.name === "strategy_runner");
@@ -144,25 +158,45 @@ export default function HomePageClient() {
         <Card>
           <CardHeader><CardTitle>{t("home.experiment_portfolios")}</CardTitle></CardHeader>
           <CardContent>
-            <p className="font-mono text-2xl">{portfolioCount}</p>
-            <p className="mt-1 text-xs text-muted">{t("home.competition_card_title")}</p>
-            <div className="mt-2 space-y-1 text-xs text-muted">
-              <p>{t("home.robot_a_portfolios")}: {robotACount}</p>
-              {robotBCount > 0 ? (
-                <p>{t("home.robot_b_portfolios")}: {robotBCount}</p>
-              ) : null}
-            </div>
+            {competitionUnavailable ? (
+              <p className="text-sm text-muted">{t("common.section_unavailable")}</p>
+            ) : (
+              <>
+                <p className="font-mono text-2xl">{portfolioCount ?? "—"}</p>
+                <p className="mt-1 text-xs text-muted">{t("home.competition_card_title")}</p>
+                <div className="mt-2 space-y-1 text-xs text-muted">
+                  <p>{t("home.robot_a_portfolios")}: {robotACount ?? "—"}</p>
+                  {(robotBCount ?? 0) > 0 ? (
+                    <p>{t("home.robot_b_portfolios")}: {robotBCount}</p>
+                  ) : null}
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
-        <MetricCardCurrency
-          label={t("home.competition_initial_capital")}
-          hint={t("home.equity_hint")}
-          value={initialCapital}
-        />
-        <MetricCardCurrency
-          label={t("home.competition_combined_equity")}
-          value={combinedEquity}
-        />
+        {competitionUnavailable ? (
+          <Card>
+            <CardHeader><CardTitle>{t("home.competition_initial_capital")}</CardTitle></CardHeader>
+            <CardContent><p className="text-sm text-muted">{t("common.section_unavailable")}</p></CardContent>
+          </Card>
+        ) : (
+          <MetricCardCurrency
+            label={t("home.competition_initial_capital")}
+            hint={t("home.equity_hint")}
+            value={initialCapital ?? 0}
+          />
+        )}
+        {competitionUnavailable ? (
+          <Card>
+            <CardHeader><CardTitle>{t("home.competition_combined_equity")}</CardTitle></CardHeader>
+            <CardContent><p className="text-sm text-muted">{t("common.section_unavailable")}</p></CardContent>
+          </Card>
+        ) : (
+          <MetricCardCurrency
+            label={t("home.competition_combined_equity")}
+            value={combinedEquity ?? 0}
+          />
+        )}
         <Card>
           <CardHeader><CardTitle>{t("home.worker_status")}</CardTitle></CardHeader>
           <CardContent>
@@ -177,6 +211,8 @@ export default function HomePageClient() {
           <CardContent>
             {loading ? (
               <span className="text-muted">{t("common.loading")}</span>
+            ) : competitionUnavailable || combinedRealized == null ? (
+              <span className="text-muted">{t("common.section_unavailable")}</span>
             ) : (
               <PnLDisplay value={combinedRealized} size="lg" />
             )}
@@ -187,6 +223,8 @@ export default function HomePageClient() {
           <CardContent>
             {loading ? (
               <span className="text-muted">{t("common.loading")}</span>
+            ) : competitionUnavailable || combinedUnrealized == null ? (
+              <span className="text-muted">{t("common.section_unavailable")}</span>
             ) : (
               <PnLDisplay value={combinedUnrealized} size="lg" />
             )}
@@ -197,6 +235,8 @@ export default function HomePageClient() {
           <CardContent>
             {loading ? (
               <span className="text-muted">{t("common.loading")}</span>
+            ) : competitionUnavailable || combinedTotalPnl == null ? (
+              <span className="text-muted">{t("common.section_unavailable")}</span>
             ) : (
               <PnLDisplay value={combinedTotalPnl} size="lg" />
             )}
@@ -212,9 +252,8 @@ export default function HomePageClient() {
       </div>
 
       {assetRows.length ? (
-        <div className="mt-4 space-y-4">
+        <div className="mt-4">
           <ActiveAssetsTable assets={assetRows} />
-          <AssetResultsTable assets={assetRows} />
         </div>
       ) : null}
 
@@ -222,11 +261,12 @@ export default function HomePageClient() {
         <ProviderHealthPanel marketStatus={marketStatus} />
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <LatestDecisionsPanel decisions={assetDecisions} timeframe="5m" />
-        </div>
+      <div className="mt-4">
         <StrategyFreshnessPanel freshness={freshness} />
+      </div>
+
+      <div className="mt-4">
+        <LatestDecisionsPanel decisions={assetDecisions} timeframe="5m" />
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

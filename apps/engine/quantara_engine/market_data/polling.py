@@ -22,6 +22,9 @@ STRATEGY_MIN_CANDLES = 200
 # Initial bootstrap size per timeframe (one API call each)
 BOOTSTRAP_OUTPUT_SIZE = 250
 
+# 5m bars needed so derived 1h can reach STRATEGY_MIN_CANDLES (200 × 12 five-minute bars).
+BOOTSTRAP_MIN_5M_BARS = STRATEGY_MIN_CANDLES * (BAR_MINUTES["1h"] // BAR_MINUTES["5m"])
+
 
 def timeframe_minutes(timeframe: str) -> int:
     return BAR_MINUTES.get(timeframe, 60)

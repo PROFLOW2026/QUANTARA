@@ -22,7 +22,7 @@ from quantara_engine.domain.types import (
     new_id,
 )
 from quantara_engine.risk.sizing import compute_position_size
-from quantara_engine.competition.leverage import is_competition_portfolio
+from quantara_engine.competition.leverage import is_paper_competition_portfolio
 
 
 @dataclass
@@ -99,26 +99,26 @@ class RiskEngine:
             return RiskDecision(approved=False, denial_reason="INVALID_ACTION")
 
         direction = Direction.LONG if signal.action == SignalAction.BUY else Direction.SHORT
+        paper_competition = is_paper_competition_portfolio(inp.portfolio.id)
 
-        # Open position check — one open position per portfolio + asset
-        same_asset = [p for p in inp.open_positions if p.instrument_id == inp.instrument.id]
-        if same_asset:
-            return RiskDecision(
-                approved=False,
-                denial_reason="POSITION_ALREADY_OPEN",
-                checks_failed=["position_exists"],
-            )
+        if not paper_competition:
+            same_asset = [p for p in inp.open_positions if p.instrument_id == inp.instrument.id]
+            if same_asset:
+                return RiskDecision(
+                    approved=False,
+                    denial_reason="POSITION_ALREADY_OPEN",
+                    checks_failed=["position_exists"],
+                )
 
-        if len(inp.open_positions) >= inp.risk_profile.max_open_positions:
-            return RiskDecision(
-                approved=False,
-                denial_reason="MAX_OPEN_POSITIONS",
-                checks_failed=["max_positions"],
-            )
+            if len(inp.open_positions) >= inp.risk_profile.max_open_positions:
+                return RiskDecision(
+                    approved=False,
+                    denial_reason="MAX_OPEN_POSITIONS",
+                    checks_failed=["max_positions"],
+                )
 
-        # Exposure check — legacy paper only; competition uses virtual leverage sizing
         mark = inp.current_candle.close
-        virtual_leverage = is_competition_portfolio(inp.portfolio.id)
+        virtual_leverage = paper_competition
         if not virtual_leverage:
             total_exposure = sum(p.quantity * mark for p in inp.open_positions)
             exposure_pct = (
@@ -133,8 +133,7 @@ class RiskEngine:
                     checks_failed=["max_exposure"],
                 )
 
-        # Drawdown check
-        if inp.portfolio.peak_equity > 0:
+        if not paper_competition and inp.portfolio.peak_equity > 0:
             dd_pct = (
                 (inp.portfolio.peak_equity - inp.portfolio.equity)
                 / inp.portfolio.peak_equity
@@ -148,7 +147,6 @@ class RiskEngine:
                     should_halt=True,
                 )
 
-        # SL validation
         if signal.suggested_sl is None:
             return RiskDecision(
                 approved=False,

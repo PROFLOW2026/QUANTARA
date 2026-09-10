@@ -1,6 +1,4 @@
 const LOCAL_ENGINE = "http://localhost:8000";
-const PRODUCTION_ENGINE_FALLBACK =
-  "https://transform-expenditures-focal-toxic.trycloudflare.com";
 const DEFAULT_PROXY_TIMEOUT_MS = 60_000;
 
 function parseProxyTimeoutMs(): number {
@@ -10,11 +8,11 @@ function parseProxyTimeoutMs(): number {
   return Number.isFinite(parsed) && parsed >= 10_000 ? parsed : DEFAULT_PROXY_TIMEOUT_MS;
 }
 
-/** Server-side proxy + browser /api/engine fetch budget (tunnel + remote DB can exceed 10s). */
+/** Server-side proxy + browser /api/engine fetch budget. */
 export const ENGINE_PROXY_TIMEOUT_MS = parseProxyTimeoutMs();
 
 function isLocalhostUrl(url: string): boolean {
-  return /localhost|127\.0\.0\.1/.test(url);
+  return /localhost|127\.0\.1/.test(url);
 }
 
 /** Server-only: resolve Engine base URL (never localhost on Vercel). */
@@ -35,7 +33,9 @@ export function resolveServerEngineUrl(): string {
   }
 
   if (onVercel) {
-    return PRODUCTION_ENGINE_FALLBACK;
+    throw new Error(
+      "ENGINE_URL (or STABLE_ENGINE_URL / QUANTARA_ENGINE_TUNNEL_URL) must be set on Vercel"
+    );
   }
 
   return LOCAL_ENGINE;

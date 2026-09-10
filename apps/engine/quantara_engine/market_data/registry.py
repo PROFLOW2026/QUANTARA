@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from quantara_engine.market_data.active_universe import ACTIVE_DB_SYMBOLS
+
 
 class ProviderName(str, Enum):
     TWELVE_DATA = "twelvedata"
@@ -37,7 +39,50 @@ class AssetDefinition:
     min_quantity: str
 
 
+def _equity(db_symbol: str, display: str | None = None) -> AssetDefinition:
+    sym = display or db_symbol
+    return AssetDefinition(
+        canonical_symbol=sym,
+        db_symbol=db_symbol,
+        display_symbol=sym,
+        asset_class=AssetClass.STOCK,
+        primary_provider=ProviderName.TIINGO,
+        secondary_provider=ProviderName.ALPACA,
+        provider_symbols={
+            ProviderName.TIINGO.value: db_symbol,
+            ProviderName.ALPACA.value: db_symbol,
+        },
+        trading_sessions={"sessions": ["us_equity_rth"]},
+        pip_size="0.01",
+        price_tick_size="0.01",
+        quantity_step="1",
+        min_quantity="1",
+    )
+
+
+def _crypto(db_symbol: str, canonical: str, tiingo_ticker: str) -> AssetDefinition:
+    return AssetDefinition(
+        canonical_symbol=canonical,
+        db_symbol=db_symbol,
+        display_symbol=canonical,
+        asset_class=AssetClass.CRYPTO,
+        primary_provider=ProviderName.ALPACA,
+        secondary_provider=ProviderName.TIINGO,
+        provider_symbols={
+            ProviderName.ALPACA.value: canonical,
+            ProviderName.TIINGO.value: tiingo_ticker,
+        },
+        trading_sessions={"sessions": ["24x7"]},
+        pip_size="0.01",
+        price_tick_size="0.01",
+        quantity_step="0.0001",
+        min_quantity="0.0001",
+    )
+
+
 TARGET_ASSETS: tuple[AssetDefinition, ...] = (
+    _crypto("BTCUSD", "BTC/USD", "btcusd"),
+    _crypto("ETHUSD", "ETH/USD", "ethusd"),
     AssetDefinition(
         canonical_symbol="XAU/USD",
         db_symbol="XAUUSD",
@@ -45,9 +90,7 @@ TARGET_ASSETS: tuple[AssetDefinition, ...] = (
         asset_class=AssetClass.COMMODITY,
         primary_provider=ProviderName.TWELVE_DATA,
         secondary_provider=None,
-        provider_symbols={
-            ProviderName.TWELVE_DATA.value: "XAU/USD",
-        },
+        provider_symbols={ProviderName.TWELVE_DATA.value: "XAU/USD"},
         trading_sessions={"sessions": ["24x5"]},
         pip_size="0.01",
         price_tick_size="0.01",
@@ -55,123 +98,27 @@ TARGET_ASSETS: tuple[AssetDefinition, ...] = (
         min_quantity="0.01",
     ),
     AssetDefinition(
-        canonical_symbol="EUR/USD",
-        db_symbol="EURUSD",
-        display_symbol="EUR/USD",
+        canonical_symbol="GBP/JPY",
+        db_symbol="GBPJPY",
+        display_symbol="GBP/JPY",
         asset_class=AssetClass.FOREX,
         primary_provider=ProviderName.TWELVE_DATA,
         secondary_provider=None,
-        provider_symbols={
-            ProviderName.TWELVE_DATA.value: "EUR/USD",
-        },
+        provider_symbols={ProviderName.TWELVE_DATA.value: "GBP/JPY"},
         trading_sessions={"sessions": ["24x5"]},
-        pip_size="0.0001",
-        price_tick_size="0.00001",
+        pip_size="0.01",
+        price_tick_size="0.001",
         quantity_step="1000",
         min_quantity="1000",
     ),
-    AssetDefinition(
-        canonical_symbol="SPY",
-        db_symbol="SPY",
-        display_symbol="SPY",
-        asset_class=AssetClass.INDEX,
-        primary_provider=ProviderName.TIINGO,
-        secondary_provider=ProviderName.ALPACA,
-        provider_symbols={
-            ProviderName.TIINGO.value: "SPY",
-            ProviderName.ALPACA.value: "SPY",
-        },
-        trading_sessions={"sessions": ["us_equity_rth"]},
-        pip_size="0.01",
-        price_tick_size="0.01",
-        quantity_step="1",
-        min_quantity="1",
-    ),
-    AssetDefinition(
-        canonical_symbol="QQQ",
-        db_symbol="QQQ",
-        display_symbol="QQQ",
-        asset_class=AssetClass.INDEX,
-        primary_provider=ProviderName.TIINGO,
-        secondary_provider=ProviderName.ALPACA,
-        provider_symbols={
-            ProviderName.TIINGO.value: "QQQ",
-            ProviderName.ALPACA.value: "QQQ",
-        },
-        trading_sessions={"sessions": ["us_equity_rth"]},
-        pip_size="0.01",
-        price_tick_size="0.01",
-        quantity_step="1",
-        min_quantity="1",
-    ),
-    AssetDefinition(
-        canonical_symbol="NVDA",
-        db_symbol="NVDA",
-        display_symbol="NVDA",
-        asset_class=AssetClass.STOCK,
-        primary_provider=ProviderName.TIINGO,
-        secondary_provider=ProviderName.ALPACA,
-        provider_symbols={
-            ProviderName.TIINGO.value: "NVDA",
-            ProviderName.ALPACA.value: "NVDA",
-        },
-        trading_sessions={"sessions": ["us_equity_rth"]},
-        pip_size="0.01",
-        price_tick_size="0.01",
-        quantity_step="1",
-        min_quantity="1",
-    ),
-    AssetDefinition(
-        canonical_symbol="AAPL",
-        db_symbol="AAPL",
-        display_symbol="AAPL",
-        asset_class=AssetClass.STOCK,
-        primary_provider=ProviderName.TIINGO,
-        secondary_provider=ProviderName.ALPACA,
-        provider_symbols={
-            ProviderName.TIINGO.value: "AAPL",
-            ProviderName.ALPACA.value: "AAPL",
-        },
-        trading_sessions={"sessions": ["us_equity_rth"]},
-        pip_size="0.01",
-        price_tick_size="0.01",
-        quantity_step="1",
-        min_quantity="1",
-    ),
-    AssetDefinition(
-        canonical_symbol="MSFT",
-        db_symbol="MSFT",
-        display_symbol="MSFT",
-        asset_class=AssetClass.STOCK,
-        primary_provider=ProviderName.TIINGO,
-        secondary_provider=ProviderName.ALPACA,
-        provider_symbols={
-            ProviderName.TIINGO.value: "MSFT",
-            ProviderName.ALPACA.value: "MSFT",
-        },
-        trading_sessions={"sessions": ["us_equity_rth"]},
-        pip_size="0.01",
-        price_tick_size="0.01",
-        quantity_step="1",
-        min_quantity="1",
-    ),
-    AssetDefinition(
-        canonical_symbol="BTC/USD",
-        db_symbol="BTCUSD",
-        display_symbol="BTC/USD",
-        asset_class=AssetClass.CRYPTO,
-        primary_provider=ProviderName.ALPACA,
-        secondary_provider=ProviderName.TIINGO,
-        provider_symbols={
-            ProviderName.ALPACA.value: "BTC/USD",
-            ProviderName.TIINGO.value: "btcusd",
-        },
-        trading_sessions={"sessions": ["24x7"]},
-        pip_size="0.01",
-        price_tick_size="0.01",
-        quantity_step="0.0001",
-        min_quantity="0.0001",
-    ),
+    _equity("NVDA"),
+    _equity("TSLA"),
+    _equity("AMD"),
+    _equity("COIN"),
+)
+
+assert tuple(a.db_symbol for a in TARGET_ASSETS) == ACTIVE_DB_SYMBOLS, (
+    "registry TARGET_ASSETS must match active_universe.ACTIVE_DB_SYMBOLS"
 )
 
 _ASSET_BY_DB: dict[str, AssetDefinition] = {a.db_symbol: a for a in TARGET_ASSETS}

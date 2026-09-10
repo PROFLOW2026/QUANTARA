@@ -17,6 +17,7 @@ from quantara_engine.market_data.polling import (
     BOOTSTRAP_OUTPUT_SIZE,
     PROVIDER_TIMEFRAME,
     is_bar_complete,
+    timeframe_minutes,
 )
 from quantara_engine.market_data.provider_budgets import (
     FetchPriority,
@@ -229,6 +230,55 @@ class AlpacaMarketDataProvider:
         candles.sort(key=lambda c: c.timestamp)
         return candles
 
+    def fetch_gap_fill(
+        self,
+        instrument_id: str,
+        timeframe: str,
+        since: datetime,
+        *,
+        end: datetime | None = None,
+    ) -> list[Candle]:
+        """Paginated fetch from last stored bar through end (default now)."""
+        if timeframe != PROVIDER_TIMEFRAME:
+            raise AlpacaError(f"Alpaca fetch blocked for {timeframe}; use {PROVIDER_TIMEFRAME}")
+        symbol = self._provider_ticker()
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        end = end or datetime.now(timezone.utc)
+        bar_step = timedelta(minutes=timeframe_minutes(timeframe))
+        cursor = since + bar_step
+        if cursor >= end:
+            return []
+
+        all_rows: list[dict[str, Any]] = []
+        while cursor < end:
+            page_token: str | None = None
+            window_rows: list[dict[str, Any]] = []
+            while True:
+                batch, page_token = self._fetch_bars(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    start=cursor if page_token is None else None,
+                    limit=10000,
+                    page_token=page_token,
+                )
+                if not batch:
+                    break
+                window_rows.extend(batch)
+                if not page_token:
+                    break
+            if not window_rows:
+                break
+            all_rows.extend(window_rows)
+            last_ts = datetime.fromisoformat(str(window_rows[-1]["t"]).replace("Z", "+00:00"))
+            if last_ts.tzinfo is None:
+                last_ts = last_ts.replace(tzinfo=timezone.utc)
+            if last_ts >= end - bar_step:
+                break
+            cursor = last_ts + bar_step
+
+        return self._to_candles(all_rows, instrument_id, timeframe, since=since)
+
     def fetch_latest(
         self,
         instrument_id: str,
@@ -237,11 +287,13 @@ class AlpacaMarketDataProvider:
     ) -> list[Candle]:
         if timeframe != PROVIDER_TIMEFRAME:
             raise AlpacaError(f"Alpaca fetch blocked for {timeframe}; use {PROVIDER_TIMEFRAME}")
-        symbol = self._provider_ticker()
         now = datetime.now(timezone.utc)
+        if since is not None and (now - since).total_seconds() > 86400:
+            return self.fetch_gap_fill(instrument_id, timeframe, since, end=now)
+
+        symbol = self._provider_ticker()
         if since is not None:
             start = since - timedelta(minutes=15)
-            # Catch up long gaps with a wider window (crypto can go stale across restarts).
             if (now - since).total_seconds() > 3600:
                 start = since - timedelta(hours=6)
             limit = 1000 if (now - since).total_seconds() > 86400 else 100
@@ -255,9 +307,13 @@ class AlpacaMarketDataProvider:
 
     def fetch_bootstrap(self, instrument_id: str, timeframe: str, bars: int = BOOTSTRAP_OUTPUT_SIZE) -> list[Candle]:
         symbol = self._provider_ticker()
-        start = datetime.now(timezone.utc) - timedelta(days=90)
+        target = min(max(bars, BOOTSTRAP_OUTPUT_SIZE), 10000)
+        # Request recent window — Alpaca returns forward from start; avoid anchoring 90d in the past.
+        start = datetime.now(timezone.utc) - timedelta(
+            minutes=timeframe_minutes(timeframe) * target + timeframe_minutes(timeframe)
+        )
         rows = self._fetch_bars_paginated(
-            symbol=symbol, timeframe=timeframe, start=start, limit=10000
+            symbol=symbol, timeframe=timeframe, start=start, limit=target
         )
         return self._to_candles(rows, instrument_id, timeframe)
 

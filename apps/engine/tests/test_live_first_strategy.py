@@ -112,7 +112,7 @@ def _processor(
     )
 
 
-def test_15m_signal_35_minutes_late_cannot_execute():
+def test_15m_signal_within_timeframe_window_can_execute():
     signal_ts = datetime(2026, 9, 8, 22, 15, tzinfo=timezone.utc)
     exec_ts = datetime(2026, 9, 8, 22, 30, tzinfo=timezone.utc)
     now = datetime(2026, 9, 8, 22, 49, 42, tzinfo=timezone.utc)
@@ -134,10 +134,36 @@ def test_15m_signal_35_minutes_late_cannot_execute():
         status=IntentStatus.PENDING_EXECUTION,
     )
     allowed, reason = intent_execution_allowed(intent, candle=candle, now=now)
+    assert allowed is True
+    assert reason is None
+    assert signal_age_minutes(signal_ts, now) < 45
+
+
+def test_15m_signal_genuinely_stale_cannot_execute():
+    signal_ts = datetime(2026, 9, 8, 22, 15, tzinfo=timezone.utc)
+    exec_ts = datetime(2026, 9, 8, 22, 30, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 8, 23, 5, tzinfo=timezone.utc)
+    candle = _base_candle(timestamp=exec_ts, timeframe="15m")
+    intent = OrderIntent(
+        id=new_id(),
+        signal_id=new_id(),
+        strategy_instance_id="si1",
+        portfolio_id="p1",
+        direction=Direction.SHORT,
+        quantity=Decimal("0.01"),
+        stop_loss=Decimal("79000"),
+        take_profit=Decimal("78000"),
+        target_risk_amount=Decimal("5"),
+        actual_risk_amount=Decimal("5"),
+        signal_candle_timestamp=signal_ts,
+        execution_candle_timestamp=exec_ts,
+        risk_profile_id="rp1",
+        status=IntentStatus.PENDING_EXECUTION,
+    )
+    allowed, reason = intent_execution_allowed(intent, candle=candle, now=now)
     assert not allowed
     assert reason is not None
     assert "stale_signal_age" in reason
-    assert signal_age_minutes(signal_ts, now) > FRESHNESS_MAX_AGE_MINUTES
 
 
 def test_historical_mode_persists_signal_decision_without_position():

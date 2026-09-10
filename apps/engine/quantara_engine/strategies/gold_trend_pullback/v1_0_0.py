@@ -34,16 +34,9 @@ class GoldTrendPullbackV1(BaseStrategy):
 
     @classmethod
     def supported_instruments(cls) -> list[str]:
-        return [
-            "XAUUSD",
-            "EURUSD",
-            "SPY",
-            "QQQ",
-            "NVDA",
-            "AAPL",
-            "MSFT",
-            "BTCUSD",
-        ]
+        from quantara_engine.market_data.active_universe import list_active_db_symbols
+
+        return list(list_active_db_symbols())
 
     @classmethod
     def supported_timeframes(cls) -> list[str]:

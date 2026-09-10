@@ -80,7 +80,7 @@ def test_twelve_data_blocked_skips_live_poll():
 def test_tiingo_deferred_outside_us_rth_when_bootstrapped():
     store = MagicMock()
     store.get_settings_dict.return_value = {}
-    spy = next(a for a in list_target_assets() if a.db_symbol == "SPY")
+    spy = next(a for a in list_target_assets() if a.db_symbol == "NVDA")
     # Wednesday 2026-09-09 02:00 UTC = Monday night / closed US session
     closed = datetime(2026, 9, 9, 2, 0, tzinfo=timezone.utc)
     should, reason = _should_poll_asset(
@@ -95,7 +95,7 @@ def test_tiingo_deferred_outside_us_rth_when_bootstrapped():
     assert reason is not None and "closed" in reason.lower()
 
 
-def test_bootstrap_deferred_on_live_path():
+def test_bootstrap_not_deferred_on_live_path():
     store = MagicMock()
     store.get_settings_dict.return_value = {}
     btc = next(a for a in list_target_assets() if a.db_symbol == "BTCUSD")
@@ -107,5 +107,21 @@ def test_bootstrap_deferred_on_live_path():
         force_bootstrap=True,
         live=True,
     )
-    assert should is False
-    assert reason is not None and "bulk" in reason.lower()
+    assert should is True
+    assert reason is None
+
+
+def test_bootstrap_allowed_on_bulk_path():
+    store = MagicMock()
+    store.get_settings_dict.return_value = {}
+    eth = next(a for a in list_target_assets() if a.db_symbol == "ETHUSD")
+    should, reason = _should_poll_asset(
+        store,
+        eth,
+        now=datetime.now(timezone.utc),
+        stored=0,
+        force_bootstrap=True,
+        live=False,
+    )
+    assert should is True
+    assert reason is None

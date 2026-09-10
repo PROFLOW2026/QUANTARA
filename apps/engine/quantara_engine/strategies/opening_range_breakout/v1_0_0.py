@@ -1,22 +1,15 @@
-"""Opening Range Breakout Strategy v1.0.0 — US equities RTH only."""
+"""Opening Range Breakout Strategy v1.0.0 — multi-session ORB."""
 
 from __future__ import annotations
 
 from decimal import Decimal
 
 from quantara_engine.domain.types import Signal, SignalAction, StrategyContext
+from quantara_engine.market_data.active_universe import list_active_db_symbols
 from quantara_engine.strategies.base import BaseStrategy
 from quantara_engine.strategies.opening_range_breakout.indicators import atr, candles_to_df
-from quantara_engine.strategies.opening_range_breakout.session import (
-    ORB_RANGE_COMPLETE,
-    compute_opening_range,
-    is_entry_cutoff_passed,
-    is_market_closed,
-    is_opening_range_complete,
-    is_session_close_window,
-    rth_session_date,
-    to_et,
-)
+from quantara_engine.strategies.opening_range_breakout.session import ORB_RANGE_COMPLETE, to_et
+from quantara_engine.strategies.opening_range_breakout.session_router import get_orb_session_handler
 
 
 class OpeningRangeBreakoutV1(BaseStrategy):
@@ -35,13 +28,13 @@ class OpeningRangeBreakoutV1(BaseStrategy):
     @classmethod
     def description(cls) -> str:
         return (
-            "US equity opening range breakout on 5m candles — 30-minute range, "
-            "ATR stop, 2R target, RTH only."
+            "Opening range breakout on 5m candles — US equities use RTH range; "
+            "crypto/FX use UTC daily range. ATR stop, 2R target."
         )
 
     @classmethod
     def supported_instruments(cls) -> list[str]:
-        return ["SPY", "QQQ", "NVDA", "AAPL", "MSFT"]
+        return list(list_active_db_symbols())
 
     @classmethod
     def supported_timeframes(cls) -> list[str]:
@@ -56,8 +49,6 @@ class OpeningRangeBreakoutV1(BaseStrategy):
             "atr_sl_multiplier": 1.5,
             "reward_risk_ratio": 2.0,
             "stop_mode": "atr",
-            "entry_cutoff_et": "15:30",
-            "max_trades_per_day": 1,
             "min_breakout_distance": 0.0,
             "volume_confirmation": False,
             "retest_required": False,
@@ -74,7 +65,6 @@ class OpeningRangeBreakoutV1(BaseStrategy):
                 "atr_sl_multiplier": {"type": "number", "minimum": 0.5, "maximum": 4.0},
                 "reward_risk_ratio": {"type": "number", "minimum": 1.0, "maximum": 5.0},
                 "stop_mode": {"type": "string", "enum": ["atr", "opening_range_opposite"]},
-                "max_trades_per_day": {"type": "integer", "minimum": 1, "maximum": 5},
                 "min_breakout_distance": {"type": "number", "minimum": 0.0},
                 "volume_confirmation": {"type": "boolean"},
                 "retest_required": {"type": "boolean"},
@@ -98,10 +88,14 @@ class OpeningRangeBreakoutV1(BaseStrategy):
     def _runtime(self, context: StrategyContext) -> dict:
         return dict(context.runtime or {})
 
+    def _session(self, context: StrategyContext):
+        db_symbol = self._runtime(context).get("db_symbol", "NVDA")
+        return get_orb_session_handler(str(db_symbol))
+
     def evaluate(self, candles: list, context: StrategyContext) -> Signal:
         params = self._params(context)
-        runtime = self._runtime(context)
         min_required = int(params["min_candles_required"])
+        session = self._session(context)
 
         if len(candles) < min_required:
             return Signal(
@@ -111,21 +105,14 @@ class OpeningRangeBreakoutV1(BaseStrategy):
 
         current = candles[-1]
         ts = current.timestamp
-        if is_market_closed(ts):
+        if session.is_market_closed(ts):
             return Signal(action=SignalAction.HOLD, reason="market_closed")
 
-        session_date = rth_session_date(ts)
+        session_date = session.session_date(ts)
         if session_date is None:
             return Signal(action=SignalAction.HOLD, reason="market_closed")
 
-        if runtime.get("has_open_position") and is_session_close_window(ts):
-            return Signal(
-                action=SignalAction.CLOSE,
-                reason="session_close — flatten before RTH end",
-                metadata={"session_date": session_date.isoformat()},
-            )
-
-        if not is_opening_range_complete(ts):
+        if not session.is_opening_range_complete(ts):
             local = to_et(ts)
             if local.time() < ORB_RANGE_COMPLETE:
                 return Signal(
@@ -139,7 +126,7 @@ class OpeningRangeBreakoutV1(BaseStrategy):
                 metadata={"session_date": session_date.isoformat()},
             )
 
-        opening_range = compute_opening_range(candles, session_date)
+        opening_range = session.compute_opening_range(candles, session_date)
         if opening_range is None:
             return Signal(
                 action=SignalAction.HOLD,
@@ -154,22 +141,6 @@ class OpeningRangeBreakoutV1(BaseStrategy):
             "opening_range_size": float(opening_range.size),
             "effective_parameters": params,
         }
-
-        trades_today = int(runtime.get("trades_today") or 0)
-        max_trades = int(params["max_trades_per_day"])
-        if trades_today >= max_trades:
-            return Signal(
-                action=SignalAction.HOLD,
-                reason="trade_already_taken_today",
-                metadata=metadata,
-            )
-
-        if is_entry_cutoff_passed(ts):
-            return Signal(
-                action=SignalAction.HOLD,
-                reason="entry_cutoff_passed",
-                metadata=metadata,
-            )
 
         close = Decimal(str(current.close))
         high = Decimal(str(current.high))
@@ -192,7 +163,6 @@ class OpeningRangeBreakoutV1(BaseStrategy):
 
         low = Decimal(str(current.low))
 
-        # LONG — close above range (wick-only rejected)
         if high > opening_range.high + min_distance and close <= opening_range.high:
             return Signal(
                 action=SignalAction.HOLD,
@@ -212,7 +182,6 @@ class OpeningRangeBreakoutV1(BaseStrategy):
                 metadata=metadata,
             )
 
-        # SHORT — close below range (wick-only rejected)
         if low < opening_range.low - min_distance and close >= opening_range.low:
             return Signal(
                 action=SignalAction.HOLD,

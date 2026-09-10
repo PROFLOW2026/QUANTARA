@@ -392,7 +392,7 @@ export default function PortfolioComparisonPage() {
           </div>
           <div>
             <p className="text-muted">{t("competition.total_initial")}</p>
-            <p>{formatCurrency(data.experiment.total_initial_capital ?? 30000)}</p>
+            <p>{formatCurrency(data.experiment.total_initial_capital ?? 0)}</p>
           </div>
           <div>
             <p className="text-muted">{t("competition.portfolios_split")}</p>

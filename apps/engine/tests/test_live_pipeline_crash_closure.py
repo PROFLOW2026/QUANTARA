@@ -309,7 +309,7 @@ def test_stale_entry_intent_expires_after_execution_window():
     store = TradingStore(session)
     store.get_settings_dict = MagicMock(return_value={})
     cancelled = store.cancel_stale_pending_intents(
-        "00000000-0000-0000-0000-000000000200",
+        "00000000-0000-0000-0000-000000000400",
         now,
     )
     assert cancelled == 1

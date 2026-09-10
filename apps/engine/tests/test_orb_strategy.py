@@ -98,7 +98,7 @@ def test_no_signal_before_range_complete():
     strategy = OpeningRangeBreakoutV1()
     session = _session_date(2026, 3, 10)
     candles = _atr_warmup(session) + _opening_range_candles(session)[:3]
-    ctx = StrategyContext("spy-id", "5m", {}, runtime={"trades_today": 0})
+    ctx = StrategyContext("spy-id", "5m", {}, runtime={"db_symbol": "NVDA"})
     at_945 = datetime(2026, 3, 10, 9, 45, tzinfo=ET).astimezone(timezone.utc)
     signal = strategy.evaluate(candles + [_orb_candle(datetime(2026, 3, 10, 9, 45, tzinfo=ET), "500", "500.5", "499.5", "500")], ctx)
     assert signal.action == SignalAction.HOLD
@@ -110,7 +110,7 @@ def test_close_above_range_high_buy_signal():
     session = _session_date(2026, 3, 10)
     candles = _atr_warmup(session) + _opening_range_candles(session, high="500", low="498")
     breakout = _orb_candle(datetime(2026, 3, 10, 10, 0, tzinfo=ET), "500", "501.5", "499.8", "501.2")
-    ctx = StrategyContext("spy-id", "5m", {}, runtime={"trades_today": 0})
+    ctx = StrategyContext("spy-id", "5m", {}, runtime={"db_symbol": "NVDA"})
     signal = strategy.evaluate(candles + [breakout], ctx)
     assert signal.action == SignalAction.BUY
     assert signal.reason == "breakout_long_confirmed"
@@ -123,7 +123,7 @@ def test_wick_above_close_below_no_buy():
     session = _session_date(2026, 3, 10)
     candles = _atr_warmup(session) + _opening_range_candles(session, high="500", low="498")
     wick_only = _orb_candle(datetime(2026, 3, 10, 10, 0, tzinfo=ET), "499.5", "501.5", "499.0", "499.8")
-    ctx = StrategyContext("spy-id", "5m", {}, runtime={"trades_today": 0})
+    ctx = StrategyContext("spy-id", "5m", {}, runtime={"db_symbol": "NVDA"})
     signal = strategy.evaluate(candles + [wick_only], ctx)
     assert signal.action != SignalAction.BUY
 
@@ -133,44 +133,42 @@ def test_close_below_range_low_sell_signal():
     session = _session_date(2026, 3, 10)
     candles = _atr_warmup(session) + _opening_range_candles(session, high="500", low="498")
     breakdown = _orb_candle(datetime(2026, 3, 10, 10, 0, tzinfo=ET), "498.5", "499", "497.2", "497.5")
-    ctx = StrategyContext("spy-id", "5m", {}, runtime={"trades_today": 0})
+    ctx = StrategyContext("spy-id", "5m", {}, runtime={"db_symbol": "NVDA"})
     signal = strategy.evaluate(candles + [breakdown], ctx)
     assert signal.action == SignalAction.SELL
     assert signal.reason == "breakout_short_confirmed"
 
 
-def test_second_trade_same_day_blocked():
+def test_second_trade_same_day_allowed_after_first_close():
     strategy = OpeningRangeBreakoutV1()
     session = _session_date(2026, 3, 10)
     candles = _atr_warmup(session) + _opening_range_candles(session, high="500", low="498")
     breakout = _orb_candle(datetime(2026, 3, 10, 10, 0, tzinfo=ET), "500", "501.5", "499.8", "501.2")
-    ctx = StrategyContext("spy-id", "5m", {}, runtime={"trades_today": 1})
+    ctx = StrategyContext("spy-id", "5m", {}, runtime={"db_symbol": "NVDA"})
     signal = strategy.evaluate(candles + [breakout], ctx)
-    assert signal.action == SignalAction.HOLD
-    assert signal.reason == "trade_already_taken_today"
+    assert signal.action == SignalAction.BUY
+    assert signal.reason == "breakout_long_confirmed"
 
 
-def test_no_entry_after_1530_et():
+def test_entry_after_1530_et_allowed():
     strategy = OpeningRangeBreakoutV1()
     session = _session_date(2026, 3, 10)
     candles = _atr_warmup(session) + _opening_range_candles(session, high="500", low="498")
     late = _orb_candle(datetime(2026, 3, 10, 15, 35, tzinfo=ET), "500", "502", "499", "501.5")
-    ctx = StrategyContext("spy-id", "5m", {}, runtime={"trades_today": 0})
+    ctx = StrategyContext("spy-id", "5m", {}, runtime={"db_symbol": "NVDA"})
     signal = strategy.evaluate(candles + [late], ctx)
-    assert signal.action == SignalAction.HOLD
-    assert signal.reason == "entry_cutoff_passed"
-    assert is_entry_cutoff_passed(late.timestamp)
+    assert signal.action == SignalAction.BUY
+    assert signal.reason == "breakout_long_confirmed"
 
 
-def test_session_close_emits_close_with_open_position():
+def test_no_forced_session_close_at_1555():
     strategy = OpeningRangeBreakoutV1()
     session = _session_date(2026, 3, 10)
     candles = _atr_warmup(session) + _opening_range_candles(session)
     late = _orb_candle(datetime(2026, 3, 10, 15, 55, tzinfo=ET), "500", "500.5", "499.5", "500")
-    ctx = StrategyContext("spy-id", "5m", {}, runtime={"trades_today": 1, "has_open_position": True})
+    ctx = StrategyContext("spy-id", "5m", {}, runtime={"db_symbol": "NVDA", "has_open_position": True})
     signal = strategy.evaluate(candles + [late], ctx)
-    assert signal.action == SignalAction.CLOSE
-    assert "session_close" in signal.reason
+    assert signal.action != SignalAction.CLOSE
 
 
 def test_dst_session_calendar():
@@ -266,7 +264,7 @@ def test_atr_sl_tp_2r_defaults():
     session = _session_date(2026, 3, 10)
     candles = _atr_warmup(session) + _opening_range_candles(session, high="500", low="498")
     breakout = _orb_candle(datetime(2026, 3, 10, 10, 0, tzinfo=ET), "500", "501.5", "499.8", "501.0")
-    ctx = StrategyContext("spy-id", "5m", {}, runtime={"trades_today": 0})
+    ctx = StrategyContext("spy-id", "5m", {}, runtime={"db_symbol": "NVDA"})
     signal = strategy.evaluate(candles + [breakout], ctx)
     assert signal.suggested_sl is not None
     assert signal.suggested_tp is not None

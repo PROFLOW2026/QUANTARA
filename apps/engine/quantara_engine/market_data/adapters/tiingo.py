@@ -204,8 +204,9 @@ class TiingoMarketDataProvider:
         return self._to_candles(rows, instrument_id, timeframe, since=since)
 
     def fetch_bootstrap(self, instrument_id: str, timeframe: str, bars: int = BOOTSTRAP_OUTPUT_SIZE) -> list[Candle]:
-        start = datetime.now(timezone.utc) - timedelta(days=90)
-        rows = self._fetch_rows(timeframe, start, limit=max(bars, 5000))
+        # IEX API returns full history from startDate; keep the most recent rows for 1h derivation.
+        start = datetime.now(timezone.utc) - timedelta(days=365)
+        rows = self._fetch_rows(timeframe, start, limit=max(bars, 20000))
         return self._to_candles(rows, instrument_id, timeframe)
 
     def fetch_range(

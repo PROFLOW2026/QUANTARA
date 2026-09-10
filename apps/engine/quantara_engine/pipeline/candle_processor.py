@@ -26,7 +26,7 @@ from quantara_engine.domain.types import (
     new_id,
 )
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
-from quantara_engine.execution.timing import live_fill_allowed
+from quantara_engine.execution.timing import freshness_max_age_minutes, live_fill_allowed
 from quantara_engine.market_data.polling import timeframe_minutes
 from quantara_engine.market_data.registry import get_asset
 from quantara_engine.market_data.sessions import session_allows_entries
@@ -55,7 +55,7 @@ def intent_execution_allowed(
     *,
     candle: Candle,
     now: datetime,
-    max_signal_age_minutes: int = FRESHNESS_MAX_AGE_MINUTES,
+    max_signal_age_minutes: int | None = None,
 ) -> tuple[bool, str | None]:
     """Return (allowed, rejection_reason) for live Paper execution."""
     if intent.execution_candle_timestamp is None:
@@ -219,7 +219,10 @@ class CandleProcessor:
         self._flush_store()
 
     def _build_strategy_runtime(self, candle: Candle) -> dict:
-        runtime: dict = {"execution_now": self.execution_now.isoformat()}
+        runtime: dict = {
+            "execution_now": self.execution_now.isoformat(),
+            "db_symbol": self.instrument.symbol,
+        }
         open_for_instance = [
             p
             for p in self.state.open_positions()
@@ -446,25 +449,6 @@ class CandleProcessor:
                     intent.status = IntentStatus.EXECUTED
                     self._persist_execution(intent, order, fill, "exit", candle, position, trade)
             else:
-                open_for_instance = [
-                    p
-                    for p in self.state.open_positions()
-                    if p.strategy_instance_id == self.instance.id
-                    and p.instrument_id == self.instrument.id
-                ]
-                if open_for_instance and not intent.is_close:
-                    self._log(
-                        candle,
-                        DecisionType.POSITION_OPEN,
-                        "Skipped — position already exists",
-                    )
-                    intent.status = IntentStatus.REJECTED
-                    if self.store:
-                        self.store.update_order_intent_status(
-                            intent.id, IntentStatus.REJECTED, "position_exists"
-                        )
-                        self._flush_store()
-                    continue
                 order, fill = self.broker.execute_entry(intent, candle)
                 position = self.state.open_position_from_fill(
                     intent,
@@ -514,7 +498,9 @@ class CandleProcessor:
         if not self.allow_live_execution:
             return
 
-        if signal_age_minutes(candle.timestamp, self.execution_now) > FRESHNESS_MAX_AGE_MINUTES:
+        if signal_age_minutes(candle.timestamp, self.execution_now) > freshness_max_age_minutes(
+            candle.timeframe
+        ):
             self._log(
                 candle,
                 DecisionType.RISK_DENIED,
@@ -524,11 +510,12 @@ class CandleProcessor:
             return
 
         open_positions = self.state.open_positions()
-        if any(
-            p.strategy_instance_id == self.instance.id and p.instrument_id == self.instrument.id
-            for p in open_positions
+
+        if self.store and self.store.has_duplicate_entry_for_signal(
+            self.instance.id,
+            candle.timestamp,
+            signal.action.value,
         ):
-            self._log(candle, DecisionType.POSITION_OPEN, "Skipped — position already exists for asset")
             return
 
         asset = get_asset(self.instrument.symbol)

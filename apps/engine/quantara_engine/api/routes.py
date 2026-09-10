@@ -9,6 +9,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from quantara_engine.analytics.service import AnalyticsService
 from quantara_engine.api.deps import get_store, verify_api_key
@@ -21,7 +22,10 @@ from quantara_engine.competition.constants import (
     TIMEFRAME_HE,
 )
 from quantara_engine.competition.orb_service import build_orb_status
-from quantara_engine.competition.service import build_competition_response
+from quantara_engine.competition.service import (
+    build_competition_equity_curves,
+    build_competition_response,
+)
 from quantara_engine.core.config import settings
 from quantara_engine.domain.types import ExecutionAssumptions, Mode, PortfolioStatus
 from quantara_engine.market_data.credits import status_payload as credit_status_payload
@@ -128,12 +132,34 @@ def _strategy_label(store: TradingStore, strategy_version_id: str) -> tuple[str,
 
 
 def _strategy_label_from_instance(store: TradingStore, strategy_instance_id: str) -> tuple[str, str]:
-    from quantara_engine.models.portfolio import StrategyInstance as OrmStrategyInstance
+    return _batch_strategy_labels_from_instances(store, [strategy_instance_id]).get(
+        strategy_instance_id, ("Gold Trend Pullback", "1.0.0")
+    )
 
-    row = store.session.get(OrmStrategyInstance, uuid.UUID(strategy_instance_id))
-    if row:
-        return _strategy_label(store, str(row.strategy_version_id))
-    return "Gold Trend Pullback", "1.0.0"
+
+def _batch_strategy_labels_from_instances(
+    store: TradingStore, strategy_instance_ids: list[str]
+) -> dict[str, tuple[str, str]]:
+    if not strategy_instance_ids:
+        return {}
+    from quantara_engine.models.portfolio import StrategyInstance as OrmStrategyInstance
+    from quantara_engine.models.strategies import Strategy as OrmStrategy
+    from quantara_engine.models.strategies import StrategyVersion as OrmStrategyVersion
+
+    ids = [uuid.UUID(i) for i in strategy_instance_ids]
+    rows = store.session.execute(
+        select(OrmStrategyInstance.id, OrmStrategy.name, OrmStrategyVersion.version)
+        .join(
+            OrmStrategyVersion,
+            OrmStrategyInstance.strategy_version_id == OrmStrategyVersion.id,
+        )
+        .join(OrmStrategy, OrmStrategyVersion.strategy_id == OrmStrategy.id)
+        .where(OrmStrategyInstance.id.in_(ids))
+    ).all()
+    return {
+        str(instance_id): (name, version)
+        for instance_id, name, version in rows
+    }
 
 
 @router.get("/health")
@@ -338,36 +364,33 @@ def analytics_assets(store: StoreDep):
     from quantara_engine.market_data.polling import STRATEGY_MIN_CANDLES
     from quantara_engine.market_data.registry import list_target_assets
     from quantara_engine.market_data.sessions import session_allows_entries
+    from quantara_engine.persistence.batch_summary import (
+        batch_candle_counts,
+        batch_latest_candle_closes,
+        batch_latest_candle_timestamps,
+    )
 
-    entries = store.list_competition_entries()
-    if not entries:
+    robot_a, robot_b, combined = store.list_all_competition_entries()
+    if not robot_a and not robot_b:
         raise HTTPException(404, "Competition not configured")
 
     now = datetime.now(timezone.utc)
     worker_raw = store.get_settings_dict().get("worker_status:data_fetcher") or {}
     rows: list[dict] = []
 
-    open_by_inst: dict[str, int] = {}
-    closed_by_inst: dict[str, int] = {}
-    realized_by_inst: dict[str, float] = {}
-    unrealized_by_inst: dict[str, float] = {}
-    for entry in entries:
-        pid = entry["portfolio"].id
-        for pos in store.list_positions(pid, open_only=True):
-            iid = pos.instrument_id
-            open_by_inst[iid] = open_by_inst.get(iid, 0) + 1
-            unrealized_by_inst[iid] = unrealized_by_inst.get(iid, 0.0) + float(
-                pos.unrealized_pnl
-            )
-        for trade in store.list_trades(pid, limit=5000):
-            iid = trade.instrument_id
-            closed_by_inst[iid] = closed_by_inst.get(iid, 0) + 1
-            realized_by_inst[iid] = realized_by_inst.get(iid, 0.0) + float(
-                trade.realized_pnl
-            )
+    portfolio_ids = [e["portfolio"].id for e in combined]
+    asset_metrics = store.batch_asset_trading_metrics(portfolio_ids)
+    assets = list_target_assets()
+    instrument_by_symbol = {
+        asset.db_symbol: store.get_instrument_by_symbol(asset.db_symbol) for asset in assets
+    }
+    instrument_ids = [inst.id for inst in instrument_by_symbol.values() if inst]
+    candle_counts = batch_candle_counts(store, instrument_ids)
+    last_candles = batch_latest_candle_timestamps(store, instrument_ids, "5m")
+    latest_closes = batch_latest_candle_closes(store, instrument_ids, "5m")
 
-    for asset in list_target_assets():
-        inst = store.get_instrument_by_symbol(asset.db_symbol)
+    for asset in assets:
+        inst = instrument_by_symbol.get(asset.db_symbol)
         counts = {"5m": 0, "15m": 0, "1h": 0}
         last_candle = None
         latest_price = None
@@ -381,14 +404,12 @@ def analytics_assets(store: StoreDep):
         unrealized_pnl = 0.0
 
         if inst:
+            counts = candle_counts.get(inst.id, counts)
             for tf in ("5m", "15m", "1h"):
-                count = store.count_candles(inst.id, tf)
-                counts[tf] = count
-                strategy_ready[tf] = count >= STRATEGY_MIN_CANDLES
-            last_candle = store.latest_candle_timestamp(inst.id, "5m")
-            recent = store.list_recent_candles(inst.id, "5m", limit=1)
-            if recent:
-                latest_price = float(recent[-1].close)
+                strategy_ready[tf] = counts.get(tf, 0) >= STRATEGY_MIN_CANDLES
+            last_candle = last_candles.get(inst.id)
+            if inst.id in latest_closes:
+                latest_price = float(latest_closes[inst.id])
             if last_candle:
                 age_min = (now - last_candle).total_seconds() / 60
                 stale = age_min > 30
@@ -398,21 +419,23 @@ def analytics_assets(store: StoreDep):
                     else "closed"
                 )
 
-            open_positions = open_by_inst.get(inst.id, 0)
-            closed_trades = closed_by_inst.get(inst.id, 0)
-            realized_pnl = realized_by_inst.get(inst.id, 0.0)
-            unrealized_pnl = unrealized_by_inst.get(inst.id, 0.0)
+            metrics = asset_metrics.get(inst.id, {})
+            open_positions = int(metrics.get("open_positions", 0))
+            closed_trades = int(metrics.get("closed_trades", 0))
+            realized_pnl = float(metrics.get("realized_pnl", 0.0))
+            unrealized_pnl = float(metrics.get("unrealized_pnl", 0.0))
 
         asset_health = (worker_raw.get("assets") or {}).get(asset.db_symbol, {})
         data_status = asset_health.get("status") or ("stale" if stale else "healthy")
         if not last_candle and asset.primary_provider.value == "twelvedata":
             data_status = "blocked"
+        live_provider = asset_health.get("provider") or asset.primary_provider.value
 
         rows.append(
             {
                 "symbol": asset.display_symbol,
                 "db_symbol": asset.db_symbol,
-                "provider": asset.primary_provider.value,
+                "provider": live_provider,
                 "latest_price": latest_price,
                 "last_candle": last_candle.isoformat() if last_candle else None,
                 "data_status": data_status,
@@ -525,22 +548,26 @@ def positions(
     else:
         items = store.list_positions(portfolio.id, open_only=False, status=status)
 
+    from quantara_engine.persistence.batch_summary import batch_instruments_by_id
+
+    instrument_ids = [p.instrument_id for p in items if p.instrument_id]
+    instruments = batch_instruments_by_id(store, instrument_ids)
+    strategy_labels = _batch_strategy_labels_from_instances(
+        store, [p.strategy_instance_id for p in items if p.strategy_instance_id]
+    )
+
     result = []
     for p in items:
-        inst = None
-        if p.instrument_id:
-            from quantara_engine.models.instruments import Instrument as OrmInstrument
-
-            row = store.session.get(OrmInstrument, uuid.UUID(p.instrument_id))
-            if row:
-                inst = store._instrument_to_domain(row)
+        inst = instruments.get(p.instrument_id) if p.instrument_id else None
         cp = float(p.current_price or p.entry_price)
         upnl_pct = (
             float(p.unrealized_pnl / (p.entry_price * p.quantity) * 100)
             if p.quantity
             else 0
         )
-        strat_name, strat_version = _strategy_label_from_instance(store, p.strategy_instance_id)
+        strat_name, strat_version = strategy_labels.get(
+            p.strategy_instance_id, ("Gold Trend Pullback", "1.0.0")
+        )
         result.append({
             "id": p.id,
             "instrument": inst.symbol if inst else "XAUUSD",
@@ -603,12 +630,20 @@ def competition_summary(store: StoreDep):
     return build_competition_response(store)
 
 
+@router.get("/competition/equity-curves")
+def competition_equity_curves(store: StoreDep, limit: int = 100):
+    return {"equity_curves": build_competition_equity_curves(store, limit_per_portfolio=limit)}
+
+
 @router.get("/portfolios")
 def portfolios_list(store: StoreDep):
     from quantara_engine.competition.orb_constants import ORB_PORTFOLIO_DEF_BY_ID, ORB_STRATEGY_SLUG
 
     robot_a_entries, robot_b_entries, all_entries = store.list_all_competition_entries()
     robot_b_ids = {e["portfolio"].id for e in robot_b_entries}
+    portfolio_ids = [e["portfolio"].id for e in all_entries]
+    batch_stats = store.batch_portfolio_dashboard_stats(portfolio_ids)
+
     items = []
     for entry in all_entries:
         p = entry["portfolio"]
@@ -622,7 +657,8 @@ def portfolios_list(store: StoreDep):
             if orb_def
             else p.name
         )
-        open_positions = store.list_positions(p.id, open_only=True)
+        stats = batch_stats.get(p.id, {})
+        open_positions = stats.get("open_positions") or []
         open_pos = open_positions[0] if open_positions else None
         items.append(
             {
@@ -639,12 +675,12 @@ def portfolios_list(store: StoreDep):
                 "initial_capital": float(p.initial_capital),
                 "balance": float(p.balance),
                 "equity": float(p.equity),
-                "realized_pnl": float(store.sum_realized_pnl(p.id)),
+                "realized_pnl": float(stats.get("realized_pnl", 0)),
                 "unrealized_pnl": float(p.unrealized_pnl),
-                "open_positions_count": len(open_positions),
-                "open_position": len(open_positions) > 0,
+                "open_positions_count": stats.get("open_positions_count", 0),
+                "open_position": stats.get("open_positions_count", 0) > 0,
                 "open_direction": open_pos.direction.value if open_pos else None,
-                "closed_trades_count": store.count_trades_for_portfolio(p.id),
+                "closed_trades_count": stats.get("closed_trades_count", 0),
                 "sort_order": entry["sort_order"],
             }
         )
@@ -1188,27 +1224,6 @@ def workers_status(store: StoreDep):
             worker_payload["backlog"] = cached.get("jobs_pending", strategy_freshness.get("backlog", 0))
             worker_payload["freshness"] = strategy_freshness
         workers.append(worker_payload)
-
-    instrument = store.get_instrument_by_symbol("XAUUSD")
-    if instrument and store.list_competition_entries():
-        now = datetime.now(timezone.utc)
-        live_timeframes = {}
-        by_tf: dict[str, list[str]] = {}
-        for entry in store.list_competition_entries():
-            by_tf.setdefault(entry["instance"].timeframe, []).append(entry["instance"].id)
-        for tf, instance_ids in by_tf.items():
-            live_timeframes[tf] = store.get_timeframe_execution_status(
-                instrument.id, tf, instance_ids, now
-            )
-        for worker in workers:
-            if worker["name"] == "strategy_runner" and not worker.get("timeframes"):
-                worker["timeframes"] = live_timeframes
-                worker["backlog"] = sum(v.get("backlog", 0) for v in live_timeframes.values())
-                worker["execution_status"] = (
-                    "catching_up"
-                    if worker["backlog"] > 0
-                    else worker.get("execution_status", "healthy")
-                )
 
     healthy = strategy_freshness.get("healthy", False) and all(
         w["status"] == "running"

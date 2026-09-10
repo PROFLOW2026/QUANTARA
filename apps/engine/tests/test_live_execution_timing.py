@@ -83,7 +83,7 @@ def test_cancel_stale_expires_overdue_pending_intent():
 
     store = TradingStore(session)
     cancelled = store.cancel_stale_pending_intents(
-        "00000000-0000-0000-0000-000000000200",
+        "00000000-0000-0000-0000-000000000400",
         now,
     )
     assert cancelled == 1
@@ -182,9 +182,9 @@ def test_fetch_data_uses_alpaca_live_for_us_equity_rth():
     from quantara_workers.jobs.fetch_data import _uses_alpaca_live_equity
     from quantara_engine.market_data.registry import TARGET_ASSETS
 
-    spy = next(a for a in TARGET_ASSETS if a.db_symbol == "SPY")
+    nvda = next(a for a in TARGET_ASSETS if a.db_symbol == "NVDA")
     rth = datetime(2026, 9, 9, 14, 30, tzinfo=timezone.utc)
-    assert _uses_alpaca_live_equity(spy, rth) is True
+    assert _uses_alpaca_live_equity(nvda, rth) is True
 
 
 def test_timing_constants_document_n_plus_one_semantics():

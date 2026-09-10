@@ -796,6 +796,10 @@ export const api = {
     apiFetch<Trade[]>(`/backtests/${id}/trades`),
   getExperiments: () => apiFetch<Experiment[]>("/experiments"),
   getCompetition: () => apiFetch<CompetitionResponse>("/competition"),
+  getCompetitionEquityCurves: () =>
+    apiFetch<{ equity_curves: Record<string, { date: string; equity: number }[]> }>(
+      "/competition/equity-curves"
+    ),
   getPortfolios: () => apiFetch<PortfolioListItem[]>("/portfolios"),
   getAnalyticsPortfolio: (portfolioId?: string) =>
     apiFetch<AnalyticsPortfolio>(`/analytics/portfolio${portfolioQs(portfolioId)}`),

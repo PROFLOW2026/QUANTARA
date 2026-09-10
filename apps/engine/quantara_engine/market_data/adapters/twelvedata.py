@@ -21,6 +21,7 @@ from quantara_engine.market_data.credits import (
     sync_provider_usage,
 )
 from quantara_engine.market_data.polling import (
+    BOOTSTRAP_MIN_5M_BARS,
     BOOTSTRAP_OUTPUT_SIZE,
     PROVIDER_TIMEFRAME,
     is_bar_complete,
@@ -314,7 +315,23 @@ class TwelveDataMarketDataProvider:
         timeframe: str,
         bars: int = BOOTSTRAP_OUTPUT_SIZE,
     ) -> list[Candle]:
-        """Historical bootstrap via single time_series call."""
+        """Historical bootstrap — date-range fetch for enough 5m bars to derive 1h EMA200."""
         self._ensure_canonical_timeframe(timeframe)
-        rows = self._time_series(timeframe, outputsize=bars)
-        return self._rows_to_candles(rows, instrument_id, timeframe, closed_only=True)
+        target_bars = max(bars, BOOTSTRAP_MIN_5M_BARS)
+        end = datetime.now(timezone.utc)
+        # ~200 effective 5m bars per forex session day; pad calendar window generously.
+        days_back = max(14, (target_bars // 200) + 3)
+        start = end - timedelta(days=days_back)
+        rows = self._time_series(timeframe, start_date=start, end_date=end)
+        candles = self._rows_to_candles(rows, instrument_id, timeframe, closed_only=True)
+        if len(candles) < target_bars:
+            extra = self._time_series(timeframe, outputsize=min(target_bars, 5000))
+            seen = {c.timestamp for c in candles}
+            for row in extra:
+                candle = self._parse_row(row, instrument_id, timeframe)
+                if candle is None or not candle.is_complete or candle.timestamp in seen:
+                    continue
+                candles.append(candle)
+                seen.add(candle.timestamp)
+            candles.sort(key=lambda c: c.timestamp)
+        return candles

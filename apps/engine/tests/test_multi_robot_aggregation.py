@@ -38,7 +38,7 @@ def _entry(portfolio_id: str, instance_id: str, *, slug: str = "gold-trend-pullb
     }
 
 
-def _mock_store(*, orb_enabled: bool, robot_a_count: int = 15, robot_b_count: int = 25):
+def _mock_store(*, orb_enabled: bool, robot_a_count: int = 120, robot_b_count: int = 40):
     robot_a = [
         _entry(f"a{i:03d}", f"ia{i:03d}", tf=["5m", "15m", "1h"][i % 3])
         for i in range(robot_a_count)
@@ -53,7 +53,7 @@ def _mock_store(*, orb_enabled: bool, robot_a_count: int = 15, robot_b_count: in
     store.is_orb_competition_enabled.return_value = orb_enabled
     store.list_all_competition_entries.return_value = (robot_a, robot_b, robot_a + robot_b)
     store.get_competition_started_at.return_value = None
-    store.get_competition_experiment_id.return_value = "00000000-0000-0000-0000-000000000200"
+    store.get_competition_experiment_id.return_value = "00000000-0000-0000-0000-000000000400"
     store.sum_realized_pnl.return_value = Decimal("0")
     store.count_trades_for_portfolio.return_value = 0
     store.portfolio_win_rate.return_value = None
@@ -70,33 +70,33 @@ def _mock_store(*, orb_enabled: bool, robot_a_count: int = 15, robot_b_count: in
     return store, robot_a, robot_b
 
 
-def test_robot_a_only_dashboard_count_15():
+def test_robot_a_only_dashboard_count_120():
     store, robot_a, robot_b = _mock_store(orb_enabled=False)
     payload = build_competition_response(store)
-    assert payload["experiment"]["portfolio_count"] == 15
-    assert payload["experiment"]["robot_a_portfolio_count"] == 15
+    assert payload["experiment"]["portfolio_count"] == 120
+    assert payload["experiment"]["robot_a_portfolio_count"] == 120
     assert payload["experiment"]["robot_b_portfolio_count"] == 0
     assert payload["combined"]["initial_equity"] == float(COMPETITION_TOTAL_INITIAL)
-    assert len(payload["portfolios"]) == 15
+    assert len(payload["portfolios"]) == 120
     assert len(robot_b) == 0
 
 
-def test_robot_a_and_orb_dashboard_count_40():
+def test_robot_a_and_orb_dashboard_count_160():
     store, _, _ = _mock_store(orb_enabled=True)
     payload = build_competition_response(store)
-    assert payload["experiment"]["portfolio_count"] == 40
-    assert payload["experiment"]["robot_a_portfolio_count"] == 15
-    assert payload["experiment"]["robot_b_portfolio_count"] == 25
-    assert len(payload["portfolios"]) == 40
+    assert payload["experiment"]["portfolio_count"] == 160
+    assert payload["experiment"]["robot_a_portfolio_count"] == 120
+    assert payload["experiment"]["robot_b_portfolio_count"] == 40
+    assert len(payload["portfolios"]) == 160
 
 
-def test_combined_initial_capital_80000_when_orb_enabled():
+def test_combined_initial_capital_320000_when_orb_enabled():
     store, _, _ = _mock_store(orb_enabled=True)
     payload = build_competition_response(store)
     expected = float(COMPETITION_TOTAL_INITIAL + ORB_COMPETITION_TOTAL_INITIAL)
     assert payload["combined"]["initial_equity"] == expected
     assert payload["experiment"]["total_initial_capital"] == expected
-    assert expected == 80000.0
+    assert expected == 320000.0
 
 
 def test_robot_a_totals_unchanged_when_orb_enabled():
@@ -115,7 +115,7 @@ def test_robot_b_totals_isolated():
     group_b = payload["robot_groups"][1]
     assert group_b["robot_label"] == "Robot B"
     assert group_b["strategy_slug"] == "opening-range-breakout"
-    assert group_b["portfolio_count"] == 25
+    assert group_b["portfolio_count"] == 40
     assert group_b["initial_capital"] == float(ORB_COMPETITION_TOTAL_INITIAL)
 
 
@@ -124,8 +124,8 @@ def test_strategy_identity_preserved_on_portfolios():
     payload = build_competition_response(store)
     robot_a = [p for p in payload["portfolios"] if p["robot_label"] == "Robot A"]
     robot_b = [p for p in payload["portfolios"] if p["robot_label"] == "Robot B"]
-    assert len(robot_a) == 15
-    assert len(robot_b) == 25
+    assert len(robot_a) == 120
+    assert len(robot_b) == 40
     assert all(p["strategy_slug"] == "gold-trend-pullback" for p in robot_a)
     assert all(p["strategy_slug"] == "opening-range-breakout" for p in robot_b)
 

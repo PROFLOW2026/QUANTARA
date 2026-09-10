@@ -89,19 +89,29 @@ export function LatestDecisionsPanel({
               );
             })}
           </div>
-          <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[880px] text-sm">
+          <table className="hidden w-full table-fixed text-sm md:table">
+            <colgroup>
+              <col className="w-[12%]" />
+              <col className="w-[7%]" />
+              <col className="w-[6%]" />
+              <col className="w-[10%]" />
+              <col className="w-[10%]" />
+              <col className="w-[8%]" />
+              <col className="w-[29%]" />
+              <col className="w-[8%]" />
+              <col className="w-[10%]" />
+            </colgroup>
             <thead>
               <tr className="border-b border-border text-muted">
-                <th className="py-2 text-right">{t("home.robot_strategy")}</th>
-                <th className="py-2 text-right">{t("home.asset_symbol")}</th>
-                <th className="py-2 text-right">{t("home.timeframe")}</th>
-                <th className="py-2 text-right">{t("home.latest_decision")}</th>
-                <th className="py-2 text-right">{t("home.decision_time")}</th>
-                <th className="py-2 text-right">{t("home.data_freshness")}</th>
-                <th className="py-2 text-right min-w-[180px]">{t("home.reason")}</th>
-                <th className="py-2 text-right">{t("home.entry_signal")}</th>
-                <th className="py-2 text-right">{t("home.position_open_now")}</th>
+                <th className="py-2 pe-2 text-right">{t("home.robot_strategy")}</th>
+                <th className="py-2 px-1 text-right">{t("home.asset_symbol")}</th>
+                <th className="py-2 px-1 text-right">{t("home.timeframe")}</th>
+                <th className="py-2 px-1 text-right">{t("home.latest_decision")}</th>
+                <th className="py-2 px-1 text-right">{t("home.decision_time")}</th>
+                <th className="py-2 px-1 text-right">{t("home.data_freshness")}</th>
+                <th className="py-2 px-2 text-right">{t("home.reason")}</th>
+                <th className="py-2 px-1 text-right">{t("home.entry_signal")}</th>
+                <th className="py-2 ps-1 text-right">{t("home.position_open_now")}</th>
               </tr>
             </thead>
             <tbody>
@@ -114,31 +124,30 @@ export function LatestDecisionsPanel({
                     key={`${row.robot_label ?? "na"}-${row.instrument}-${row.id}`}
                     className="border-b border-border/50 align-top"
                   >
-                    <td className="py-2 text-xs text-muted">
+                    <td className="py-2 pe-2 text-xs text-muted truncate">
                       {translateRobotStrategyLabel(
                         row.robot_label,
                         row.strategy_name,
                         row.strategy_slug
                       )}
                     </td>
-                    <td className="py-2 font-medium">{row.instrument ?? "—"}</td>
-                    <td className="py-2">{translateTimeframe(row.timeframe ?? timeframe)}</td>
-                    <td className="py-2">
+                    <td className="py-2 px-1 font-medium">{row.instrument ?? "—"}</td>
+                    <td className="py-2 px-1">{translateTimeframe(row.timeframe ?? timeframe)}</td>
+                    <td className="py-2 px-1">
                       <DecisionTypeBadge type={row.decision_type} />
                     </td>
-                    <td className="py-2 text-muted">{formatRelativeTime(row.timestamp)}</td>
-                    <td className="py-2">{freshnessBadge(row.fresh)}</td>
-                    <td className="py-2 max-w-[280px]">
+                    <td className="py-2 px-1 text-muted">{formatRelativeTime(row.timestamp)}</td>
+                    <td className="py-2 px-1">{freshnessBadge(row.fresh)}</td>
+                    <td className="py-2 px-2">
                       <ExpandableText text={translateSignalReason(row.message)} />
                     </td>
-                    <td className="py-2">{yesNo(entrySignal)}</td>
-                    <td className="py-2">{yesNo(row.position_open)}</td>
+                    <td className="py-2 px-1">{yesNo(entrySignal)}</td>
+                    <td className="py-2 ps-1">{yesNo(row.position_open)}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-          </div>
           </>
         )}
       </CardContent>

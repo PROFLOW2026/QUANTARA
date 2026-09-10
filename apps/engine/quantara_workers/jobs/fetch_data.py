@@ -24,8 +24,13 @@ from quantara_engine.market_data.credits import (
     status_payload as twelve_status,
 )
 from quantara_engine.market_data.factory import get_provider_for_asset
-from quantara_engine.market_data.polling import PROVIDER_TIMEFRAME, STRATEGY_MIN_CANDLES, should_fetch_timeframe
-from quantara_engine.market_data.provider_budgets import all_provider_status
+from quantara_engine.market_data.polling import (
+    PROVIDER_TIMEFRAME,
+    STRATEGY_MIN_CANDLES,
+    is_market_data_fresh,
+    should_fetch_timeframe,
+)
+from quantara_engine.market_data.provider_budgets import all_provider_status, can_request, record_request
 from quantara_engine.market_data.registry import AssetClass, ProviderName, list_target_assets
 from quantara_engine.market_data.sessions import is_us_equity_rth
 from quantara_engine.market_data.spot_price import update_spot_from_latest_5m
@@ -41,6 +46,9 @@ ALPACA_LIVE_LAST_FETCH_KEY = "provider_budget:alpaca:last_live_fetch"
 BTC_CATCHUP_FRESH_MINUTES = 30
 BTC_CATCHUP_MAX_EXTRA_PASSES = 2
 BULK_BOOTSTRAP_KEY = "fetch_bulk:last_bootstrap"
+BOOTSTRAP_PERSIST_CHUNK = 100
+DERIVED_PERSIST_CHUNK = 20
+GAP_FILL_CHUNK_THRESHOLD = 50
 
 
 def _tiingo_last_fetch(store: TradingStore, db_symbol: str) -> datetime | None:
@@ -93,9 +101,9 @@ def _should_poll_asset(
     force_bootstrap: bool,
     live: bool,
 ) -> tuple[bool, str | None]:
-    if force_bootstrap:
-        if live:
-            return False, "deferred (bootstrap scheduled in bulk job)"
+    # Bootstrap-eligible assets must still ingest market data on the live path.
+    # Strategy `insufficient_history` gates evaluation only — never fetch ingestion.
+    if force_bootstrap and not live:
         return True, None
 
     if asset.primary_provider == ProviderName.TWELVE_DATA:
@@ -128,23 +136,33 @@ def _derive_full(
     instrument_id: str,
     *,
     session_mode: str,
+    timeframes: tuple[str, ...] = DERIVED_FROM_5M,
 ) -> int:
     derived_count = 0
     stored_5m = store.count_candles(instrument_id, PROVIDER_TIMEFRAME)
-    lookback = derivation_source_limit(stored_5m)
+    # US RTH drops many 5m bars; the UTC-minimum window (~2400 bars) yields ~185 1h buckets.
+    # Full rebuild must scan all stored 5m history to reach 200+ completed 1h candles.
+    lookback = stored_5m if session_mode == "us_rth" else derivation_source_limit(stored_5m)
     base_rows = store.list_recent_candles(instrument_id, PROVIDER_TIMEFRAME, limit=lookback)
     if not base_rows:
         return 0
 
-    for target_tf in DERIVED_FROM_5M:
+    derived_candles: list = []
+    for target_tf in timeframes:
         for candle in aggregate_from_5m(base_rows, target_tf, session_mode=session_mode):
             try:
                 validate_candle(candle)
             except Exception as exc:
                 logger.warning("Invalid derived candle skipped: %s", exc)
                 continue
-            store.upsert_candle(candle)
-            derived_count += 1
+            derived_candles.append(candle)
+
+    if len(derived_candles) >= GAP_FILL_CHUNK_THRESHOLD:
+        return _persist_candles_chunked(derived_candles, chunk_size=DERIVED_PERSIST_CHUNK)
+
+    for candle in derived_candles:
+        store.upsert_candle(candle)
+        derived_count += 1
     return derived_count
 
 
@@ -232,8 +250,23 @@ def _fetch_asset_live(
     count = 0
     error: str | None = None
 
+    gap_fill = (
+        last_ts is not None
+        and stored >= STRATEGY_MIN_CANDLES
+        and not is_market_data_fresh(last_ts, timeframe, now)
+    )
+    if gap_fill and hasattr(provider, "fetch_gap_fill") and hasattr(provider, "bind_context"):
+        provider.bind_context(  # type: ignore[attr-defined]
+            store=None,
+            caller="fetch_live_job:gap_fill",
+            asset=asset,
+            priority=FetchPriority.CATCH_UP,
+        )
+
     try:
-        if should_fetch_timeframe(timeframe, last_ts, now):
+        if gap_fill and hasattr(provider, "fetch_gap_fill"):
+            candles = provider.fetch_gap_fill(instrument.id, timeframe, last_ts)  # type: ignore[attr-defined]
+        elif should_fetch_timeframe(timeframe, last_ts, now):
             candles = provider.fetch_latest(instrument.id, timeframe, since=last_ts)
         else:
             candles = []
@@ -249,15 +282,50 @@ def _fetch_asset_live(
     timings[provider_key] = timings.get(provider_key, 0.0) + (time.perf_counter() - t0) * 1000
 
     persist_t0 = time.perf_counter()
+    validated: list = []
     for candle in candles:
         try:
             validate_candle(candle)
         except Exception as exc:
             logger.warning("Invalid candle skipped (%s): %s", asset.db_symbol, exc)
             continue
-        store.upsert_candle(candle)
+        validated.append(candle)
         new_timestamps.append(candle.timestamp)
-        count += 1
+
+    derived = 0
+    if len(validated) >= GAP_FILL_CHUNK_THRESHOLD:
+        count = _persist_candles_chunked(validated)
+        if count:
+            with session_scope() as derive_session:
+                derive_store = TradingStore(derive_session)
+                derived = _derive_full(
+                    derive_store,
+                    instrument.id,
+                    session_mode=_aggregation_mode(asset),
+                )
+                if asset.db_symbol == "XAUUSD":
+                    update_spot_from_latest_5m(derive_store, instrument.id)
+            if use_alpaca_live:
+                with session_scope() as mark_session:
+                    _mark_alpaca_live_fetch(TradingStore(mark_session), asset.db_symbol, now)
+            elif asset.primary_provider == ProviderName.TIINGO:
+                with session_scope() as mark_session:
+                    _mark_tiingo_fetch(TradingStore(mark_session), asset.db_symbol, now)
+            if gap_fill and asset.primary_provider == ProviderName.ALPACA:
+                from quantara_engine.market_data.registry import provider_symbol
+
+                _record_budget_best_effort(
+                    ProviderName.ALPACA.value,
+                    symbol=provider_symbol(asset, ProviderName.ALPACA),
+                    caller="fetch_live_job:gap_fill",
+                )
+            timings["derive_ms"] = timings.get("derive_ms", 0.0) + (time.perf_counter() - persist_t0) * 1000
+            timings["persist_5m_ms"] = timings.get("persist_5m_ms", 0.0) + (time.perf_counter() - persist_t0) * 1000
+            return count, derived, error
+    else:
+        for candle in validated:
+            store.upsert_candle(candle)
+            count += 1
     timings["persist_5m_ms"] = timings.get("persist_5m_ms", 0.0) + (time.perf_counter() - persist_t0) * 1000
 
     if use_alpaca_live and count:
@@ -266,7 +334,6 @@ def _fetch_asset_live(
         _mark_tiingo_fetch(store, asset.db_symbol, now)
 
     derive_t0 = time.perf_counter()
-    derived = 0
     if new_timestamps:
         derived = _derive_incremental(
             store,
@@ -282,6 +349,135 @@ def _fetch_asset_live(
     return count, derived, error
 
 
+def _record_budget_best_effort(
+    provider: str,
+    *,
+    symbol: str,
+    caller: str,
+    count: int = 1,
+) -> None:
+    """Record provider usage outside long ingest transactions (best-effort)."""
+    try:
+        with session_scope() as session:
+            record_request(
+                TradingStore(session),
+                provider,
+                symbol=symbol,
+                caller=caller,
+                count=count,
+                success=True,
+            )
+    except Exception as exc:
+        logger.warning("Provider budget record skipped (%s/%s): %s", provider, symbol, exc)
+
+
+def _persist_candles_chunked(candles: list, *, chunk_size: int = BOOTSTRAP_PERSIST_CHUNK) -> int:
+    """Upsert bootstrap candles in short commits (remote DB statement timeout safe)."""
+    count = 0
+    offset = 0
+    while offset < len(candles):
+        chunk = candles[offset : offset + chunk_size]
+        try:
+            with session_scope() as session:
+                store = TradingStore(session)
+                count += store.upsert_candles_batch(chunk)
+            offset += len(chunk)
+        except Exception as exc:
+            if chunk_size <= 10:
+                raise
+            chunk_size = max(10, chunk_size // 2)
+            logger.warning(
+                "Bootstrap persist retry with chunk_size=%d after: %s",
+                chunk_size,
+                exc,
+            )
+            time.sleep(1.0)
+    return count
+
+
+def _deepen_history_for_1h(asset) -> tuple[int, int]:
+    """Pull additional provider history when derived 1h bars are below EMA200 minimum."""
+    derived_only = 0
+    with session_scope() as session:
+        store = TradingStore(session)
+        instrument = store.get_instrument_by_symbol(asset.db_symbol)
+        if not instrument:
+            return 0, 0
+        instrument_id = instrument.id
+        if store.count_candles(instrument_id, "1h") >= STRATEGY_MIN_CANDLES:
+            return 0, 0
+        derived_only = _derive_full(
+            store,
+            instrument_id,
+            session_mode=_aggregation_mode(asset),
+            timeframes=("1h",),
+        )
+        if store.count_candles(instrument_id, "1h") >= STRATEGY_MIN_CANDLES:
+            return 0, derived_only
+
+    try:
+        provider = get_provider_for_asset(asset)
+    except ValueError:
+        return 0, derived_only
+
+    if hasattr(provider, "bind_context"):
+        provider.bind_context(  # type: ignore[attr-defined]
+            store=None,
+            caller="fetch_bulk_job:deepen_1h",
+            asset=asset,
+            priority=FetchPriority.CATCH_UP,
+        )
+
+    try:
+        if hasattr(provider, "fetch_bootstrap"):
+            candles = provider.fetch_bootstrap(instrument_id, PROVIDER_TIMEFRAME)  # type: ignore[attr-defined]
+        else:
+            candles = provider.fetch_latest(instrument_id, PROVIDER_TIMEFRAME, since=None)
+    except (TwelveDataError, AlpacaError, TiingoError) as exc:
+        logger.warning("1h deepen fetch failed for %s — %s", asset.db_symbol, exc)
+        return 0, derived_only
+
+    validated: list = []
+    for candle in candles:
+        try:
+            validate_candle(candle)
+        except Exception as exc:
+            logger.warning("Invalid deepen candle skipped (%s): %s", asset.db_symbol, exc)
+            continue
+        validated.append(candle)
+
+    count = _persist_candles_chunked(validated) if validated else 0
+    derived = derived_only
+    if count:
+        with session_scope() as derive_session:
+            derive_store = TradingStore(derive_session)
+            derived += _derive_full(
+                derive_store,
+                instrument_id,
+                session_mode=_aggregation_mode(asset),
+                timeframes=("1h",),
+            )
+        from quantara_engine.market_data.registry import provider_symbol
+
+        _record_budget_best_effort(
+            asset.primary_provider.value,
+            symbol=provider_symbol(asset, asset.primary_provider),
+            caller="fetch_bulk_job:deepen_1h",
+        )
+    return count, derived
+
+
+def _bootstrap_asset_isolated(asset) -> tuple[int, int, str | None]:
+    """Bootstrap one asset with chunked commits (avoids long locks during bulk ingest)."""
+    with session_scope() as session:
+        store = TradingStore(session)
+        instrument = store.get_instrument_by_symbol(asset.db_symbol)
+        if not instrument:
+            return 0, 0, f"{asset.db_symbol}: instrument missing — run seed_8_assets.py"
+        now = datetime.now(timezone.utc)
+        return _fetch_asset_bulk(store, instrument, asset, now)
+
+
 def _fetch_asset_bulk(
     store: TradingStore,
     instrument,
@@ -293,14 +489,27 @@ def _fetch_asset_bulk(
     if stored >= STRATEGY_MIN_CANDLES:
         return 0, 0, None
 
+    if asset.primary_provider == ProviderName.ALPACA and not can_request(store, "alpaca"):
+        return 0, 0, "deferred (Alpaca budget)"
+    if asset.primary_provider == ProviderName.TIINGO and not can_request(store, "tiingo"):
+        return 0, 0, "deferred (Tiingo budget)"
+    if asset.primary_provider == ProviderName.TWELVE_DATA:
+        if twelve_data_blocked(store):
+            return 0, 0, "deferred (Twelve Data blocked until credit reset)"
+        from quantara_engine.market_data.credits import can_fetch
+
+        if not can_fetch(store, FetchPriority.CATCH_UP):
+            return 0, 0, "deferred (Twelve Data credit guard)"
+
     try:
         provider = get_provider_for_asset(asset)
     except ValueError as exc:
         return 0, 0, str(exc)
 
+    # Fetch without settings writes — avoids row lock contention during pagination.
     if hasattr(provider, "bind_context"):
         provider.bind_context(  # type: ignore[attr-defined]
-            store=store,
+            store=None,
             caller="fetch_bulk_job:bootstrap",
             asset=asset,
             priority=FetchPriority.CATCH_UP,
@@ -308,6 +517,7 @@ def _fetch_asset_bulk(
 
     count = 0
     error: str | None = None
+    primary_provider_key = asset.primary_provider.value
     try:
         if hasattr(provider, "fetch_bootstrap"):
             candles = provider.fetch_bootstrap(instrument.id, timeframe)  # type: ignore[attr-defined]
@@ -318,46 +528,85 @@ def _fetch_asset_bulk(
         logger.warning("Bulk bootstrap failed for %s — %s", asset.db_symbol, exc)
         candles = []
 
+    validated_primary: list = []
     for candle in candles:
         try:
             validate_candle(candle)
         except Exception as exc:
             logger.warning("Invalid bootstrap candle skipped (%s): %s", asset.db_symbol, exc)
             continue
-        store.upsert_candle(candle)
-        count += 1
+        validated_primary.append(candle)
 
-    stored_after = store.count_candles(instrument.id, timeframe)
+    count = _persist_candles_chunked(validated_primary)
+
+    with session_scope() as count_session:
+        stored_after = TradingStore(count_session).count_candles(instrument.id, timeframe)
+    secondary_provider_key: str | None = None
     if (
         stored_after < STRATEGY_MIN_CANDLES
         and asset.secondary_provider is not None
     ):
         try:
             secondary = get_provider_for_asset(asset, role="secondary")
+            secondary_provider_key = asset.secondary_provider.value
             if hasattr(secondary, "bind_context"):
                 secondary.bind_context(  # type: ignore[attr-defined]
-                    store=store,
+                    store=None,
                     caller="fetch_bulk_job:bootstrap_secondary",
                     asset=asset,
                     priority=FetchPriority.CATCH_UP,
                 )
             extra = secondary.fetch_bootstrap(instrument.id, timeframe)  # type: ignore[attr-defined]
+            validated_secondary: list = []
             for candle in extra:
                 try:
                     validate_candle(candle)
                 except Exception as exc:
                     logger.warning("Invalid secondary bootstrap candle skipped (%s): %s", asset.db_symbol, exc)
                     continue
-                store.upsert_candle(candle)
-                count += 1
+                validated_secondary.append(candle)
+            count += _persist_candles_chunked(validated_secondary)
         except (TwelveDataError, AlpacaError, TiingoError) as exc:
             logger.warning("Secondary bootstrap failed for %s — %s", asset.db_symbol, exc)
 
     derived = 0
     if count:
-        derived = _derive_full(store, instrument.id, session_mode=_aggregation_mode(asset))
-        if asset.db_symbol == "XAUUSD":
-            update_spot_from_latest_5m(store, instrument.id)
+        with session_scope() as derive_session:
+            derive_store = TradingStore(derive_session)
+            derived = _derive_full(
+                derive_store, instrument.id, session_mode=_aggregation_mode(asset)
+            )
+            if asset.db_symbol == "XAUUSD":
+                update_spot_from_latest_5m(derive_store, instrument.id)
+        from quantara_engine.market_data.registry import provider_symbol
+
+        if asset.primary_provider == ProviderName.TWELVE_DATA:
+            try:
+                with session_scope() as credit_session:
+                    from quantara_engine.market_data.credits import record_usage
+
+                    record_usage(
+                        TradingStore(credit_session),
+                        endpoint="time_series",
+                        symbol=provider_symbol(asset, asset.primary_provider),
+                        interval="5min",
+                        caller="fetch_bulk_job:bootstrap",
+                        credits=2,
+                    )
+            except Exception as exc:
+                logger.warning("Twelve Data credit record skipped (%s): %s", asset.db_symbol, exc)
+        else:
+            _record_budget_best_effort(
+                primary_provider_key,
+                symbol=provider_symbol(asset, asset.primary_provider),
+                caller="fetch_bulk_job:bootstrap",
+            )
+        if secondary_provider_key and asset.secondary_provider is not None:
+            _record_budget_best_effort(
+                secondary_provider_key,
+                symbol=provider_symbol(asset, asset.secondary_provider),
+                caller="fetch_bulk_job:bootstrap_secondary",
+            )
 
     return count, derived, error
 
@@ -485,12 +734,78 @@ def _finalize_worker_run(
     )
 
 
+def _fetch_live_asset_isolated(
+    asset,
+    now: datetime,
+    timings: dict[str, float],
+) -> tuple[int, int, str | None, dict]:
+    """One asset per transaction — avoids long locks blocking other ingest jobs."""
+    with session_scope() as session:
+        store = TradingStore(session)
+        instrument = store.get_instrument_by_symbol(asset.db_symbol)
+        if not instrument:
+            return 0, 0, f"{asset.db_symbol}: instrument missing", {
+                "status": "error",
+                "error": "missing instrument",
+            }
+        stored_before = store.count_candles(instrument.id, PROVIDER_TIMEFRAME)
+
+    bootstrap_count = 0
+    bootstrap_derived = 0
+    bootstrap_error: str | None = None
+    if stored_before < STRATEGY_MIN_CANDLES:
+        bootstrap_count, bootstrap_derived, bootstrap_error = _bootstrap_asset_isolated(asset)
+
+    with session_scope() as session:
+        store = TradingStore(session)
+        instrument = store.get_instrument_by_symbol(asset.db_symbol)
+        if not instrument:
+            return bootstrap_count, bootstrap_derived, bootstrap_error, {"status": "error"}
+        count, derived, error = _fetch_asset_live(store, instrument, asset, now, timings)
+        latest = store.latest_candle_timestamp(instrument.id, PROVIDER_TIMEFRAME)
+        stored = store.count_candles(instrument.id, PROVIDER_TIMEFRAME)
+
+    count += bootstrap_count
+    derived += bootstrap_derived
+    if bootstrap_error and error is None:
+        error = bootstrap_error
+
+    use_alpaca_live = _uses_alpaca_live_equity(asset, now)
+    live_provider = ProviderName.ALPACA.value if use_alpaca_live else asset.primary_provider.value
+
+    if error and str(error).startswith("deferred"):
+        status = {
+            "status": "deferred",
+            "provider": live_provider,
+            "last_candle": latest.isoformat() if latest else None,
+            "note": error,
+        }
+    elif error:
+        status = {"status": "error", "provider": live_provider, "error": error}
+    elif stored < STRATEGY_MIN_CANDLES:
+        status = {
+            "status": "bootstrapping",
+            "provider": live_provider,
+            "last_candle": latest.isoformat() if latest else None,
+            "stored_5m": stored,
+            "note": f"bootstrap in progress ({stored}/{STRATEGY_MIN_CANDLES} 5m bars)",
+        }
+    else:
+        status = {
+            "status": "healthy" if latest and is_market_data_fresh(latest, PROVIDER_TIMEFRAME, now) else "stale",
+            "provider": live_provider,
+            "last_candle": latest.isoformat() if latest else None,
+            "candles_upserted": count,
+        }
+    return count, derived, error, status
+
+
 def fetch_live_job(store: TradingStore | None = None) -> None:
     """Fast path: latest 5m ingest + incremental derivation only."""
     started_at = datetime.now(timezone.utc)
     timings: dict[str, float] = {}
 
-    def _run(s: TradingStore) -> None:
+    def _run_all() -> None:
         now = datetime.now(timezone.utc)
         total_count = 0
         total_derived = 0
@@ -498,71 +813,55 @@ def fetch_live_job(store: TradingStore | None = None) -> None:
         asset_status: dict[str, dict] = {}
 
         for asset in list_target_assets():
-            instrument = s.get_instrument_by_symbol(asset.db_symbol)
-            if not instrument:
-                errors.append(f"{asset.db_symbol}: instrument missing — run seed_8_assets.py")
-                asset_status[asset.db_symbol] = {"status": "error", "error": "missing instrument"}
-                continue
-
-            count, derived, error = _fetch_asset_live(s, instrument, asset, now, timings)
-            total_count += count
-            total_derived += derived
-            latest = s.latest_candle_timestamp(instrument.id, PROVIDER_TIMEFRAME)
-            stored = s.count_candles(instrument.id, PROVIDER_TIMEFRAME)
-
-            if error and str(error).startswith("deferred"):
-                asset_status[asset.db_symbol] = {
-                    "status": "deferred",
-                    "provider": asset.primary_provider.value,
-                    "last_candle": latest.isoformat() if latest else None,
-                    "note": error,
-                }
-            elif error:
-                errors.append(error)
-                asset_status[asset.db_symbol] = {
-                    "status": "error",
-                    "provider": asset.primary_provider.value,
-                    "error": error,
-                }
-            elif stored < STRATEGY_MIN_CANDLES:
-                asset_status[asset.db_symbol] = {
-                    "status": "bootstrapping",
-                    "provider": asset.primary_provider.value,
-                    "last_candle": latest.isoformat() if latest else None,
-                    "note": "awaiting bulk bootstrap",
-                }
-            else:
-                asset_status[asset.db_symbol] = {
+            if store is not None:
+                instrument = store.get_instrument_by_symbol(asset.db_symbol)
+                if not instrument:
+                    errors.append(f"{asset.db_symbol}: instrument missing — run seed_8_assets.py")
+                    asset_status[asset.db_symbol] = {"status": "error", "error": "missing instrument"}
+                    continue
+                count, derived, error = _fetch_asset_live(store, instrument, asset, now, timings)
+                latest = store.latest_candle_timestamp(instrument.id, PROVIDER_TIMEFRAME)
+                stored = store.count_candles(instrument.id, PROVIDER_TIMEFRAME)
+                use_alpaca_live = _uses_alpaca_live_equity(asset, now)
+                live_provider = (
+                    ProviderName.ALPACA.value if use_alpaca_live else asset.primary_provider.value
+                )
+                status = {
                     "status": "healthy" if latest else "stale",
-                    "provider": asset.primary_provider.value,
+                    "provider": live_provider,
                     "last_candle": latest.isoformat() if latest else None,
                     "candles_upserted": count,
                 }
+            else:
+                count, derived, error, status = _fetch_live_asset_isolated(asset, now, timings)
 
-        _finalize_worker_run(
-            s,
-            started_at=started_at,
-            job_name="fetch_live",
-            total_count=total_count,
-            total_derived=total_derived,
-            errors=errors,
-            asset_status=asset_status,
-            timings=timings,
-            phase="fetch_live",
-        )
+            total_count += count
+            total_derived += derived
+            asset_status[asset.db_symbol] = status
+            if error and not str(error).startswith("deferred"):
+                errors.append(error)
 
-    if store is not None:
-        _run(store)
-    else:
-        with session_scope() as session:
-            _run(TradingStore(session))
+        with session_scope() as status_session:
+            _finalize_worker_run(
+                TradingStore(status_session),
+                started_at=started_at,
+                job_name="fetch_live",
+                total_count=total_count,
+                total_derived=total_derived,
+                errors=errors,
+                asset_status=asset_status,
+                timings=timings,
+                phase="fetch_live",
+            )
+
+    _run_all()
 
 
 def fetch_bulk_job(store: TradingStore | None = None) -> None:
     """Bounded bulk: bootstrap gaps, BTC catch-up, full derive repair."""
     started_at = datetime.now(timezone.utc)
 
-    def _run(s: TradingStore) -> None:
+    def _run(s: TradingStore | None) -> None:
         now = datetime.now(timezone.utc)
         total_count = 0
         total_derived = 0
@@ -570,11 +869,30 @@ def fetch_bulk_job(store: TradingStore | None = None) -> None:
         asset_status: dict[str, dict] = {}
 
         for asset in list_target_assets():
-            instrument = s.get_instrument_by_symbol(asset.db_symbol)
-            if not instrument:
+            if s is not None:
+                instrument = s.get_instrument_by_symbol(asset.db_symbol)
+                if not instrument:
+                    errors.append(f"{asset.db_symbol}: instrument missing — run seed_8_assets.py")
+                    asset_status[asset.db_symbol] = {"status": "error", "error": "missing instrument"}
+                    continue
+                stored_before = s.count_candles(instrument.id, PROVIDER_TIMEFRAME)
+            else:
+                with session_scope() as check_session:
+                    check_store = TradingStore(check_session)
+                    instrument = check_store.get_instrument_by_symbol(asset.db_symbol)
+                    if not instrument:
+                        errors.append(f"{asset.db_symbol}: instrument missing — run seed_8_assets.py")
+                        asset_status[asset.db_symbol] = {"status": "error", "error": "missing instrument"}
+                        continue
+                    stored_before = check_store.count_candles(instrument.id, PROVIDER_TIMEFRAME)
+
+            if stored_before >= STRATEGY_MIN_CANDLES:
                 continue
 
-            count, derived, error = _fetch_asset_bulk(s, instrument, asset, now)
+            if s is not None:
+                count, derived, error = _fetch_asset_bulk(s, instrument, asset, now)
+            else:
+                count, derived, error = _bootstrap_asset_isolated(asset)
             if count or derived:
                 total_count += count
                 total_derived += derived
@@ -583,43 +901,91 @@ def fetch_bulk_job(store: TradingStore | None = None) -> None:
                     "candles_upserted": count,
                     "derived_upserted": derived,
                 }
+            elif error:
+                asset_status[asset.db_symbol] = {"status": "error", "error": error}
             if error:
                 errors.append(error)
 
-        btc = s.get_instrument_by_symbol("BTCUSD")
-        btc_asset = next((a for a in list_target_assets() if a.db_symbol == "BTCUSD"), None)
-        if btc and btc_asset:
-            extra_count, extra_derived = _accelerate_btc_catchup(s, btc, btc_asset, now)
-            if extra_count:
-                total_count += extra_count
-                total_derived += extra_derived
-                latest_btc = s.latest_candle_timestamp(btc.id, PROVIDER_TIMEFRAME)
-                asset_status["BTCUSD"] = {
-                    "status": "healthy",
-                    "last_candle": latest_btc.isoformat() if latest_btc else None,
-                    "candles_upserted": extra_count,
-                    "catchup_passes": BTC_CATCHUP_MAX_EXTRA_PASSES,
-                }
+        repair_timings: dict[str, float] = {}
+        for asset in list_target_assets():
+            with session_scope() as check_session:
+                check_store = TradingStore(check_session)
+                instrument = check_store.get_instrument_by_symbol(asset.db_symbol)
+                if not instrument:
+                    continue
+                stored = check_store.count_candles(instrument.id, PROVIDER_TIMEFRAME)
+                latest = check_store.latest_candle_timestamp(instrument.id, PROVIDER_TIMEFRAME)
+                h1 = check_store.count_candles(instrument.id, "1h")
 
-        s.update_settings(BULK_BOOTSTRAP_KEY, now.isoformat(), description="Last bulk fetch run")
+            if (
+                stored >= STRATEGY_MIN_CANDLES
+                and latest
+                and not is_market_data_fresh(latest, PROVIDER_TIMEFRAME, now)
+            ):
+                gap_count, gap_derived, gap_error, gap_status = _fetch_live_asset_isolated(
+                    asset, now, repair_timings
+                )
+                if gap_count or gap_derived:
+                    total_count += gap_count
+                    total_derived += gap_derived
+                    asset_status[asset.db_symbol] = gap_status
+                if gap_error and not str(gap_error).startswith("deferred"):
+                    errors.append(gap_error)
 
-        _finalize_worker_run(
-            s,
-            started_at=started_at,
-            job_name="fetch_bulk",
-            total_count=total_count,
-            total_derived=total_derived,
-            errors=errors,
-            asset_status=asset_status,
-            timings={"bulk_ms": (datetime.now(timezone.utc) - started_at).total_seconds() * 1000},
-            phase="fetch_bulk",
-        )
+            if h1 < STRATEGY_MIN_CANDLES and stored >= STRATEGY_MIN_CANDLES:
+                deepen_count, deepen_derived = _deepen_history_for_1h(asset)
+                if deepen_count or deepen_derived:
+                    total_count += deepen_count
+                    total_derived += deepen_derived
+                    with session_scope() as count_session:
+                        cs = TradingStore(count_session)
+                        inst = cs.get_instrument_by_symbol(asset.db_symbol)
+                        if inst:
+                            asset_status[asset.db_symbol] = {
+                                "status": "1h_repair",
+                                "stored_1h": cs.count_candles(inst.id, "1h"),
+                                "candles_upserted": deepen_count,
+                                "derived_upserted": deepen_derived,
+                            }
+
+        with session_scope() as btc_session:
+            btc_store = TradingStore(btc_session)
+            btc = btc_store.get_instrument_by_symbol("BTCUSD")
+            btc_asset = next((a for a in list_target_assets() if a.db_symbol == "BTCUSD"), None)
+            if btc and btc_asset:
+                extra_count, extra_derived = _accelerate_btc_catchup(btc_store, btc, btc_asset, now)
+                if extra_count:
+                    total_count += extra_count
+                    total_derived += extra_derived
+                    latest_btc = btc_store.latest_candle_timestamp(btc.id, PROVIDER_TIMEFRAME)
+                    asset_status["BTCUSD"] = {
+                        "status": "healthy",
+                        "last_candle": latest_btc.isoformat() if latest_btc else None,
+                        "candles_upserted": extra_count,
+                        "catchup_passes": BTC_CATCHUP_MAX_EXTRA_PASSES,
+                    }
+
+        with session_scope() as status_session:
+            status_store = TradingStore(status_session)
+            status_store.update_settings(
+                BULK_BOOTSTRAP_KEY, now.isoformat(), description="Last bulk fetch run"
+            )
+            _finalize_worker_run(
+                status_store,
+                started_at=started_at,
+                job_name="fetch_bulk",
+                total_count=total_count,
+                total_derived=total_derived,
+                errors=errors,
+                asset_status=asset_status,
+                timings={"bulk_ms": (datetime.now(timezone.utc) - started_at).total_seconds() * 1000},
+                phase="fetch_bulk",
+            )
 
     if store is not None:
         _run(store)
     else:
-        with session_scope() as session:
-            _run(TradingStore(session))
+        _run(None)
 
 
 def fetch_data_job(store: TradingStore | None = None) -> None:

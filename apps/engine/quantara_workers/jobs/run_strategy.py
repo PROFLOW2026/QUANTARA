@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from quantara_engine.competition.constants import TIMEFRAME_ORDER
+from quantara_engine.competition.robot_a_universe import list_robot_a_tradable_db_symbols
 from quantara_engine.core.clock import BacktestClock
 from quantara_engine.core.config import settings
 from quantara_engine.db.session import session_scope
@@ -38,7 +39,6 @@ MAX_HISTORICAL_DECISIONS_PER_RUN = 50
 LIVE_CYCLE_MAX_SECONDS = 300
 LIVE_ROBOT_A_BUDGET_SEC = 180
 LIVE_ROBOT_B_BUDGET_SEC = 90
-LIVE_PRIORITY_SYMBOLS = ("BTCUSD", "EURUSD", "XAUUSD")
 HISTORICAL_CYCLE_MAX_SECONDS = 240
 STRATEGY_STALL_THRESHOLD_MINUTES = 12
 
@@ -117,12 +117,9 @@ def _catchup_indices(
     )
 
 
-def _ordered_symbols() -> list[str]:
-    """Process liquid 24/7 competition assets before optional equity symbols."""
-    all_symbols = list_target_db_symbols()
-    priority = [sym for sym in LIVE_PRIORITY_SYMBOLS if sym in all_symbols]
-    remainder = [sym for sym in all_symbols if sym not in priority]
-    return priority + remainder
+def _robot_a_symbols() -> list[str]:
+    """Explicit Robot A tradable universe only — no global asset scan."""
+    return list(list_robot_a_tradable_db_symbols())
 
 
 def _commit_progress(s: TradingStore) -> None:
@@ -157,34 +154,7 @@ def _orb_entry_signal_for_portfolio(
     candle,
     shared_signal,
 ):
-    """ORB breakout signal is canonical; per-portfolio trade-day gate stays independent."""
-    from quantara_engine.domain.types import Signal, SignalAction
-
-    if shared_signal is None:
-        return shared_signal
-    if entry["instance"].strategy_slug != "opening-range-breakout":
-        return shared_signal
-    if shared_signal.action not in (SignalAction.BUY, SignalAction.SELL):
-        return shared_signal
-
-    from quantara_engine.strategies.opening_range_breakout.session import rth_session_date
-
-    session_date = rth_session_date(candle.timestamp)
-    if not session_date:
-        return shared_signal
-
-    trades_today = s.count_trades_on_session_date(
-        entry["portfolio"].id,
-        instrument.id,
-        session_date,
-    )
-    max_trades = 1
-    if trades_today >= max_trades:
-        return Signal(
-            action=SignalAction.HOLD,
-            reason="trade_already_taken_today",
-            metadata=dict(shared_signal.metadata or {}),
-        )
+    """ORB shared signal fan-out — position-exists gate remains in pipeline/risk."""
     return shared_signal
 
 
@@ -455,11 +425,9 @@ def _process_experiment(
         group = by_timeframe.get(timeframe, [])
         if not group:
             continue
-        orb_mode = group[0]["instance"].strategy_slug == "opening-range-breakout"
-        if per_portfolio_eval or orb_mode:
-            group = [e for e in group if e["instance"].instrument_id == instrument.id]
-            if not group:
-                continue
+        group = [e for e in group if e["instance"].instrument_id == instrument.id]
+        if not group:
+            continue
 
         broker = PaperBrokerAdapter(instrument.id, ExecutionAssumptions())
         candles_processed, decisions, tf_status = _process_timeframe_group(
@@ -530,7 +498,7 @@ def _process_competition(
         ) = _process_experiment(
             s,
             robot_a,
-            _ordered_symbols(),
+            _robot_a_symbols(),
             TIMEFRAME_ORDER,
             settings_dict,
             started_at,
@@ -577,7 +545,7 @@ def _process_competition(
         ) = _process_experiment(
             s,
             robot_a,
-            _ordered_symbols(),
+            _robot_a_symbols(),
             TIMEFRAME_ORDER,
             settings_dict,
             started_at,
@@ -852,7 +820,7 @@ def strategy_freshness_summary(store: TradingStore, now: datetime | None = None)
             pass
 
     market_ages: dict[str, float | None] = {}
-    for sym in ("BTCUSD", "EURUSD", "XAUUSD"):
+    for sym in _robot_a_symbols():
         inst = store.get_instrument_by_symbol(sym)
         if not inst:
             continue

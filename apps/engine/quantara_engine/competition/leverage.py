@@ -6,14 +6,29 @@ from decimal import Decimal
 
 from quantara_engine.competition.constants import (
     ACTIVE_COMPETITION_PORTFOLIOS,
+    ARCHIVED_XAU_COMPETITION_PORTFOLIOS,
     LEGACY_COMPETITION_PORTFOLIOS,
+)
+from quantara_engine.competition.orb_constants import (
+    ARCHIVED_ORB_PORTFOLIO_DEFS,
+    ORB_COMPETITION_PORTFOLIOS,
 )
 
 
 COMPETITION_PORTFOLIO_IDS: frozenset[str] = frozenset(
     p.portfolio_id
-    for p in (*LEGACY_COMPETITION_PORTFOLIOS, *ACTIVE_COMPETITION_PORTFOLIOS)
+    for p in (
+        *LEGACY_COMPETITION_PORTFOLIOS,
+        *ARCHIVED_XAU_COMPETITION_PORTFOLIOS,
+        *ACTIVE_COMPETITION_PORTFOLIOS,
+    )
 )
+
+ORB_PORTFOLIO_IDS: frozenset[str] = frozenset(
+    p.portfolio_id for p in (*ARCHIVED_ORB_PORTFOLIO_DEFS, *ORB_COMPETITION_PORTFOLIOS)
+)
+
+PAPER_COMPETITION_PORTFOLIO_IDS: frozenset[str] = COMPETITION_PORTFOLIO_IDS | ORB_PORTFOLIO_IDS
 
 ACTIVE_COMPETITION_PORTFOLIO_IDS: frozenset[str] = frozenset(
     p.portfolio_id for p in ACTIVE_COMPETITION_PORTFOLIOS
@@ -22,6 +37,14 @@ ACTIVE_COMPETITION_PORTFOLIO_IDS: frozenset[str] = frozenset(
 
 def is_competition_portfolio(portfolio_id: str) -> bool:
     return portfolio_id in COMPETITION_PORTFOLIO_IDS
+
+
+def is_orb_portfolio(portfolio_id: str) -> bool:
+    return portfolio_id in ORB_PORTFOLIO_IDS
+
+
+def is_paper_competition_portfolio(portfolio_id: str) -> bool:
+    return portfolio_id in PAPER_COMPETITION_PORTFOLIO_IDS
 
 
 def is_active_competition_portfolio(portfolio_id: str) -> bool:

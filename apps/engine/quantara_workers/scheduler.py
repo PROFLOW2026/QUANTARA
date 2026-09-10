@@ -19,9 +19,25 @@ from quantara_workers.scheduler_events import register_scheduler_listeners
 
 logger = logging.getLogger(__name__)
 
-# Ingest / housekeeping jobs — must never wait on strategy backlog.
-_INGEST_OPTS = {
-    "executor": "ingest",
+# fetch_live — dedicated single worker; never blocked by bulk or housekeeping.
+_FETCH_LIVE_OPTS = {
+    "executor": "fetch_live",
+    "max_instances": 1,
+    "coalesce": False,
+    "misfire_grace_time": 120,
+}
+
+# fetch_bulk — long bootstrap; must not share pool with fetch_live.
+_FETCH_BULK_OPTS = {
+    "executor": "fetch_bulk",
+    "max_instances": 1,
+    "coalesce": True,
+    "misfire_grace_time": 300,
+}
+
+# Short housekeeping jobs (execute, position marks, snapshot).
+_HOUSEKEEPING_OPTS = {
+    "executor": "housekeeping",
     "max_instances": 1,
     "coalesce": True,
     "misfire_grace_time": 120,
@@ -47,10 +63,9 @@ _HISTORICAL_STRATEGY_OPTS = {
 class WorkerScheduler:
     def __init__(self) -> None:
         executors = {
-            # Shared pool for fetch, position management, snapshot, bulk.
-            "ingest": ThreadPoolExecutor(max_workers=4),
-            # Dedicated single-worker pools so a long strategy run cannot
-            # monopolize the ingest executor or block its own live schedule.
+            "fetch_live": ThreadPoolExecutor(max_workers=1),
+            "fetch_bulk": ThreadPoolExecutor(max_workers=1),
+            "housekeeping": ThreadPoolExecutor(max_workers=3),
             "strategy_live": ThreadPoolExecutor(max_workers=1),
             "strategy_historical": ThreadPoolExecutor(max_workers=1),
         }
@@ -68,7 +83,7 @@ class WorkerScheduler:
             CronTrigger(minute="*/5", second=0),
             id="fetch_live",
             replace_existing=True,
-            **_INGEST_OPTS,
+            **_FETCH_LIVE_OPTS,
         )
         self.scheduler.add_job(
             run_strategy_job,
@@ -82,21 +97,21 @@ class WorkerScheduler:
             CronTrigger(minute="*/5", second=25),
             id="execute_intents",
             replace_existing=True,
-            **_INGEST_OPTS,
+            **_HOUSEKEEPING_OPTS,
         )
         self.scheduler.add_job(
             position_management_job,
             CronTrigger(minute="*/5", second=38),
             id="position_management",
             replace_existing=True,
-            **_INGEST_OPTS,
+            **_HOUSEKEEPING_OPTS,
         )
         self.scheduler.add_job(
             snapshot_job,
             CronTrigger(minute="*/5", second=50),
             id="snapshot",
             replace_existing=True,
-            **_INGEST_OPTS,
+            **_HOUSEKEEPING_OPTS,
         )
         self.scheduler.add_job(
             fetch_bulk_job,
@@ -104,7 +119,7 @@ class WorkerScheduler:
             minutes=30,
             id="fetch_bulk",
             replace_existing=True,
-            **_INGEST_OPTS,
+            **_FETCH_BULK_OPTS,
         )
         # Bounded historical catch-up — offset from live cycle; execution disabled.
         self.scheduler.add_job(
@@ -120,6 +135,15 @@ class WorkerScheduler:
             self.register_jobs()
             register_scheduler_listeners(self.scheduler)
             self.scheduler.start()
+            # Bootstrap any 0-candle assets immediately instead of waiting 30m for fetch_bulk.
+            self.scheduler.add_job(
+                fetch_bulk_job,
+                "date",
+                run_date=datetime.now(timezone.utc),
+                id="fetch_bulk_startup",
+                replace_existing=True,
+                executor="fetch_bulk",
+            )
             self._started = True
             logger.info("Worker scheduler started at %s", datetime.now(timezone.utc))
 
@@ -134,5 +158,5 @@ class WorkerScheduler:
             args=[backtest_run_id],
             id=f"backtest-{backtest_run_id}",
             replace_existing=True,
-            executor="ingest",
+            executor="housekeeping",
         )

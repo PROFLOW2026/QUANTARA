@@ -16,6 +16,7 @@ from sqlalchemy import text  # noqa: E402
 
 from quantara_engine.competition.constants import OWNER_ID  # noqa: E402
 from quantara_engine.competition.orb_constants import (  # noqa: E402
+    ARCHIVED_ORB_PORTFOLIO_DEFS,
     ORB_COMPETITION_DESCRIPTION,
     ORB_COMPETITION_EXPERIMENT_ID,
     ORB_COMPETITION_INITIAL_CAPITAL,
@@ -53,10 +54,16 @@ def seed_orb_competition(*, activate: bool = False) -> None:
             sys.exit(1)
         strategy_version_id = strategy_version[0]
 
-        spy = conn.execute(text("SELECT id FROM instruments WHERE symbol = 'SPY'")).first()
-        if not spy:
-            print("SPY instrument missing — run scripts/seed_8_assets.py first")
+        nvda = conn.execute(text("SELECT id FROM instruments WHERE symbol = 'NVDA'")).first()
+        if not nvda:
+            print("NVDA instrument missing — run scripts/seed_8_assets.py first")
             sys.exit(1)
+
+        for entry in ARCHIVED_ORB_PORTFOLIO_DEFS:
+            conn.execute(
+                text("UPDATE strategy_instances SET is_active = false WHERE id = :id"),
+                {"id": uuid.UUID(entry.instance_id)},
+            )
 
         conn.execute(
             text(
@@ -78,7 +85,7 @@ def seed_orb_competition(*, activate: bool = False) -> None:
                 "id": uuid.UUID(ORB_COMPETITION_EXPERIMENT_ID),
                 "name": ORB_COMPETITION_NAME_HE,
                 "description": f"{ORB_COMPETITION_SUBTITLE_HE}. {ORB_COMPETITION_DESCRIPTION}",
-                "instrument_id": spy[0],
+                "instrument_id": nvda[0],
                 "status": "draft" if not activate else "running",
                 "start_date": started_at,
             },
@@ -151,7 +158,6 @@ def seed_orb_competition(*, activate: bool = False) -> None:
                     "experiment_id": uuid.UUID(ORB_COMPETITION_EXPERIMENT_ID),
                 },
             )
-            print(f"  ORB portfolio {entry.symbol} {entry.risk_slug} active={activate}")
 
         for key, value, description in [
             (ORB_SETTINGS_EXPERIMENT_KEY, ORB_COMPETITION_EXPERIMENT_ID, "ORB experiment UUID"),

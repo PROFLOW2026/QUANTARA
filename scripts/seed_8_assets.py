@@ -69,19 +69,19 @@ def seed_8_assets() -> None:
             )
             print(f"  inserted: {asset.db_symbol}")
 
+        active_symbols = [asset.db_symbol for asset in list_target_assets()]
         conn.execute(
             text(
                 """
                 UPDATE strategies
                 SET supported_instruments = (
                   SELECT array_agg(id) FROM instruments
-                  WHERE symbol IN (
-                    'XAUUSD','EURUSD','SPY','QQQ','NVDA','AAPL','MSFT','BTCUSD'
-                  )
+                  WHERE symbol = ANY(:active_symbols)
                 )
                 WHERE slug = 'gold-trend-pullback'
                 """
-            )
+            ),
+            {"active_symbols": active_symbols},
         )
 
         conn.execute(

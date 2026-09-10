@@ -6,11 +6,9 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from quantara_engine.analytics.service import AnalyticsService
 from quantara_engine.competition.constants import (
     COMPETITION_NAME_HE,
     COMPETITION_SUBTITLE_HE,
-    COMPETITION_TOTAL_INITIAL,
     PORTFOLIO_DEF_BY_ID,
     RISK_SLUG_HE,
     TIMEFRAME_GROUP_TITLE_HE,
@@ -22,7 +20,6 @@ from quantara_engine.competition.orb_constants import (
     ORB_COMPETITION_EXPERIMENT_ID,
     ORB_COMPETITION_NAME_HE,
     ORB_COMPETITION_SUBTITLE_HE,
-    ORB_COMPETITION_TOTAL_INITIAL,
     ORB_PORTFOLIO_DEF_BY_ID,
     ORB_STRATEGY_SLUG,
 )
@@ -55,8 +52,8 @@ def _portfolio_display_name(portfolio_id: str, fallback: str) -> str:
 
 
 def _portfolio_summary(
-    store: TradingStore,
     entry: dict[str, Any],
+    batch_stats: dict[str, Any],
     *,
     robot_label: str,
     strategy_slug: str,
@@ -66,10 +63,11 @@ def _portfolio_summary(
     risk = entry["risk_profile"]
     instance = entry["instance"]
     timeframe = instance.timeframe
-    realized = store.sum_realized_pnl(portfolio.id)
-    trades_count = store.count_trades_for_portfolio(portfolio.id)
-    win_rate = store.portfolio_win_rate(portfolio.id)
-    open_positions = store.list_positions(portfolio.id, open_only=True)
+    stats = batch_stats.get(portfolio.id, {})
+    realized = stats.get("realized_pnl", Decimal("0"))
+    trades_count = stats.get("closed_trades_count", 0)
+    win_rate = stats.get("win_rate")
+    open_positions = stats.get("open_positions") or []
     exposure_pct = (
         float(portfolio.exposure_notional / portfolio.equity * 100)
         if portfolio.equity > 0
@@ -308,20 +306,44 @@ def _collect_closed_trades(store: TradingStore, robot_a_exp_id: str, robot_b_ena
     return closed_trades
 
 
+def build_competition_equity_curves(
+    store: TradingStore,
+    *,
+    limit_per_portfolio: int = 100,
+) -> dict[str, list[dict[str, Any]]]:
+    """Lazy-loaded equity curves — not included in summary response."""
+    from quantara_engine.persistence.batch_summary import batch_recent_snapshots
+
+    _, _, all_entries = store.list_all_competition_entries()
+    portfolio_ids = [e["portfolio"].id for e in all_entries]
+    curves = batch_recent_snapshots(store, portfolio_ids, limit_per_portfolio=limit_per_portfolio)
+    for entry in all_entries:
+        pid = entry["portfolio"].id
+        if not curves.get(pid):
+            curves[pid] = [
+                {
+                    "date": datetime.now(timezone.utc).isoformat(),
+                    "equity": float(entry["portfolio"].equity),
+                }
+            ]
+    return curves
+
+
 def build_competition_response(store: TradingStore) -> dict[str, Any]:
     robot_a_entries, robot_b_entries, all_entries = store.list_all_competition_entries()
-    if not robot_a_entries:
+    if not robot_a_entries and not robot_b_entries:
         return {"active": False}
 
     started_at = store.get_competition_started_at()
     robot_a_exp_id = store.get_competition_experiment_id()
     orb_enabled = bool(robot_b_entries)
-    svc = AnalyticsService()
+    portfolio_ids = [e["portfolio"].id for e in all_entries]
+    batch_stats = store.batch_portfolio_dashboard_stats(portfolio_ids)
 
     robot_a_portfolios = [
         _portfolio_summary(
-            store,
             entry,
+            batch_stats.get(entry["portfolio"].id, {}),
             robot_label=ROBOT_A_LABEL,
             strategy_slug="gold-trend-pullback",
             strategy_name="Trend Pullback",
@@ -330,8 +352,8 @@ def build_competition_response(store: TradingStore) -> dict[str, Any]:
     ]
     robot_b_portfolios = [
         _portfolio_summary(
-            store,
             entry,
+            batch_stats.get(entry["portfolio"].id, {}),
             robot_label=ROBOT_B_LABEL,
             strategy_slug=ORB_STRATEGY_SLUG,
             strategy_name="Opening Range Breakout",
@@ -340,8 +362,8 @@ def build_competition_response(store: TradingStore) -> dict[str, Any]:
     ]
     portfolios = robot_a_portfolios + robot_b_portfolios
 
-    robot_a_initial = float(COMPETITION_TOTAL_INITIAL)
-    robot_b_initial = float(ORB_COMPETITION_TOTAL_INITIAL) if orb_enabled else 0.0
+    robot_a_initial = sum(float(e["portfolio"].initial_capital) for e in robot_a_entries)
+    robot_b_initial = sum(float(e["portfolio"].initial_capital) for e in robot_b_entries)
     total_initial = robot_a_initial + robot_b_initial
     combined_equity = sum(p["equity"] for p in portfolios)
     combined_pnl = combined_equity - total_initial
@@ -362,24 +384,6 @@ def build_competition_response(store: TradingStore) -> dict[str, Any]:
         for tf in TIMEFRAME_ORDER
     ]
 
-    equity_curves: dict[str, list[dict[str, Any]]] = {}
-    for entry in all_entries:
-        pid = entry["portfolio"].id
-        state = store.load_portfolio_state(pid)
-        curve = svc.equity_curve(state.snapshots) or [
-            {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "equity": float(entry["portfolio"].equity),
-            }
-        ]
-        equity_curves[pid] = [
-            {
-                "date": c.get("timestamp", c.get("date", "")),
-                "equity": c["equity"],
-            }
-            for c in curve
-        ]
-
     leader = leaderboard[0] if leaderboard else None
     open_positions_total = sum(p["open_positions_count"] for p in portfolios)
 
@@ -394,13 +398,12 @@ def build_competition_response(store: TradingStore) -> dict[str, Any]:
     open_positions_detail = []
     for entry in all_entries:
         is_orb = entry["portfolio"].id in robot_b_portfolio_ids
-        for pos in store.list_positions(entry["portfolio"].id, open_only=True):
+        pid = entry["portfolio"].id
+        for pos in batch_stats.get(pid, {}).get("open_positions") or []:
             open_positions_detail.append(
                 {
-                    "portfolio_id": entry["portfolio"].id,
-                    "portfolio_name": _portfolio_display_name(
-                        entry["portfolio"].id, entry["portfolio"].name
-                    ),
+                    "portfolio_id": pid,
+                    "portfolio_name": _portfolio_display_name(pid, entry["portfolio"].name),
                     "robot_label": ROBOT_B_LABEL if is_orb else ROBOT_A_LABEL,
                     "strategy_slug": ORB_STRATEGY_SLUG if is_orb else "gold-trend-pullback",
                     "timeframe_he": TIMEFRAME_HE.get(entry["instance"].timeframe, entry["instance"].timeframe),
@@ -479,7 +482,8 @@ def build_competition_response(store: TradingStore) -> dict[str, Any]:
         "leaderboard": leaderboard,
         "leaderboards_by_timeframe": leaderboards_by_timeframe,
         "timeframe_comparison": timeframe_comparison,
-        "equity_curves": equity_curves,
+        "equity_curves": {},
+        "equity_curves_available": True,
         "activity": _build_activity(store, all_entries),
         "open_positions": open_positions_detail,
         "closed_trades": closed_trades,

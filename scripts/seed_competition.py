@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Seed the active 15-portfolio multi-timeframe competition experiment.
+"""Seed the active 120-portfolio multi-asset competition experiment.
 
-Preserves the legacy 5-portfolio experiment (archived, not deleted).
+Preserves legacy/archived experiments (not deleted).
 """
 
 from __future__ import annotations
@@ -21,6 +21,8 @@ from sqlalchemy import text  # noqa: E402
 from quantara_engine.competition.constants import (  # noqa: E402
     ACTIVE_COMPETITION_EXPERIMENT_ID,
     ACTIVE_COMPETITION_PORTFOLIOS,
+    ARCHIVED_XAU_COMPETITION_EXPERIMENT_ID,
+    ARCHIVED_XAU_COMPETITION_PORTFOLIOS,
     COMPETITION_DESCRIPTION,
     COMPETITION_INITIAL_CAPITAL,
     COMPETITION_NAME_HE,
@@ -36,18 +38,18 @@ def _json(value: object) -> str:
     return json.dumps(value)
 
 
+def _deactivate_instances(conn, entries) -> None:
+    for entry in entries:
+        conn.execute(
+            text("UPDATE strategy_instances SET is_active = false WHERE id = :id"),
+            {"id": uuid.UUID(entry.instance_id)},
+        )
+
+
 def seed_competition() -> None:
     started_at = datetime.now(timezone.utc)
 
     with engine.begin() as conn:
-        instrument = conn.execute(
-            text("SELECT id FROM instruments WHERE symbol = 'XAUUSD'"),
-        ).first()
-        if not instrument:
-            print("XAUUSD instrument missing — run scripts/seed.py first")
-            sys.exit(1)
-        instrument_id = instrument[0]
-
         strategy_version = conn.execute(
             text(
                 """
@@ -62,31 +64,33 @@ def seed_competition() -> None:
             sys.exit(1)
         strategy_version_id = strategy_version[0]
 
-        # Archive legacy 5-portfolio experiment (preserve rows).
-        conn.execute(
-            text(
-                """
-                UPDATE experiments
-                SET status = 'completed', end_date = COALESCE(end_date, NOW())
-                WHERE id = :id
-                """
-            ),
-            {"id": uuid.UUID(LEGACY_COMPETITION_EXPERIMENT_ID)},
-        )
+        xau = conn.execute(text("SELECT id FROM instruments WHERE symbol = 'XAUUSD'")).first()
+        if not xau:
+            print("Run scripts/seed_8_assets.py first")
+            sys.exit(1)
 
-        for entry in LEGACY_COMPETITION_PORTFOLIOS:
+        for exp_id, archive in (
+            (LEGACY_COMPETITION_EXPERIMENT_ID, True),
+            (ARCHIVED_XAU_COMPETITION_EXPERIMENT_ID, True),
+        ):
             conn.execute(
                 text(
                     """
-                    UPDATE strategy_instances
-                    SET is_active = false
+                    UPDATE experiments
+                    SET status = 'completed', end_date = COALESCE(end_date, NOW())
                     WHERE id = :id
                     """
                 ),
-                {"id": uuid.UUID(entry.instance_id)},
+                {"id": uuid.UUID(exp_id)},
             )
+            if archive:
+                portfolios = (
+                    LEGACY_COMPETITION_PORTFOLIOS
+                    if exp_id == LEGACY_COMPETITION_EXPERIMENT_ID
+                    else ARCHIVED_XAU_COMPETITION_PORTFOLIOS
+                )
+                _deactivate_instances(conn, portfolios)
 
-        # Active 15-portfolio experiment — always a fresh start timestamp.
         conn.execute(
             text(
                 """
@@ -107,18 +111,27 @@ def seed_competition() -> None:
                 "id": uuid.UUID(ACTIVE_COMPETITION_EXPERIMENT_ID),
                 "name": COMPETITION_NAME_HE,
                 "description": f"{COMPETITION_SUBTITLE_HE}. {COMPETITION_DESCRIPTION}",
-                "instrument_id": instrument_id,
+                "instrument_id": xau[0],
                 "start_date": started_at,
             },
         )
 
         for entry in ACTIVE_COMPETITION_PORTFOLIOS:
+            inst = conn.execute(
+                text("SELECT id FROM instruments WHERE symbol = :sym"),
+                {"sym": entry.symbol},
+            ).first()
+            if not inst:
+                print(f"Instrument {entry.symbol} missing — run scripts/seed_8_assets.py")
+                sys.exit(1)
+            instrument_id = inst[0]
+
             risk_row = conn.execute(
                 text("SELECT id FROM risk_profiles WHERE slug = :slug"),
                 {"slug": entry.risk_slug},
             ).first()
             if not risk_row:
-                print(f"Risk profile {entry.risk_slug} missing — run migration 0002 first")
+                print(f"Risk profile {entry.risk_slug} missing")
                 sys.exit(1)
             risk_profile_id = risk_row[0]
 
@@ -158,6 +171,7 @@ def seed_competition() -> None:
                     ON CONFLICT (id) DO UPDATE SET
                       is_active = true,
                       experiment_id = EXCLUDED.experiment_id,
+                      instrument_id = EXCLUDED.instrument_id,
                       risk_profile_id = EXCLUDED.risk_profile_id,
                       timeframe = EXCLUDED.timeframe
                     """
@@ -172,15 +186,12 @@ def seed_competition() -> None:
                     "experiment_id": uuid.UUID(ACTIVE_COMPETITION_EXPERIMENT_ID),
                 },
             )
-            print(
-                f"  Portfolio {entry.portfolio_id} tf={entry.timeframe} risk={entry.risk_slug}"
-            )
 
         for key, value, description in [
             (
                 "competition_experiment_id",
                 ACTIVE_COMPETITION_EXPERIMENT_ID,
-                "Active multi-timeframe competition experiment UUID",
+                "Active multi-asset competition experiment UUID",
             ),
             (
                 "competition_started_at",
@@ -208,12 +219,9 @@ def seed_competition() -> None:
             )
 
     print("Competition seed completed.")
-    print(f"  Legacy experiment archived: {LEGACY_COMPETITION_EXPERIMENT_ID}")
     print(f"  Active experiment: {ACTIVE_COMPETITION_EXPERIMENT_ID}")
+    print(f"  Portfolios: {len(ACTIVE_COMPETITION_PORTFOLIOS)} × ${COMPETITION_INITIAL_CAPITAL}")
     print(f"  Common start: {started_at.isoformat()}")
-    print(
-        f"  Portfolios: {len(ACTIVE_COMPETITION_PORTFOLIOS)} × ${COMPETITION_INITIAL_CAPITAL}"
-    )
 
 
 if __name__ == "__main__":

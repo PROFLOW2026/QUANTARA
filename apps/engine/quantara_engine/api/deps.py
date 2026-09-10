@@ -2,14 +2,20 @@
 
 from collections.abc import Generator
 
-from fastapi import Header, HTTPException, status
+from fastapi import Header, HTTPException, Request, status
 
 from quantara_engine.core.config import settings
 from quantara_engine.db.session import session_scope
 from quantara_engine.persistence.store import TradingStore
 
 
-def verify_api_key(x_api_key: str | None = Header(default=None)) -> str:
+def verify_api_key(
+    request: Request,
+    x_api_key: str | None = Header(default=None),
+) -> str:
+    # Preflight must succeed before the browser sends X-API-Key.
+    if request.method == "OPTIONS":
+        return x_api_key or ""
     if not x_api_key or x_api_key != settings.quantara_api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
