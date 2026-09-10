@@ -1563,6 +1563,60 @@ class TradingStore:
                 row.peak_equity = portfolio.peak_equity
             self.session.flush()
 
+    def update_portfolios_equity_snapshot_batch(
+        self,
+        portfolios: list[Portfolio],
+        *,
+        chunk_size: int = 15,
+    ) -> None:
+        """Mark-to-market snapshot write — never overwrite balance (realized ledger)."""
+        if not portfolios:
+            return
+        portfolios = sorted(portfolios, key=lambda p: p.id)
+        for offset in range(0, len(portfolios), chunk_size):
+            chunk = portfolios[offset : offset + chunk_size]
+            ids = [_uuid(p.id) for p in chunk]
+            rows = {
+                _str_id(row.id): row
+                for row in self.session.scalars(
+                    select(OrmPortfolio).where(OrmPortfolio.id.in_(ids))
+                ).all()
+            }
+            for portfolio in chunk:
+                row = rows.get(portfolio.id)
+                if not row:
+                    continue
+                row.unrealized_pnl = portfolio.unrealized_pnl
+                row.equity = (row.balance + portfolio.unrealized_pnl).quantize(Decimal("0.01"))
+                row.exposure_notional = portfolio.exposure_notional
+                row.reserved_capital = portfolio.reserved_capital
+                if row.equity > row.peak_equity:
+                    row.peak_equity = row.equity
+            self.session.flush()
+
+    def trade_exists_for_position(self, position_id: str) -> bool:
+        row = self.session.scalar(
+            select(OrmTrade.id).where(OrmTrade.position_id == _uuid(position_id)).limit(1)
+        )
+        return row is not None
+
+    def sum_realized_pnl_for_portfolio_ids(self, portfolio_ids: list[str]) -> dict[str, Decimal]:
+        if not portfolio_ids:
+            return {}
+        ids = [_uuid(pid) for pid in portfolio_ids]
+        rows = self.session.execute(
+            select(
+                OrmTrade.portfolio_id,
+                func.coalesce(func.sum(OrmTrade.realized_pnl), 0),
+            )
+            .where(
+                OrmTrade.portfolio_id.in_(ids),
+                OrmTrade.backtest_run_id.is_(None),
+            )
+            .group_by(OrmTrade.portfolio_id)
+        ).all()
+        return {_str_id(row[0]): Decimal(str(row[1])) for row in rows}
+
     def update_open_position_marks_batch(
         self,
         updates: list[tuple[str, Decimal, Decimal]],
@@ -1989,6 +2043,8 @@ class TradingStore:
             quantity=position.quantity,
             position_id=position.id,
         )
+        if self.trade_exists_for_position(position.id):
+            return
         self.update_position_closed(position.id, filled_at, fill.fill_price, flush=flush)
         self.save_trade(trade)
         self.update_portfolio(portfolio_state.portfolio, flush=flush)
@@ -2002,7 +2058,12 @@ class TradingStore:
         """Persist exit bundles in lock order: orders/fills → position closes → trades → portfolios."""
         if not bundles:
             return
-        bundles = sorted(bundles, key=lambda b: b["position"].id)
+        bundles = sorted(
+            [b for b in bundles if not self.trade_exists_for_position(b["position"].id)],
+            key=lambda b: b["position"].id,
+        )
+        if not bundles:
+            return
         fill_rows: list[tuple[str, str, FillResult, datetime, Decimal, str]] = []
         closes: list[tuple[str, datetime, Decimal | None]] = []
         portfolios: dict[str, Portfolio] = {}

@@ -117,6 +117,8 @@ class PortfolioState:
         exit_reason: ExitReason,
         closed_at: datetime,
     ) -> Trade:
+        if position.status == PositionStatus.CLOSED:
+            raise ValueError(f"position {position.id} already closed")
         position.status = PositionStatus.CLOSED
         position.closed_at = closed_at
         g = gross_pnl(position.direction, position.entry_price, fill.fill_price, position.quantity)

@@ -108,13 +108,17 @@ def _catchup_indices(
     now: datetime,
 ) -> list[int]:
     processed = s.fully_processed_candle_timestamps(instance_ids, instrument_id)
-    return list_catchup_candle_indices(
+    indices = list_catchup_candle_indices(
         candles,
         timeframe,
         last_processed=None,
         now=now,
         processed_timestamps=processed,
     )
+    competition_floor = s.get_competition_started_at()
+    if competition_floor is not None:
+        indices = [i for i in indices if candles[i].timestamp >= competition_floor]
+    return indices
 
 
 def _robot_a_symbols() -> list[str]:
