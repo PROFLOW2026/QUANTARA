@@ -214,13 +214,13 @@ class CandleProcessor:
             self.store.save_trade(trade)
             self.store.sync_portfolios_financial_state_from_ledger([self.state.portfolio], flush=False)
         elif side == "entry":
-            self.store.update_portfolios_equity_snapshot_batch([self.state.portfolio])
+            self.store.sync_portfolios_financial_state_from_ledger([self.state.portfolio], flush=False)
         self._flush_store()
 
     def _persist_snapshot(self, snap) -> None:
         if not self.store:
             return
-        self.store.update_portfolios_equity_snapshot_batch([self.state.portfolio])
+        self.store.sync_portfolios_financial_state_from_ledger([self.state.portfolio], flush=False)
         self.store.save_snapshot(snap)
         self._flush_store()
 

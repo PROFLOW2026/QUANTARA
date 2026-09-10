@@ -59,8 +59,8 @@ def _run_batch_snapshots(s: TradingStore, entries: list[dict], started_at: datet
     open_by_portfolio = batch_open_positions_by_portfolio(s, portfolio_ids)
     marks_by_pair = _batch_marks(s, entries, open_by_portfolio)
 
-    snapshots = []
-    portfolios_to_update = []
+    mark_updates: list[tuple[str, Decimal, Decimal]] = []
+    states: list[PortfolioState] = []
 
     for entry in entries:
         portfolio = entry["portfolio"]
@@ -72,22 +72,19 @@ def _run_batch_snapshots(s: TradingStore, entries: list[dict], started_at: datet
             for pos in state.open_positions()
             if (pos.instrument_id, tf) in marks_by_pair
         }
-        db_balance = portfolio.balance
         if marks:
             state.recalculate_equity(marks)
-        else:
-            state.portfolio.unrealized_pnl = Decimal("0")
-            state.portfolio.exposure_notional = Decimal("0")
-            state.portfolio.reserved_capital = Decimal("0")
-        state.portfolio.balance = db_balance
-        state.portfolio.equity = (db_balance + state.portfolio.unrealized_pnl).quantize(
-            Decimal("0.01")
-        )
+            for pos in state.open_positions():
+                mark_updates.append((pos.id, pos.current_price, pos.unrealized_pnl))
+        states.append(state)
 
-        snapshots.append(state.create_snapshot(started_at))
-        portfolios_to_update.append(state.portfolio)
+    if mark_updates:
+        s.update_open_position_marks_batch(mark_updates)
 
-    s.update_portfolios_equity_snapshot_batch(portfolios_to_update)
+    portfolios = [entry["portfolio"] for entry in entries]
+    s.sync_portfolios_financial_state_from_ledger(portfolios, flush=False)
+
+    snapshots = [state.create_snapshot(started_at) for state in states]
     s.save_snapshots_batch(snapshots)
     s.flush()
     return len(portfolio_ids)

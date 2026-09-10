@@ -188,7 +188,7 @@ def _persist_marks(
         store.update_open_position_mark(
             pos.id, pos.current_price, pos.unrealized_pnl, flush=flush
         )
-    store.update_portfolios_equity_snapshot_batch([state.portfolio])
+    store.sync_portfolios_financial_state_from_ledger([state.portfolio], flush=flush)
 
 
 def process_position_management(
