@@ -20,7 +20,9 @@ from quantara_engine.domain.types import (
     new_id,
 )
 from quantara_engine.execution.fill_calculator import FillResult
+from quantara_engine.portfolio.currency import CurrencyContext
 from quantara_engine.portfolio.pnl import (
+    exposure_notional_account,
     gross_pnl,
     net_pnl,
     update_position_unrealized,
@@ -57,22 +59,22 @@ class PortfolioState:
             return mark_price.get(position.instrument_id, position.current_price)
         return mark_price
 
-    def recalculate_equity(self, mark_price: Decimal | dict[str, Decimal]) -> None:
+    def recalculate_equity(
+        self,
+        mark_price: Decimal | dict[str, Decimal],
+        currency: CurrencyContext | None = None,
+    ) -> None:
+        ctx = currency or CurrencyContext.usd_only()
         total_unrealized = Decimal("0")
         for pos in self.open_positions():
             mark = self._mark_for_position(pos, mark_price)
-            total_unrealized += update_position_unrealized(pos, mark)
+            inst = ctx.instrument_for(pos)
+            total_unrealized += update_position_unrealized(pos, mark, inst, ctx.fx_rates)
         self.portfolio.unrealized_pnl = total_unrealized.quantize(Decimal("0.01"))
         self.portfolio.equity = (self.portfolio.balance + self.portfolio.unrealized_pnl).quantize(
             Decimal("0.01")
         )
-        exp = sum(
-            (
-                pos.quantity * self._mark_for_position(pos, mark_price)
-                for pos in self.open_positions()
-            ),
-            Decimal("0"),
-        ).quantize(Decimal("0.01"))
+        exp = exposure_notional_account(self.open_positions(), mark_price, ctx)
         self.portfolio.exposure_notional = exp
         self.portfolio.reserved_capital = exp
         if self.portfolio.equity > self.portfolio.peak_equity:
@@ -116,12 +118,22 @@ class PortfolioState:
         fill: FillResult,
         exit_reason: ExitReason,
         closed_at: datetime,
+        currency: CurrencyContext | None = None,
     ) -> Trade:
         if position.status == PositionStatus.CLOSED:
             raise ValueError(f"position {position.id} already closed")
+        ctx = currency or CurrencyContext.usd_only()
+        inst = ctx.instrument_for(position)
         position.status = PositionStatus.CLOSED
         position.closed_at = closed_at
-        g = gross_pnl(position.direction, position.entry_price, fill.fill_price, position.quantity)
+        g = gross_pnl(
+            position.direction,
+            position.entry_price,
+            fill.fill_price,
+            position.quantity,
+            inst,
+            ctx.fx_rates,
+        )
         fees_total = position.entry_fees + fill.fees
         realized = net_pnl(g, position.entry_fees, fill.fees)
         duration = int((closed_at - (position.opened_at or closed_at)).total_seconds())

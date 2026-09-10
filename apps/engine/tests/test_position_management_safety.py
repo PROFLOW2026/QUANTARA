@@ -65,6 +65,14 @@ class _FakeStore:
         for portfolio in portfolios:
             self.state.portfolio = portfolio
 
+    def build_currency_context_for_instruments(self, instruments):
+        from quantara_engine.portfolio.currency import CurrencyContext, FxRateTable
+
+        return CurrencyContext(
+            {i.id: i for i in instruments},
+            FxRateTable.usd_only(),
+        )
+
     def persist_exit_execution(self, **kwargs):
         self.last_exit = kwargs
 

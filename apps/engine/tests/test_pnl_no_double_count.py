@@ -3,10 +3,10 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from quantara_engine.domain.types import Direction, ExecutionAssumptions, ExitReason
+from quantara_engine.domain.types import Direction, ExecutionAssumptions, ExitReason, Instrument, Mode, Portfolio
 from quantara_engine.execution.fill_calculator import calculate_fill_price
+from quantara_engine.portfolio.currency import FxRateTable
 from quantara_engine.portfolio.pnl import gross_pnl, net_pnl
-from quantara_engine.domain.types import Mode, Portfolio
 from quantara_engine.portfolio.service import PortfolioState
 
 
@@ -60,7 +60,15 @@ def test_net_pnl_subtracts_fees_only_not_spread_twice():
     exit_ = calculate_fill_price(
         Direction.LONG, "exit", Decimal("2660"), Decimal("1"), ExecutionAssumptions()
     )
-    g = gross_pnl(Direction.LONG, entry.fill_price, exit_.fill_price, Decimal("1"))
+    xau = Instrument(id="xau", symbol="XAUUSD", name="XAU/USD", quote_currency="USD")
+    g = gross_pnl(
+        Direction.LONG,
+        entry.fill_price,
+        exit_.fill_price,
+        Decimal("1"),
+        xau,
+        FxRateTable.usd_only(),
+    )
     n = net_pnl(g, entry.fees, exit_.fees)
     # spread already in fill prices — net only subtracts explicit fees
     assert n == g - entry.fees - exit_.fees

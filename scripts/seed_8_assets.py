@@ -50,7 +50,11 @@ def seed_8_assets() -> None:
                     "name": asset.display_symbol,
                     "asset_class": asset.asset_class.value,
                     "base": asset.display_symbol.split("/")[0] if "/" in asset.display_symbol else asset.db_symbol,
-                    "quote": "USD",
+                    "quote": (
+                        asset.display_symbol.split("/")[1]
+                        if "/" in asset.display_symbol
+                        else "USD"
+                    ),
                     "pip_size": Decimal(asset.pip_size),
                     "tick": Decimal(asset.price_tick_size),
                     "step": Decimal(asset.quantity_step),

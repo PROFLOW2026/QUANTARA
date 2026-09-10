@@ -1,11 +1,14 @@
-"""GBPJPY FX sizing — risk-to-stop in USD account."""
+"""GBPJPY FX sizing — risk-to-stop in USD account (canonical quote=JPY)."""
 
 from decimal import Decimal
 
 import pytest
 
 from quantara_engine.domain.types import Instrument, Mode, Portfolio, RiskProfile
+from quantara_engine.portfolio.currency import FxRateTable
 from quantara_engine.risk.sizing import compute_position_size, fx_risk_usd
+
+FX_150 = FxRateTable.with_jpy(Decimal("150"))
 
 
 def _gbpjpy_instrument() -> Instrument:
@@ -15,7 +18,7 @@ def _gbpjpy_instrument() -> Instrument:
         name="GBP/JPY",
         asset_class="forex",
         base_currency="GBP",
-        quote_currency="USD",
+        quote_currency="JPY",
         pip_size=Decimal("0.01"),
         contract_size=Decimal("100000"),
         price_tick_size=Decimal("0.001"),
@@ -73,6 +76,7 @@ def test_gbpjpy_risk_tiers_approximate_target(risk_pct, expected_target, expecte
         [],
         entry,
         allow_virtual_leverage=True,
+        fx_rates=FX_150,
     )
     assert denial is None
     assert qty >= instrument.min_quantity
@@ -95,6 +99,7 @@ def test_gbpjpy_not_denied_below_minimum():
         [],
         entry,
         allow_virtual_leverage=True,
+        fx_rates=FX_150,
     )
     assert denial is None
     assert qty == Decimal("2000")
@@ -102,5 +107,5 @@ def test_gbpjpy_not_denied_below_minimum():
 
 def test_fx_risk_usd_jpy_quote():
     instrument = _gbpjpy_instrument()
-    risk = fx_risk_usd(Decimal("1000"), Decimal("1.50"), instrument)
+    risk = fx_risk_usd(Decimal("1000"), Decimal("1.50"), instrument, FX_150)
     assert risk == Decimal("10.00")

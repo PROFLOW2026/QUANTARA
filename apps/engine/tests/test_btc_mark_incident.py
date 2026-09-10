@@ -11,6 +11,7 @@ from quantara_engine.domain.types import (
     Position,
     PositionStatus,
 )
+from quantara_engine.portfolio.currency import CurrencyContext, FxRateTable
 from quantara_engine.portfolio.pnl import unrealized_pnl
 from quantara_engine.portfolio.service import PortfolioState
 
@@ -51,17 +52,27 @@ def _xau_position() -> Position:
     )
 
 
+def _btc_inst() -> Instrument:
+    return Instrument(id="btc-id", symbol="BTCUSD", name="BTC/USD", quote_currency="USD")
+
+
+def _xau_inst() -> Instrument:
+    return Instrument(id="xau-id", symbol="XAUUSD", name="XAU/USD", quote_currency="USD")
+
+
 def test_snapshot_xau_mark_must_not_mark_btc_positions():
     """Reproduce incident: XAU mark applied to BTC short inflates unrealized P&L."""
     entry = Decimal("78436.3395666")
     qty = Decimal("0.0296")
     xau_mark = Decimal("4390.88154")  # exact XAU 1h close from incident
 
-    wrong = unrealized_pnl(Direction.SHORT, entry, xau_mark, qty)
+    btc = _btc_inst()
+    fx = FxRateTable.usd_only()
+    wrong = unrealized_pnl(Direction.SHORT, entry, xau_mark, qty, btc, fx)
     assert wrong == Decimal("2191.75")
 
     btc_mark = Decimal("78545.48")
-    correct = unrealized_pnl(Direction.SHORT, entry, btc_mark, qty)
+    correct = unrealized_pnl(Direction.SHORT, entry, btc_mark, qty, btc, fx)
     assert correct < Decimal("0")
     assert correct == Decimal("-3.23")
 
@@ -83,7 +94,11 @@ def test_recalculate_equity_uses_instrument_scoped_marks():
         "btc-id": Decimal("78545.48"),
         "xau-id": Decimal("4390.88154"),
     }
-    state.recalculate_equity(marks)
+    ctx = CurrencyContext(
+        {"btc-id": _btc_inst(), "xau-id": _xau_inst()},
+        FxRateTable.usd_only(),
+    )
+    state.recalculate_equity(marks, ctx)
 
     btc = next(p for p in state.positions if p.instrument_id == "btc-id")
     xau = next(p for p in state.positions if p.instrument_id == "xau-id")
@@ -110,7 +125,8 @@ def test_single_instrument_mark_dict_does_not_cross_contaminate():
     state.positions[0].current_price = Decimal("4390.88154")
     state.positions[0].unrealized_pnl = Decimal("2191.75")
 
-    state.recalculate_equity({"btc-id": Decimal("78545.48")})
+    ctx = CurrencyContext({"btc-id": _btc_inst()}, FxRateTable.usd_only())
+    state.recalculate_equity({"btc-id": Decimal("78545.48")}, ctx)
     assert state.positions[0].current_price == Decimal("78545.48")
     assert state.positions[0].unrealized_pnl == Decimal("-3.23")
 

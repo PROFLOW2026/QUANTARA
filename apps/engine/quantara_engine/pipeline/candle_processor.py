@@ -30,6 +30,7 @@ from quantara_engine.execution.timing import freshness_max_age_minutes, live_fil
 from quantara_engine.market_data.polling import timeframe_minutes
 from quantara_engine.market_data.registry import get_asset
 from quantara_engine.market_data.sessions import session_allows_entries
+from quantara_engine.portfolio.currency import CurrencyContext
 from quantara_engine.portfolio.service import PortfolioState
 from quantara_engine.risk.engine import RiskEngine, RiskEvaluationInput
 from quantara_engine.strategies.base import BaseStrategy
@@ -119,6 +120,11 @@ class CandleProcessor:
         self.all_candles: list[Candle] = []
         self.decisions: list[DecisionLogEntry] = []
         self._persisted_intents: set[str] = set()
+
+    def _currency_context(self) -> CurrencyContext:
+        if self.store:
+            return self.store.build_currency_context_for_instruments([self.instrument])
+        return CurrencyContext.usd_only({self.instrument.id: self.instrument})
 
     def _strategy(self) -> BaseStrategy:
         cls = get(self.instance.strategy_slug, self.instance.strategy_version)
@@ -283,7 +289,8 @@ class CandleProcessor:
         candle = self.all_candles[candle_index]
         self._execute_pending(candle)
         self._check_sl_tp(candle)
-        self.state.recalculate_equity({self.instrument.id: candle.close})
+        ctx = self._currency_context()
+        self.state.recalculate_equity({self.instrument.id: candle.close}, ctx)
         if self.store:
             for pos in self.state.open_positions():
                 self.store.update_open_position_mark(
@@ -317,7 +324,8 @@ class CandleProcessor:
             #    and snapshot_job to avoid 160-row portfolio lock storms during strategy eval.
             if self.manage_exits:
                 self._check_sl_tp(candle)
-                self.state.recalculate_equity({self.instrument.id: candle.close})
+                ctx = self._currency_context()
+                self.state.recalculate_equity({self.instrument.id: candle.close}, ctx)
                 if self.store:
                     for pos in self.state.open_positions():
                         self.store.update_open_position_mark(
@@ -450,7 +458,11 @@ class CandleProcessor:
                 if position:
                     order, fill = self.broker.execute_entry(intent, candle)
                     trade = self.state.close_position(
-                        position, fill, ExitReason.STRATEGY, candle.timestamp
+                        position,
+                        fill,
+                        ExitReason.STRATEGY,
+                        candle.timestamp,
+                        self._currency_context(),
                     )
                     intent.status = IntentStatus.EXECUTED
                     self._persist_execution(intent, order, fill, "exit", candle, position, trade)
@@ -491,7 +503,9 @@ class CandleProcessor:
                 self.state.portfolio.id,
                 gap_exit=gap_exit,
             )
-            trade = self.state.close_position(position, fill, reason, candle.timestamp)
+            trade = self.state.close_position(
+                position, fill, reason, candle.timestamp, self._currency_context()
+            )
             self._persist_execution(None, order, fill, "exit", candle, position, trade)
             if reason == ExitReason.SL:
                 self._log(candle, DecisionType.SL_TRIGGERED, f"SL hit at {trigger_price}")
@@ -557,6 +571,7 @@ class CandleProcessor:
         if signal.metadata and "atr" in signal.metadata:
             atr_value = Decimal(str(signal.metadata["atr"]))
 
+        ctx = self._currency_context()
         decision = self.risk_engine.evaluate(
             RiskEvaluationInput(
                 signal=signal,
@@ -568,6 +583,7 @@ class CandleProcessor:
                 instrument=self.instrument,
                 signal_id=signal_id,
                 atr_value=atr_value,
+                fx_rates=ctx.fx_rates,
             )
         )
 
@@ -638,6 +654,7 @@ class CandleProcessor:
         )
 
     def _handle_close_signal(self, signal, candle: Candle, signal_id: str) -> None:
+        ctx = self._currency_context()
         decision = self.risk_engine.evaluate(
             RiskEvaluationInput(
                 signal=signal,
@@ -648,6 +665,7 @@ class CandleProcessor:
                 current_candle=candle,
                 instrument=self.instrument,
                 signal_id=signal_id,
+                fx_rates=ctx.fx_rates,
             )
         )
         if decision.approved and decision.intent:

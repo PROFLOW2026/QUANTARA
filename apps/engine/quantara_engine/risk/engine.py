@@ -21,6 +21,7 @@ from quantara_engine.domain.types import (
     IntentStatus,
     new_id,
 )
+from quantara_engine.portfolio.currency import FxRateTable
 from quantara_engine.risk.sizing import compute_position_size
 from quantara_engine.competition.leverage import is_paper_competition_portfolio
 
@@ -37,6 +38,7 @@ class RiskEvaluationInput:
     signal_id: str = ""
     all_active_instances: list[StrategyInstance] = field(default_factory=list)
     atr_value: Optional[Decimal] = None
+    fx_rates: FxRateTable | None = None
 
 
 @dataclass
@@ -197,6 +199,7 @@ class RiskEngine:
             open_positions=inp.open_positions,
             mark_price=mark,
             allow_virtual_leverage=virtual_leverage,
+            fx_rates=inp.fx_rates,
         )
 
         if deny:

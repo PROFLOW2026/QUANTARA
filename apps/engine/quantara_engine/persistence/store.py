@@ -487,6 +487,98 @@ class TradingStore:
         row = self.session.get(OrmInstrument, _uuid(instrument_id))
         return self._instrument_to_domain(row) if row else None
 
+    def resolve_jpy_per_usd(self) -> Decimal:
+        """Live JPY per 1 USD from USDJPY latest 5m candle, with provider fallback."""
+        from quantara_engine.persistence.batch_summary import batch_latest_candle_closes
+        from quantara_engine.portfolio.currency import USDJPY_DB_SYMBOL, usdjpy_instrument_row
+
+        self.ensure_usdjpy_conversion_instrument()
+        row = self.session.scalar(
+            select(OrmInstrument).where(OrmInstrument.symbol == USDJPY_DB_SYMBOL)
+        )
+        if not row:
+            raise ValueError("USDJPY conversion instrument missing")
+        closes = batch_latest_candle_closes(self, [str(row.id)], "5m")
+        if closes:
+            return closes[str(row.id)]
+        return self._fetch_usdjpy_rate_from_provider(str(row.id))
+
+    def _fetch_usdjpy_rate_from_provider(self, instrument_id: str) -> Decimal:
+        from quantara_engine.market_data.adapters.twelvedata import TwelveDataMarketDataProvider
+        from quantara_engine.market_data.registry import AssetDefinition, AssetClass, ProviderName
+        from quantara_engine.portfolio.currency import USDJPY_PROVIDER_SYMBOL
+
+        asset = AssetDefinition(
+            canonical_symbol="USD/JPY",
+            db_symbol=USDJPY_DB_SYMBOL,
+            display_symbol="USD/JPY",
+            asset_class=AssetClass.FOREX,
+            primary_provider=ProviderName.TWELVE_DATA,
+            secondary_provider=None,
+            provider_symbols={ProviderName.TWELVE_DATA.value: USDJPY_PROVIDER_SYMBOL},
+            trading_sessions={"sessions": ["24x5"]},
+            pip_size="0.01",
+            price_tick_size="0.001",
+            quantity_step="1000",
+            min_quantity="1000",
+        )
+        provider = TwelveDataMarketDataProvider(store=self, caller="fx_rate", asset=asset)
+        candles = provider.fetch_latest(instrument_id, "5m")
+        if not candles:
+            raise ValueError("Unable to resolve USDJPY rate from DB or provider")
+        return candles[-1].close
+
+    def ensure_usdjpy_conversion_instrument(self) -> None:
+        from quantara_engine.portfolio.currency import USDJPY_DB_SYMBOL, usdjpy_instrument_row
+
+        existing = self.session.scalar(
+            select(OrmInstrument).where(OrmInstrument.symbol == USDJPY_DB_SYMBOL)
+        )
+        if existing:
+            return
+        meta = usdjpy_instrument_row()
+        self.session.add(
+            OrmInstrument(
+                id=meta["id"],
+                symbol=meta["symbol"],
+                name=meta["name"],
+                asset_class=meta["asset_class"],
+                base_currency=meta["base_currency"],
+                quote_currency=meta["quote_currency"],
+                pip_size=Decimal("0.01"),
+                contract_size=Decimal("1"),
+                price_tick_size=Decimal("0.001"),
+                quantity_step=Decimal("1000"),
+                min_quantity=Decimal("1000"),
+                is_active=False,
+            )
+        )
+        self.session.flush()
+
+    def fix_gbpjpy_instrument_metadata(self) -> bool:
+        row = self.session.scalar(
+            select(OrmInstrument).where(OrmInstrument.symbol == "GBPJPY")
+        )
+        if not row:
+            return False
+        changed = False
+        if row.base_currency != "GBP":
+            row.base_currency = "GBP"
+            changed = True
+        if row.quote_currency != "JPY":
+            row.quote_currency = "JPY"
+            changed = True
+        if changed:
+            self.session.flush()
+        return changed
+
+    def build_currency_context_for_instruments(
+        self, instruments: list[Instrument]
+    ) -> "CurrencyContext":
+        from quantara_engine.portfolio.currency import build_currency_context
+
+        return build_currency_context(self, instruments)
+
     def get_active_strategy_instance(self, portfolio_id: str) -> StrategyInstance | None:
         row = self.session.scalar(
             select(OrmStrategyInstance).where(

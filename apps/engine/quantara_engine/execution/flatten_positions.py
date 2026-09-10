@@ -61,6 +61,7 @@ def process_flatten_cycle(
     instance_by_id: dict[str, StrategyInstance],
     instrument_cache: dict[str, Instrument | None],
     pending_exits: list[dict[str, Any]],
+    currency=None,
 ) -> dict[str, Any]:
     """
     Attempt owner flatten closes for open positions when market is tradable.
@@ -71,9 +72,17 @@ def process_flatten_cycle(
     if control.state != TradingControlState.FLATTENING:
         return {"flatten_attempted": 0, "flatten_closed": 0, "awaiting_reopen": []}
 
+    from quantara_engine.portfolio.currency import CurrencyContext, build_currency_context
+
     attempted = 0
     closed = 0
     awaiting: set[str] = set()
+    def _context_for(instrument: Instrument):
+        if currency is not None:
+            return currency
+        if isinstance(getattr(instrument, "quote_currency", None), str):
+            return build_currency_context(store, [instrument])
+        return CurrencyContext.usd_only({instrument.id: instrument})
 
     for pid, positions in open_by_portfolio.items():
         state = portfolio_states.get(pid)
@@ -110,7 +119,9 @@ def process_flatten_cycle(
                 state.portfolio.id,
                 gap_exit=True,
             )
-            trade = state.close_position(open_pos, fill, ExitReason.MANUAL, candle.timestamp)
+            trade = state.close_position(
+                open_pos, fill, ExitReason.MANUAL, candle.timestamp, _context_for(instrument)
+            )
             decision = DecisionLogEntry(
                 id=new_id(),
                 strategy_instance_id=instance.id,

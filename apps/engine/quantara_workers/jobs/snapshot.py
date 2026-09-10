@@ -12,9 +12,11 @@ from sqlalchemy.exc import OperationalError
 
 from quantara_engine.db.session import session_scope
 from quantara_engine.persistence.batch_summary import (
+    batch_instruments_by_id,
     batch_latest_candle_closes,
     batch_open_positions_by_portfolio,
 )
+from quantara_engine.portfolio.currency import build_currency_context
 from quantara_engine.persistence.store import TradingStore
 from quantara_engine.portfolio.service import PortfolioState
 
@@ -61,6 +63,12 @@ def _run_batch_snapshots(s: TradingStore, entries: list[dict], started_at: datet
 
     mark_updates: list[tuple[str, Decimal, Decimal]] = []
     states: list[PortfolioState] = []
+    instrument_ids: set[str] = set()
+    for positions in open_by_portfolio.values():
+        for pos in positions:
+            instrument_ids.add(pos.instrument_id)
+    instruments_by_id = batch_instruments_by_id(s, list(instrument_ids))
+    currency_ctx = build_currency_context(s, instruments_by_id.values())
 
     for entry in entries:
         portfolio = entry["portfolio"]
@@ -73,7 +81,7 @@ def _run_batch_snapshots(s: TradingStore, entries: list[dict], started_at: datet
             if (pos.instrument_id, tf) in marks_by_pair
         }
         if marks:
-            state.recalculate_equity(marks)
+            state.recalculate_equity(marks, currency_ctx)
             for pos in state.open_positions():
                 mark_updates.append((pos.id, pos.current_price, pos.unrealized_pnl))
         states.append(state)
@@ -149,4 +157,4 @@ def snapshot_job(store: TradingStore | None = None) -> None:
         except Exception:
             logger.exception("Failed to persist snapshot error status")
         raise
-
+

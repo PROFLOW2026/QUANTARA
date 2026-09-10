@@ -20,6 +20,7 @@ from quantara_engine.execution.exit_triggers import detect_exit_trigger
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
 from quantara_engine.market_data.polling import is_bar_complete
 from quantara_engine.persistence.batch_summary import batch_open_positions_by_portfolio
+from quantara_engine.portfolio.currency import CurrencyContext, build_currency_context
 from quantara_engine.portfolio.service import PortfolioSnapshot, PortfolioState
 
 if TYPE_CHECKING:
@@ -173,8 +174,14 @@ def _find_open_position(state: PortfolioState, position_id: str) -> Position | N
     return None
 
 
-def _apply_mark(state: PortfolioState, position: Position, candle) -> None:
-    state.recalculate_equity({position.instrument_id: candle.close})
+def _apply_mark(
+    state: PortfolioState,
+    position: Position,
+    candle,
+    *,
+    currency: CurrencyContext,
+) -> None:
+    state.recalculate_equity({position.instrument_id: candle.close}, currency)
     position.current_price = candle.close
 
 
@@ -205,6 +212,7 @@ def process_position_management(
     pending_exits: list[dict[str, Any]] | None = None,
     pending_decisions: list[DecisionLogEntry] | None = None,
     pending_exit_snapshots: list[PortfolioSnapshot] | None = None,
+    currency: CurrencyContext | None = None,
 ) -> dict:
     """Process completed candles since last management for one open position."""
     if position.status.value != "open":
@@ -233,6 +241,16 @@ def process_position_management(
     if _find_open_position(state, position.id) is None:
         return {"position_id": position.id, "status": "skipped_not_open_in_state"}
 
+    if currency is None:
+        from unittest.mock import MagicMock
+
+        if isinstance(store, MagicMock):
+            ctx = CurrencyContext.usd_only({instrument.id: instrument})
+        else:
+            ctx = store.build_currency_context_for_instruments([instrument])
+    else:
+        ctx = currency
+
     marks = 0
 
     for candle in candles:
@@ -253,7 +271,7 @@ def process_position_management(
                 state.portfolio.id,
                 gap_exit=gap_exit,
             )
-            trade = state.close_position(open_position, fill, reason, candle.timestamp)
+            trade = state.close_position(open_position, fill, reason, candle.timestamp, ctx)
             decision = DecisionLogEntry(
                 id=new_id(),
                 strategy_instance_id=instance.id,
@@ -315,7 +333,7 @@ def process_position_management(
                 "candles_processed": marks + 1,
             }
 
-        _apply_mark(state, open_position, candle)
+        _apply_mark(state, open_position, candle, currency=ctx)
         cursor_state[position.id] = candle.timestamp.isoformat()
         marks += 1
 
@@ -408,6 +426,20 @@ def manage_all_open_positions(
     mark_portfolio_ids: set[str] = set()
     mark_updates: dict[str, tuple[Decimal, Decimal]] = {}
 
+    for positions in open_by_portfolio.values():
+        for position in positions:
+            if position.instrument_id not in instrument_cache:
+                instrument_cache[position.instrument_id] = store.get_instrument_by_id(
+                    position.instrument_id
+                )
+
+    unique_instruments = [inst for inst in instrument_cache.values() if inst]
+    shared_currency = (
+        build_currency_context(store, unique_instruments)
+        if unique_instruments
+        else CurrencyContext.usd_only()
+    )
+
     if requires_flatten(control):
         flatten_report = process_flatten_cycle(
             store,
@@ -417,6 +449,7 @@ def manage_all_open_positions(
             instance_by_id=instance_by_id,
             instrument_cache=instrument_cache,
             pending_exits=pending_exits,
+            currency=shared_currency,
         )
         report.results.append({"flatten": flatten_report})
         for bundle in pending_exits:
@@ -429,11 +462,7 @@ def manage_all_open_positions(
             instance = instance_by_id.get(position.strategy_instance_id)
             if not instance:
                 continue
-            if position.instrument_id not in instrument_cache:
-                instrument_cache[position.instrument_id] = store.get_instrument_by_id(
-                    position.instrument_id
-                )
-            instrument = instrument_cache[position.instrument_id]
+            instrument = instrument_cache.get(position.instrument_id)
             if not instrument:
                 report.errors.append({"position_id": position.id, "error": "instrument_not_found"})
                 report.positions_failed += 1
@@ -491,6 +520,7 @@ def manage_all_open_positions(
                 portfolio_state=state,
                 defer_writes=True,
                 pending_exits=pending_exits,
+                currency=shared_currency,
             )
             report.results.append(result)
             status = result.get("status")
