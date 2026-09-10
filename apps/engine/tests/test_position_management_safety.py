@@ -61,6 +61,10 @@ class _FakeStore:
         for portfolio in portfolios:
             self.state.portfolio = portfolio
 
+    def sync_portfolios_financial_state_from_ledger(self, portfolios, flush=False):
+        for portfolio in portfolios:
+            self.state.portfolio = portfolio
+
     def persist_exit_execution(self, **kwargs):
         self.last_exit = kwargs
 

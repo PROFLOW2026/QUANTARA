@@ -21,8 +21,8 @@ from quantara_engine.execution.fill_calculator import calculate_fill_price
 from quantara_engine.persistence.store import TradingStore
 from quantara_engine.pipeline.candle_processor import CandleProcessor
 from quantara_engine.portfolio.balance_reconciliation import (
-    apply_canonical_balance,
-    reconcile_portfolio_balance,
+    apply_canonical_financial_state,
+    reconcile_portfolio_financial_state,
 )
 from quantara_engine.portfolio.service import PortfolioState
 
@@ -46,9 +46,13 @@ def test_reconcile_zero_after_canonical_exit_persist():
 
     def _sync_from_ledger(portfolios, **kwargs):
         for p in portfolios:
-            apply_canonical_balance(p, realized_map.get(p.id, Decimal("0")))
+            apply_canonical_financial_state(
+                p,
+                realized_pnl_sum=realized_map.get(p.id, Decimal("0")),
+                unrealized_pnl_sum=Decimal("0"),
+            )
 
-    store.sync_portfolios_balance_from_ledger.side_effect = _sync_from_ledger
+    store.sync_portfolios_financial_state_from_ledger.side_effect = _sync_from_ledger
 
     portfolio = _portfolio()
     portfolio.balance = Decimal("2000")
@@ -80,8 +84,8 @@ def test_reconcile_zero_after_canonical_exit_persist():
     )
     processor._persist_execution(None, MagicMock(id="o1"), fill, "exit", MagicMock(timestamp=datetime.now(timezone.utc)), pos, trade)
 
-    store.sync_portfolios_balance_from_ledger.assert_called()
-    result = reconcile_portfolio_balance(portfolio, Decimal("45.00"))
+    store.sync_portfolios_financial_state_from_ledger.assert_called()
+    result = reconcile_portfolio_financial_state(portfolio, Decimal("45.00"), Decimal("0"))
     assert result.balance_difference == Decimal("0.00")
     assert result.equity_difference == Decimal("0.00")
 

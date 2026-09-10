@@ -212,7 +212,7 @@ class CandleProcessor:
                 position.id, candle.timestamp, fill.fill_price
             )
             self.store.save_trade(trade)
-            self.store.sync_portfolios_balance_from_ledger([self.state.portfolio], flush=False)
+            self.store.sync_portfolios_financial_state_from_ledger([self.state.portfolio], flush=False)
         elif side == "entry":
             self.store.update_portfolios_equity_snapshot_batch([self.state.portfolio])
         self._flush_store()
@@ -271,12 +271,11 @@ class CandleProcessor:
         candle = self.all_candles[candle_index]
         self._execute_pending(candle)
         if self.store:
-            self.store.sync_portfolios_balance_from_ledger([self.state.portfolio], flush=False)
-            self.store.update_portfolios_equity_snapshot_batch([self.state.portfolio])
             for pos in self.state.open_positions():
                 self.store.update_open_position_mark(
                     pos.id, pos.current_price, pos.unrealized_pnl, flush=False
                 )
+            self.store.sync_portfolios_financial_state_from_ledger([self.state.portfolio], flush=False)
             self._flush_store()
 
     def process_position_management(self, candle_index: int) -> None:
@@ -286,11 +285,11 @@ class CandleProcessor:
         self._check_sl_tp(candle)
         self.state.recalculate_equity({self.instrument.id: candle.close})
         if self.store:
-            self.store.update_portfolio(self.state.portfolio, flush=False)
             for pos in self.state.open_positions():
                 self.store.update_open_position_mark(
                     pos.id, pos.current_price, pos.unrealized_pnl, flush=False
                 )
+            self.store.sync_portfolios_financial_state_from_ledger([self.state.portfolio], flush=False)
             self._flush_store()
         snap = self.state.create_snapshot(candle.timestamp)
         self._persist_snapshot(snap)
@@ -320,11 +319,13 @@ class CandleProcessor:
                 self._check_sl_tp(candle)
                 self.state.recalculate_equity({self.instrument.id: candle.close})
                 if self.store:
-                    self.store.update_portfolio(self.state.portfolio, flush=False)
                     for pos in self.state.open_positions():
                         self.store.update_open_position_mark(
                             pos.id, pos.current_price, pos.unrealized_pnl, flush=False
                         )
+                    self.store.sync_portfolios_financial_state_from_ledger(
+                        [self.state.portfolio], flush=False
+                    )
 
         from quantara_engine.domain.types import Signal
 
@@ -580,7 +581,7 @@ class CandleProcessor:
             if decision.should_halt:
                 self.state.portfolio.status = PortfolioStatus.HALTED
                 if self.store:
-                    self.store.update_portfolio(self.state.portfolio)
+                    self.store.update_portfolio_status_only(self.state.portfolio)
                     self._flush_store()
             return
 

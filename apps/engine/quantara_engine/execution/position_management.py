@@ -357,14 +357,15 @@ def _persist_pm_writes(
         )
 
     mark_only_ids = mark_portfolio_ids - exit_portfolio_ids
-    if mark_only_ids:
-        mark_portfolios = [
+    affected_ids = exit_portfolio_ids | mark_portfolio_ids
+    if affected_ids:
+        affected_portfolios = [
             portfolio_states[pid].portfolio
-            for pid in sorted(mark_only_ids)
+            for pid in sorted(affected_ids)
             if pid in portfolio_states
         ]
-        if mark_portfolios:
-            store.update_portfolios_equity_snapshot_batch(mark_portfolios)
+        if affected_portfolios:
+            store.sync_portfolios_financial_state_from_ledger(affected_portfolios, flush=False)
 
     if cursors != initial_cursors:
         store.update_settings(POSITION_MANAGEMENT_CURSORS_KEY, cursors, flush=False)

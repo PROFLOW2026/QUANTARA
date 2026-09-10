@@ -72,13 +72,17 @@ def _run_batch_snapshots(s: TradingStore, entries: list[dict], started_at: datet
             for pos in state.open_positions()
             if (pos.instrument_id, tf) in marks_by_pair
         }
+        db_balance = portfolio.balance
         if marks:
             state.recalculate_equity(marks)
         else:
             state.portfolio.unrealized_pnl = Decimal("0")
-            state.portfolio.equity = state.portfolio.balance
             state.portfolio.exposure_notional = Decimal("0")
             state.portfolio.reserved_capital = Decimal("0")
+        state.portfolio.balance = db_balance
+        state.portfolio.equity = (db_balance + state.portfolio.unrealized_pnl).quantize(
+            Decimal("0.01")
+        )
 
         snapshots.append(state.create_snapshot(started_at))
         portfolios_to_update.append(state.portfolio)

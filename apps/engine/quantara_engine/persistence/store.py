@@ -1636,23 +1636,119 @@ class TradingStore:
         ).all()
         return {_str_id(row[0]): Decimal(str(row[1])) for row in rows}
 
+    def sum_open_position_financials_for_portfolio_ids(
+        self,
+        portfolio_ids: list[str],
+    ) -> dict[str, tuple[Decimal, Decimal]]:
+        """Return {portfolio_id: (unrealized_pnl_sum, exposure_notional_sum)} for OPEN positions."""
+        if not portfolio_ids:
+            return {}
+        ids = [_uuid(pid) for pid in portfolio_ids]
+        rows = self.session.execute(
+            select(
+                OrmPosition.portfolio_id,
+                func.coalesce(func.sum(OrmPosition.unrealized_pnl), 0),
+                func.coalesce(
+                    func.sum(OrmPosition.quantity * OrmPosition.current_price),
+                    0,
+                ),
+            )
+            .where(
+                OrmPosition.portfolio_id.in_(ids),
+                OrmPosition.status == OrmPositionStatus.OPEN,
+            )
+            .group_by(OrmPosition.portfolio_id)
+        ).all()
+        return {
+            _str_id(row[0]): (Decimal(str(row[1])), Decimal(str(row[2])))
+            for row in rows
+        }
+
+    def update_portfolios_financial_canonical_batch(
+        self,
+        portfolios: list[Portfolio],
+        *,
+        chunk_size: int = 15,
+    ) -> None:
+        """Write canonical balance/unrealized/equity/exposure — sole owner after ledger sync."""
+        if not portfolios:
+            return
+        portfolios = sorted(portfolios, key=lambda p: p.id)
+        for offset in range(0, len(portfolios), chunk_size):
+            chunk = portfolios[offset : offset + chunk_size]
+            ids = [_uuid(p.id) for p in chunk]
+            rows = {
+                _str_id(row.id): row
+                for row in self.session.scalars(
+                    select(OrmPortfolio).where(OrmPortfolio.id.in_(ids))
+                ).all()
+            }
+            for portfolio in chunk:
+                row = rows.get(portfolio.id)
+                if not row:
+                    continue
+                row.balance = portfolio.balance
+                row.unrealized_pnl = portfolio.unrealized_pnl
+                row.equity = portfolio.equity
+                row.exposure_notional = portfolio.exposure_notional
+                row.reserved_capital = portfolio.reserved_capital
+                if portfolio.peak_equity > row.peak_equity:
+                    row.peak_equity = portfolio.peak_equity
+            self.session.flush()
+
+    def update_portfolio_status_only(
+        self,
+        portfolio: Portfolio,
+        *,
+        flush: bool = True,
+    ) -> None:
+        """Update non-financial portfolio fields only (halt/resume)."""
+        row = self.session.get(OrmPortfolio, _uuid(portfolio.id))
+        if not row:
+            return
+        row.status = OrmPortfolioStatus(portfolio.status.value)
+        row.halt_reason = portfolio.halt_reason
+        if flush:
+            self.session.flush()
+
+    def sync_portfolios_financial_state_from_ledger(
+        self,
+        portfolios: list[Portfolio],
+        *,
+        flush: bool = False,
+    ) -> None:
+        """
+        Canonical financial sync after exit persistence:
+        flush → SUM(realized) → SUM(open position unrealized) → balance/equity → persist.
+        """
+        if not portfolios:
+            return
+        from quantara_engine.portfolio.balance_reconciliation import apply_canonical_financial_state
+
+        self.session.flush()
+        pids = [p.id for p in portfolios]
+        realized_map = self.sum_realized_pnl_for_portfolio_ids(pids)
+        open_fin = self.sum_open_position_financials_for_portfolio_ids(pids)
+        for portfolio in portfolios:
+            unreal, exposure = open_fin.get(portfolio.id, (Decimal("0"), Decimal("0")))
+            apply_canonical_financial_state(
+                portfolio,
+                realized_pnl_sum=realized_map.get(portfolio.id, Decimal("0")),
+                unrealized_pnl_sum=unreal,
+                exposure_notional=exposure,
+            )
+        self.update_portfolios_financial_canonical_batch(portfolios)
+        if flush:
+            self.session.flush()
+
     def sync_portfolios_balance_from_ledger(
         self,
         portfolios: list[Portfolio],
         *,
         flush: bool = False,
     ) -> None:
-        """Reconcile balance/equity from trade ledger — canonical ACCOUNT BALANCE model."""
-        if not portfolios:
-            return
-        from quantara_engine.portfolio.balance_reconciliation import apply_canonical_balance
-
-        realized_map = self.sum_realized_pnl_for_portfolio_ids([p.id for p in portfolios])
-        for portfolio in portfolios:
-            apply_canonical_balance(portfolio, realized_map.get(portfolio.id, Decimal("0")))
-        self.update_portfolios_batch(portfolios)
-        if flush:
-            self.session.flush()
+        """Backward-compatible alias — full canonical financial sync."""
+        self.sync_portfolios_financial_state_from_ledger(portfolios, flush=flush)
 
     def update_open_position_marks_batch(
         self,
@@ -2084,7 +2180,7 @@ class TradingStore:
             return
         self.update_position_closed(position.id, filled_at, fill.fill_price, flush=flush)
         self.save_trade(trade)
-        self.sync_portfolios_balance_from_ledger([portfolio_state.portfolio], flush=flush)
+        self.sync_portfolios_financial_state_from_ledger([portfolio_state.portfolio], flush=flush)
 
     def persist_exit_executions_batch(
         self,
@@ -2151,10 +2247,10 @@ class TradingStore:
         for bundle in bundles:
             self.save_trade(bundle["trade"])
 
-        self.sync_portfolios_balance_from_ledger(list(portfolios.values()))
+        self.session.flush()
         if snapshots:
             self.save_snapshots_batch(snapshots)
-        self.session.flush()
+        # Caller syncs financial state after position marks when batched via PM.
 
     def cancel_pending_intent(self, intent_id: str, reason: str) -> None:
         self.update_order_intent_status(intent_id, IntentStatus.EXPIRED, reason)
