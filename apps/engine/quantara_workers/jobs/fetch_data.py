@@ -24,6 +24,11 @@ from quantara_engine.market_data.credits import (
     status_payload as twelve_status,
 )
 from quantara_engine.market_data.factory import get_provider_for_asset
+from quantara_engine.market_data.provider_resolver import (
+    dedupe_complete_candles,
+    fetch_with_failover,
+    has_eligible_provider,
+)
 from quantara_engine.market_data.polling import (
     PROVIDER_TIMEFRAME,
     STRATEGY_MIN_CANDLES,
@@ -78,9 +83,9 @@ def _mark_alpaca_live_fetch(store: TradingStore, db_symbol: str, when: datetime)
 
 
 def _uses_alpaca_live_equity(asset, now: datetime) -> bool:
-    """US equities use Alpaca for timely 5m live bars during RTH."""
+    """US equities with Alpaca primary during RTH (status / timing hints)."""
     return (
-        asset.secondary_provider == ProviderName.ALPACA
+        asset.primary_provider == ProviderName.ALPACA
         and asset.asset_class in (AssetClass.STOCK, AssetClass.INDEX)
         and is_us_equity_rth(now)
     )
@@ -107,12 +112,13 @@ def _should_poll_asset(
         return True, None
 
     if asset.primary_provider == ProviderName.TWELVE_DATA:
-        if twelve_data_blocked(store):
-            return False, "deferred (Twelve Data blocked until credit reset)"
         from quantara_engine.market_data.credits import can_fetch
 
-        if not can_fetch(store, FetchPriority.SCHEDULED):
-            return False, "deferred (Twelve Data credit guard)"
+        primary_ok = not twelve_data_blocked(store) and can_fetch(store, FetchPriority.SCHEDULED)
+        if not primary_ok and not has_eligible_provider(store, asset, priority=FetchPriority.SCHEDULED):
+            if twelve_data_blocked(store):
+                return False, "deferred (Twelve Data blocked; no fallback available)"
+            return False, "deferred (Twelve Data credit guard; no fallback available)"
 
     if asset.primary_provider == ProviderName.TIINGO:
         if not is_us_equity_rth(now):
@@ -127,6 +133,13 @@ def _should_poll_asset(
 
         if not can_request(store, "tiingo"):
             return False, "deferred (Tiingo hourly budget)"
+
+    if asset.primary_provider == ProviderName.ALPACA:
+        if asset.asset_class in (AssetClass.STOCK, AssetClass.INDEX):
+            if not is_us_equity_rth(now) and stored >= STRATEGY_MIN_CANDLES:
+                return False, "deferred (US market closed — last session data retained)"
+        if not has_eligible_provider(store, asset, priority=FetchPriority.SCHEDULED):
+            return False, "deferred (no eligible provider — cooldown or budget)"
 
     return True, None
 
@@ -200,8 +213,7 @@ def _fetch_asset_live(
     now: datetime,
     timings: dict[str, float],
 ) -> tuple[int, int, str | None]:
-    use_alpaca_live = _uses_alpaca_live_equity(asset, now)
-    provider_key = ProviderName.ALPACA.value if use_alpaca_live else asset.primary_provider.value
+    provider_key = asset.primary_provider.value
     t0 = time.perf_counter()
 
     timeframe = PROVIDER_TIMEFRAME
@@ -209,75 +221,52 @@ def _fetch_asset_live(
     stored = store.count_candles(instrument.id, timeframe)
     force_bootstrap = stored < STRATEGY_MIN_CANDLES
 
-    if use_alpaca_live:
-        if not is_us_equity_rth(now) and stored >= STRATEGY_MIN_CANDLES:
-            timings[provider_key] = timings.get(provider_key, 0.0) + (time.perf_counter() - t0) * 1000
-            return 0, 0, "deferred (US market closed — last session data retained)"
-        from quantara_engine.market_data.provider_budgets import can_request
-
-        if not can_request(store, "alpaca"):
-            timings[provider_key] = timings.get(provider_key, 0.0) + (time.perf_counter() - t0) * 1000
-            return 0, 0, "deferred (Alpaca budget)"
-        should_poll = True
-        defer_reason = None
-    else:
-        should_poll, defer_reason = _should_poll_asset(
-            store, asset, now=now, stored=stored, force_bootstrap=force_bootstrap, live=True
-        )
+    should_poll, defer_reason = _should_poll_asset(
+        store, asset, now=now, stored=stored, force_bootstrap=force_bootstrap, live=True
+    )
     if not should_poll:
         timings[provider_key] = timings.get(provider_key, 0.0) + (time.perf_counter() - t0) * 1000
         return 0, 0, defer_reason
 
-    try:
-        provider = (
-            get_provider_for_asset(asset, role="secondary")
-            if use_alpaca_live
-            else get_provider_for_asset(asset)
-        )
-    except ValueError as exc:
-        timings[provider_key] = timings.get(provider_key, 0.0) + (time.perf_counter() - t0) * 1000
-        return 0, 0, str(exc)
-
-    if hasattr(provider, "bind_context"):
-        provider.bind_context(  # type: ignore[attr-defined]
-            store=store,
-            caller="fetch_live_job",
-            asset=asset,
-            priority=FetchPriority.SCHEDULED,
-        )
-
     new_timestamps: list[datetime] = []
     count = 0
     error: str | None = None
+    used_provider: ProviderName | None = None
 
     gap_fill = (
         last_ts is not None
         and stored >= STRATEGY_MIN_CANDLES
         and not is_market_data_fresh(last_ts, timeframe, now)
     )
-    if gap_fill and hasattr(provider, "fetch_gap_fill") and hasattr(provider, "bind_context"):
-        provider.bind_context(  # type: ignore[attr-defined]
-            store=None,
-            caller="fetch_live_job:gap_fill",
-            asset=asset,
-            priority=FetchPriority.CATCH_UP,
-        )
 
-    try:
+    def _live_fetch(provider):
         if gap_fill and hasattr(provider, "fetch_gap_fill"):
-            candles = provider.fetch_gap_fill(instrument.id, timeframe, last_ts)  # type: ignore[attr-defined]
-        elif should_fetch_timeframe(timeframe, last_ts, now):
-            candles = provider.fetch_latest(instrument.id, timeframe, since=last_ts)
-        else:
-            candles = []
-    except (TwelveDataError, AlpacaError, TiingoError) as exc:
-        error = f"{asset.db_symbol}: {exc}"
-        logger.error("Live fetch failed for %s — %s", asset.db_symbol, exc)
-        candles = []
-    except Exception as exc:
-        error = f"{asset.db_symbol}: {exc}"
-        logger.exception("Live fetch failed for %s", asset.db_symbol)
-        candles = []
+            if hasattr(provider, "bind_context"):
+                provider.bind_context(  # type: ignore[attr-defined]
+                    store=store,
+                    caller="fetch_live_job:gap_fill",
+                    asset=asset,
+                    priority=FetchPriority.CATCH_UP,
+                )
+            return provider.fetch_gap_fill(instrument.id, timeframe, last_ts)  # type: ignore[attr-defined]
+        if should_fetch_timeframe(timeframe, last_ts, now):
+            return provider.fetch_latest(instrument.id, timeframe, since=last_ts)
+        return []
+
+    outcome = fetch_with_failover(
+        store,
+        asset,
+        caller="fetch_live_job",
+        priority=FetchPriority.SCHEDULED,
+        fetch_fn=_live_fetch,
+    )
+    candles = dedupe_complete_candles(outcome.candles)
+    used_provider = outcome.provider
+    if outcome.error and not candles:
+        error = f"{asset.db_symbol}: {outcome.error}"
+
+    if used_provider is not None:
+        provider_key = used_provider.value
 
     timings[provider_key] = timings.get(provider_key, 0.0) + (time.perf_counter() - t0) * 1000
 
@@ -305,13 +294,13 @@ def _fetch_asset_live(
                 )
                 if asset.db_symbol == "XAUUSD":
                     update_spot_from_latest_5m(derive_store, instrument.id)
-            if use_alpaca_live:
+            if used_provider == ProviderName.ALPACA:
                 with session_scope() as mark_session:
                     _mark_alpaca_live_fetch(TradingStore(mark_session), asset.db_symbol, now)
-            elif asset.primary_provider == ProviderName.TIINGO:
+            elif used_provider == ProviderName.TIINGO:
                 with session_scope() as mark_session:
                     _mark_tiingo_fetch(TradingStore(mark_session), asset.db_symbol, now)
-            if gap_fill and asset.primary_provider == ProviderName.ALPACA:
+            if gap_fill and used_provider == ProviderName.ALPACA:
                 from quantara_engine.market_data.registry import provider_symbol
 
                 _record_budget_best_effort(
@@ -328,9 +317,9 @@ def _fetch_asset_live(
             count += 1
     timings["persist_5m_ms"] = timings.get("persist_5m_ms", 0.0) + (time.perf_counter() - persist_t0) * 1000
 
-    if use_alpaca_live and count:
+    if count and used_provider == ProviderName.ALPACA:
         _mark_alpaca_live_fetch(store, asset.db_symbol, now)
-    elif asset.primary_provider == ProviderName.TIINGO and count:
+    elif count and used_provider == ProviderName.TIINGO:
         _mark_tiingo_fetch(store, asset.db_symbol, now)
 
     derive_t0 = time.perf_counter()
@@ -494,42 +483,37 @@ def _fetch_asset_bulk(
     if asset.primary_provider == ProviderName.TIINGO and not can_request(store, "tiingo"):
         return 0, 0, "deferred (Tiingo budget)"
     if asset.primary_provider == ProviderName.TWELVE_DATA:
-        if twelve_data_blocked(store):
-            return 0, 0, "deferred (Twelve Data blocked until credit reset)"
         from quantara_engine.market_data.credits import can_fetch
 
-        if not can_fetch(store, FetchPriority.CATCH_UP):
-            return 0, 0, "deferred (Twelve Data credit guard)"
-
-    try:
-        provider = get_provider_for_asset(asset)
-    except ValueError as exc:
-        return 0, 0, str(exc)
-
-    # Fetch without settings writes — avoids row lock contention during pagination.
-    if hasattr(provider, "bind_context"):
-        provider.bind_context(  # type: ignore[attr-defined]
-            store=None,
-            caller="fetch_bulk_job:bootstrap",
-            asset=asset,
-            priority=FetchPriority.CATCH_UP,
-        )
+        primary_ok = not twelve_data_blocked(store) and can_fetch(store, FetchPriority.CATCH_UP)
+        if not primary_ok and not has_eligible_provider(store, asset, priority=FetchPriority.CATCH_UP):
+            if twelve_data_blocked(store):
+                return 0, 0, "deferred (Twelve Data blocked; no fallback available)"
+            return 0, 0, "deferred (Twelve Data credit guard; no fallback available)"
 
     count = 0
     error: str | None = None
     primary_provider_key = asset.primary_provider.value
-    try:
+    secondary_provider_key: str | None = None
+
+    def _bootstrap_fetch(provider):
         if hasattr(provider, "fetch_bootstrap"):
-            candles = provider.fetch_bootstrap(instrument.id, timeframe)  # type: ignore[attr-defined]
-        else:
-            candles = provider.fetch_latest(instrument.id, timeframe, since=None)
-    except (TwelveDataError, AlpacaError, TiingoError) as exc:
-        error = f"{asset.db_symbol}: {exc}"
-        logger.warning("Bulk bootstrap failed for %s — %s", asset.db_symbol, exc)
-        candles = []
+            return provider.fetch_bootstrap(instrument.id, timeframe)  # type: ignore[attr-defined]
+        return provider.fetch_latest(instrument.id, timeframe, since=None)
+
+    outcome = fetch_with_failover(
+        store,
+        asset,
+        caller="fetch_bulk_job:bootstrap",
+        priority=FetchPriority.CATCH_UP,
+        fetch_fn=_bootstrap_fetch,
+    )
+    if outcome.error and not outcome.candles:
+        error = f"{asset.db_symbol}: {outcome.error}"
+        logger.warning("Bulk bootstrap failed for %s — %s", asset.db_symbol, outcome.error)
 
     validated_primary: list = []
-    for candle in candles:
+    for candle in dedupe_complete_candles(outcome.candles):
         try:
             validate_candle(candle)
         except Exception as exc:
@@ -537,37 +521,45 @@ def _fetch_asset_bulk(
             continue
         validated_primary.append(candle)
 
+    if outcome.provider:
+        primary_provider_key = outcome.provider.value
+        if outcome.provider != asset.primary_provider:
+            secondary_provider_key = outcome.provider.value
+
     count = _persist_candles_chunked(validated_primary)
 
     with session_scope() as count_session:
         stored_after = TradingStore(count_session).count_candles(instrument.id, timeframe)
-    secondary_provider_key: str | None = None
-    if (
-        stored_after < STRATEGY_MIN_CANDLES
-        and asset.secondary_provider is not None
-    ):
-        try:
-            secondary = get_provider_for_asset(asset, role="secondary")
-            secondary_provider_key = asset.secondary_provider.value
-            if hasattr(secondary, "bind_context"):
-                secondary.bind_context(  # type: ignore[attr-defined]
-                    store=None,
-                    caller="fetch_bulk_job:bootstrap_secondary",
-                    asset=asset,
-                    priority=FetchPriority.CATCH_UP,
-                )
-            extra = secondary.fetch_bootstrap(instrument.id, timeframe)  # type: ignore[attr-defined]
-            validated_secondary: list = []
-            for candle in extra:
-                try:
-                    validate_candle(candle)
-                except Exception as exc:
-                    logger.warning("Invalid secondary bootstrap candle skipped (%s): %s", asset.db_symbol, exc)
-                    continue
-                validated_secondary.append(candle)
-            count += _persist_candles_chunked(validated_secondary)
-        except (TwelveDataError, AlpacaError, TiingoError) as exc:
-            logger.warning("Secondary bootstrap failed for %s — %s", asset.db_symbol, exc)
+    if stored_after < STRATEGY_MIN_CANDLES and outcome.provider != asset.secondary_provider:
+        # Chain may have stopped early — retry remaining providers if history still thin.
+        remaining = [
+            p
+            for p in (asset.secondary_provider,)
+            if p is not None and p != outcome.provider
+        ]
+        for fallback in remaining:
+            try:
+                secondary = get_provider_for_asset(asset, role="secondary")
+                secondary_provider_key = fallback.value
+                if hasattr(secondary, "bind_context"):
+                    secondary.bind_context(  # type: ignore[attr-defined]
+                        store=None,
+                        caller="fetch_bulk_job:bootstrap_secondary",
+                        asset=asset,
+                        priority=FetchPriority.CATCH_UP,
+                    )
+                extra = secondary.fetch_bootstrap(instrument.id, timeframe)  # type: ignore[attr-defined]
+                validated_secondary: list = []
+                for candle in dedupe_complete_candles(extra):
+                    try:
+                        validate_candle(candle)
+                    except Exception as exc:
+                        logger.warning("Invalid secondary bootstrap candle skipped (%s): %s", asset.db_symbol, exc)
+                        continue
+                    validated_secondary.append(candle)
+                count += _persist_candles_chunked(validated_secondary)
+            except (TwelveDataError, AlpacaError, TiingoError) as exc:
+                logger.warning("Secondary bootstrap failed for %s — %s", asset.db_symbol, exc)
 
     derived = 0
     if count:

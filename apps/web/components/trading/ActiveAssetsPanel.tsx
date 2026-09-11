@@ -69,9 +69,6 @@ function ProviderHealthCard({
       {health && health.remaining_hour != null ? (
         <p className="text-xs text-muted">
           {t("home.provider_hourly")}: {health.used_hour ?? 0}/{health.hourly_limit ?? "—"}
-          {health.active_symbols && health.active_symbols.length > 0
-            ? ` · ${health.active_symbols.join(", ")}`
-            : ""}
         </p>
       ) : null}
       {health && health.last_error ? (

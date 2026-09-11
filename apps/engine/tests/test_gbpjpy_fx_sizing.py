@@ -52,20 +52,23 @@ def _risk(pct: str) -> RiskProfile:
 
 
 @pytest.mark.parametrize(
-    "risk_pct,expected_target,expected_actual",
+    "risk_pct,expected_target,expect_deny",
     [
-        ("0.25", Decimal("5"), Decimal("10")),
-        ("0.5", Decimal("10"), Decimal("10")),
-        ("1", Decimal("20"), Decimal("20")),
-        ("1.5", Decimal("30"), Decimal("30")),
-        ("2", Decimal("40"), Decimal("40")),
+        ("0.25", Decimal("5"), True),
+        ("0.5", Decimal("10"), True),
+        ("1", Decimal("20"), False),
+        ("1.5", Decimal("30"), False),
+        ("2", Decimal("40"), False),
     ],
 )
-def test_gbpjpy_risk_tiers_approximate_target(risk_pct, expected_target, expected_actual):
+def test_gbpjpy_risk_tiers_respect_budget(risk_pct, expected_target, expect_deny):
+    from quantara_engine.execution.cost_profile import execution_assumptions_for
+
     instrument = _gbpjpy_instrument()
     portfolio = _portfolio("2000")
     entry = Decimal("200.000")
-    stop = Decimal("198.500")
+    stop = Decimal("198.000")
+    assumptions = execution_assumptions_for(instrument, entry)
     qty, target, actual, denial = compute_position_size(
         portfolio,
         _risk(risk_pct),
@@ -77,18 +80,26 @@ def test_gbpjpy_risk_tiers_approximate_target(risk_pct, expected_target, expecte
         entry,
         allow_virtual_leverage=True,
         fx_rates=FX_150,
+        execution_assumptions=assumptions,
     )
-    assert denial is None
-    assert qty >= instrument.min_quantity
     assert target == expected_target
-    assert abs(actual - expected_actual) <= Decimal("1.00")
+    if expect_deny:
+        assert denial == "MIN_QUANTITY_EXCEEDS_RISK_BUDGET"
+        assert qty == 0
+    else:
+        assert denial is None
+        assert qty >= instrument.min_quantity
+        assert actual <= target * Decimal("1.02")
 
 
-def test_gbpjpy_not_denied_below_minimum():
+def test_gbpjpy_one_pct_uses_min_when_ceil_over_budget():
+    from quantara_engine.execution.cost_profile import execution_assumptions_for
+
     instrument = _gbpjpy_instrument()
     portfolio = _portfolio("2000")
     entry = Decimal("200.000")
-    stop = Decimal("198.500")
+    stop = Decimal("198.000")
+    assumptions = execution_assumptions_for(instrument, entry)
     qty, _, _, denial = compute_position_size(
         portfolio,
         _risk("1"),
@@ -100,9 +111,10 @@ def test_gbpjpy_not_denied_below_minimum():
         entry,
         allow_virtual_leverage=True,
         fx_rates=FX_150,
+        execution_assumptions=assumptions,
     )
     assert denial is None
-    assert qty == Decimal("2000")
+    assert qty == Decimal("1000")
 
 
 def test_fx_risk_usd_jpy_quote():

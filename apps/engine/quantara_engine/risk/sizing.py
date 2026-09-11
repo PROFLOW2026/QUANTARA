@@ -2,10 +2,25 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal, ROUND_DOWN
 
-from quantara_engine.domain.types import Instrument, Portfolio, Position, RiskProfile
+from quantara_engine.domain.types import Direction, ExecutionAssumptions, Instrument, Portfolio, Position, RiskProfile
+from quantara_engine.execution.economics import executable_sl_distance
 from quantara_engine.portfolio.currency import ACCOUNT_CURRENCY, FxRateTable
+
+# Owner approval pending — 2% recommended after tolerance sweep (see audit script).
+DEFAULT_RISK_ROUNDING_TOLERANCE_PCT = Decimal("2")
+
+
+@dataclass(frozen=True)
+class SizingResult:
+    quantity: Decimal
+    target_risk_amount: Decimal
+    expected_risk_amount: Decimal
+    denial_reason: str | None
+    theoretical_quantity: Decimal
+    max_allowed_risk: Decimal
 
 
 def round_quantity(quantity: Decimal, step: Decimal) -> Decimal:
@@ -21,6 +36,12 @@ def compute_target_risk_amount(portfolio: Portfolio, risk_profile: RiskProfile) 
     )
 
 
+def max_allowed_risk_amount(
+    target_risk: Decimal, tolerance_pct: Decimal = DEFAULT_RISK_ROUNDING_TOLERANCE_PCT
+) -> Decimal:
+    return (target_risk * (Decimal("1") + tolerance_pct / Decimal("100"))).quantize(Decimal("0.01"))
+
+
 def _is_forex(instrument: Instrument) -> bool:
     return (instrument.asset_class or "").lower() == "forex"
 
@@ -31,12 +52,6 @@ def fx_risk_usd(
     instrument: Instrument,
     fx_rates: FxRateTable,
 ) -> Decimal:
-    """
-    Expected account-currency (USD) loss at stop for FX quantity in base units.
-
-    quantity is base-currency units (e.g. 1000 GBP for 0.01 lot when contract_size=100000).
-    sl_distance is absolute quote-currency price distance (e.g. 1.50 JPY on GBPJPY).
-    """
     quote_loss = quantity * sl_distance
     return fx_rates.quote_to_account(quote_loss, instrument.quote_currency)
 
@@ -70,6 +85,110 @@ def _desired_quantity_for_risk(
     return target_risk / sl_distance
 
 
+def _executable_sl_distance_for_qty(
+    direction: Direction,
+    entry_reference: Decimal,
+    stop_loss: Decimal,
+    quantity: Decimal,
+    execution_assumptions: ExecutionAssumptions | None,
+) -> Decimal:
+    if execution_assumptions is not None:
+        return executable_sl_distance(
+            direction, entry_reference, stop_loss, quantity, execution_assumptions
+        )
+    return abs(entry_reference - stop_loss)
+
+
+def _expected_risk_at_quantity(
+    quantity: Decimal,
+    *,
+    direction: Direction,
+    entry_reference: Decimal,
+    stop_loss: Decimal,
+    instrument: Instrument,
+    fx_rates: FxRateTable,
+    execution_assumptions: ExecutionAssumptions | None,
+) -> Decimal:
+    sl_distance = _executable_sl_distance_for_qty(
+        direction, entry_reference, stop_loss, quantity, execution_assumptions
+    )
+    return compute_actual_risk_amount(quantity, sl_distance, instrument, fx_rates)
+
+
+def generate_quantity_candidates(
+    desired_quantity: Decimal,
+    quantity_step: Decimal,
+    min_quantity: Decimal,
+) -> list[Decimal]:
+    if quantity_step <= 0:
+        return [desired_quantity] if desired_quantity >= min_quantity else []
+
+    floor_q = round_quantity(desired_quantity, quantity_step)
+    candidates: set[Decimal] = set()
+    if floor_q >= min_quantity:
+        candidates.add(floor_q)
+    ceil_q = floor_q + quantity_step
+    if ceil_q >= min_quantity:
+        candidates.add(ceil_q)
+    if min_quantity > 0:
+        candidates.add(min_quantity)
+    return sorted(q for q in candidates if q > 0)
+
+
+def select_quantity_for_risk_budget(
+    *,
+    target_risk: Decimal,
+    desired_quantity: Decimal,
+    instrument: Instrument,
+    direction: Direction,
+    entry_reference: Decimal,
+    stop_loss: Decimal,
+    fx_rates: FxRateTable,
+    execution_assumptions: ExecutionAssumptions | None,
+    tolerance_pct: Decimal = DEFAULT_RISK_ROUNDING_TOLERANCE_PCT,
+) -> tuple[Decimal, Decimal, str | None]:
+    """
+    Pick valid stepped quantity closest to target risk without exceeding tolerance cap.
+    Never force min_quantity when it would materially exceed the risk budget.
+    """
+    max_risk = max_allowed_risk_amount(target_risk, tolerance_pct)
+    min_qty = instrument.min_quantity
+    step = instrument.quantity_step
+
+    min_qty_risk = _expected_risk_at_quantity(
+        min_qty,
+        direction=direction,
+        entry_reference=entry_reference,
+        stop_loss=stop_loss,
+        instrument=instrument,
+        fx_rates=fx_rates,
+        execution_assumptions=execution_assumptions,
+    )
+    if min_qty_risk > max_risk:
+        return Decimal("0"), min_qty_risk, "MIN_QUANTITY_EXCEEDS_RISK_BUDGET"
+
+    valid: list[tuple[Decimal, Decimal]] = []
+    for qty in generate_quantity_candidates(desired_quantity, step, min_qty):
+        risk = _expected_risk_at_quantity(
+            qty,
+            direction=direction,
+            entry_reference=entry_reference,
+            stop_loss=stop_loss,
+            instrument=instrument,
+            fx_rates=fx_rates,
+            execution_assumptions=execution_assumptions,
+        )
+        if risk <= max_risk:
+            valid.append((qty, risk))
+
+    if not valid:
+        return Decimal("0"), min_qty_risk, "MIN_QUANTITY_EXCEEDS_RISK_BUDGET"
+
+    # Closest to target; prefer lower risk when equally close (stay inside budget).
+    best_qty, best_risk = min(valid, key=lambda item: (abs(item[1] - target_risk), item[1]))
+    return best_qty, best_risk, None
+
+
 def compute_position_size(
     portfolio: Portfolio,
     risk_profile: RiskProfile,
@@ -82,13 +201,20 @@ def compute_position_size(
     *,
     allow_virtual_leverage: bool = False,
     fx_rates: FxRateTable | None = None,
+    execution_assumptions: ExecutionAssumptions | None = None,
+    risk_rounding_tolerance_pct: Decimal = DEFAULT_RISK_ROUNDING_TOLERANCE_PCT,
 ) -> tuple[Decimal, Decimal, Decimal, str | None]:
     """
-    Returns (quantity, target_risk_amount, actual_risk_amount, denial_reason).
+    Returns (quantity, target_risk_amount, expected_risk_at_entry, denial_reason).
     """
     rates = fx_rates or FxRateTable.usd_only()
     target_risk = compute_target_risk_amount(portfolio, risk_profile)
-    sl_distance = abs(entry_reference - stop_loss)
+    dir_enum = Direction.LONG if direction == "long" else Direction.SHORT
+
+    probe_qty = instrument.min_quantity
+    sl_distance = _executable_sl_distance_for_qty(
+        dir_enum, entry_reference, stop_loss, probe_qty, execution_assumptions
+    )
     if sl_distance <= 0:
         return Decimal("0"), target_risk, Decimal("0"), "INVALID_STOP_LOSS (zero distance)"
 
@@ -121,13 +247,67 @@ def compute_position_size(
             max_qty_by_capital = available / usd_per_unit
             desired_quantity = min(desired_quantity, max_qty_by_capital)
 
-    actual_quantity = round_quantity(desired_quantity, instrument.quantity_step)
-    if actual_quantity <= 0 and desired_quantity > 0:
-        actual_quantity = instrument.min_quantity
-    actual_quantity = max(actual_quantity, Decimal("0"))
-    actual_risk = compute_actual_risk_amount(actual_quantity, sl_distance, instrument, rates)
+    actual_quantity, actual_risk, deny = select_quantity_for_risk_budget(
+        target_risk=target_risk,
+        desired_quantity=desired_quantity,
+        instrument=instrument,
+        direction=dir_enum,
+        entry_reference=entry_reference,
+        stop_loss=stop_loss,
+        fx_rates=rates,
+        execution_assumptions=execution_assumptions,
+        tolerance_pct=risk_rounding_tolerance_pct,
+    )
+
+    if deny:
+        return Decimal("0"), target_risk, actual_risk, deny
 
     if actual_quantity < instrument.min_quantity:
         return Decimal("0"), target_risk, actual_risk, "QUANTITY_BELOW_MINIMUM after caps"
 
     return actual_quantity, target_risk, actual_risk, None
+
+
+def compute_position_size_detailed(
+    portfolio: Portfolio,
+    risk_profile: RiskProfile,
+    instrument: Instrument,
+    entry_reference: Decimal,
+    stop_loss: Decimal,
+    direction: str,
+    open_positions: list[Position],
+    mark_price: Decimal,
+    **kwargs,
+) -> SizingResult:
+    tolerance = kwargs.pop("risk_rounding_tolerance_pct", DEFAULT_RISK_ROUNDING_TOLERANCE_PCT)
+    rates = kwargs.get("fx_rates") or FxRateTable.usd_only()
+    dir_enum = Direction.LONG if direction == "long" else Direction.SHORT
+    assumptions = kwargs.get("execution_assumptions")
+    target = compute_target_risk_amount(portfolio, risk_profile)
+    probe = instrument.min_quantity
+    sl_dist = _executable_sl_distance_for_qty(
+        dir_enum, entry_reference, stop_loss, probe, assumptions
+    )
+    theoretical = (
+        _desired_quantity_for_risk(target, sl_dist, instrument, rates) if sl_dist > 0 else Decimal("0")
+    )
+    qty, target_risk, actual, deny = compute_position_size(
+        portfolio,
+        risk_profile,
+        instrument,
+        entry_reference,
+        stop_loss,
+        direction,
+        open_positions,
+        mark_price,
+        risk_rounding_tolerance_pct=tolerance,
+        **kwargs,
+    )
+    return SizingResult(
+        quantity=qty,
+        target_risk_amount=target_risk,
+        expected_risk_amount=actual,
+        denial_reason=deny,
+        theoretical_quantity=theoretical,
+        max_allowed_risk=max_allowed_risk_amount(target, tolerance),
+    )

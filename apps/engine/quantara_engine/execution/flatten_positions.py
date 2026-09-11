@@ -110,7 +110,9 @@ def process_flatten_cycle(
                 continue
 
             attempted += 1
-            broker = PaperBrokerAdapter(instrument.id, ExecutionAssumptions())
+            from quantara_engine.execution.cost_profile import execution_assumptions_for
+
+            broker = PaperBrokerAdapter(instrument.id, execution_assumptions_for(instrument))
             order, fill = broker.execute_exit_at_trigger(
                 open_pos.direction,
                 open_pos.quantity,

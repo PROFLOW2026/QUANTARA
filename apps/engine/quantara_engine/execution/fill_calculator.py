@@ -25,7 +25,10 @@ def calculate_fill_price(
     assumptions: ExecutionAssumptions,
 ) -> FillResult:
     half_spread = assumptions.spread / Decimal("2")
-    slippage_amount = (assumptions.slippage_pct * base_price).quantize(Decimal("0.00000001"))
+    if assumptions.slippage_per_side is not None:
+        slippage_amount = assumptions.slippage_per_side.quantize(Decimal("0.00000001"))
+    else:
+        slippage_amount = (assumptions.slippage_pct * base_price).quantize(Decimal("0.00000001"))
 
     if side == "entry":
         if direction == Direction.LONG:

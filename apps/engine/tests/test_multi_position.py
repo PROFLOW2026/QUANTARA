@@ -113,10 +113,12 @@ def _open_position(*, direction: Direction, pos_id: str, qty: str = "0.01") -> P
     )
 
 
-def test_paper_competition_allows_second_long_same_asset():
+def test_paper_competition_blocks_same_opportunity_key():
     engine = RiskEngine()
     candle = _candle()
     existing = _open_position(direction=Direction.LONG, pos_id="p1")
+    store = MagicMock()
+    store.opportunity_consumed.return_value = True
     decision = engine.evaluate(
         RiskEvaluationInput(
             signal=Signal(
@@ -131,10 +133,46 @@ def test_paper_competition_allows_second_long_same_asset():
             risk_profile=_risk(max_open_positions=1),
             current_candle=candle,
             instrument=_instrument(),
+            store=store,
+        )
+    )
+    assert decision.approved is False
+    assert decision.denial_reason == "OPPORTUNITY_ALREADY_USED"
+
+
+def test_paper_competition_allows_new_opportunity_while_long_open():
+    engine = RiskEngine()
+    existing = _open_position(direction=Direction.LONG, pos_id="p1")
+    later_candle = Candle(
+        instrument_id="inst-btc",
+        timeframe="5m",
+        timestamp=datetime(2026, 9, 9, 15, 0, tzinfo=timezone.utc),
+        open=Decimal("60100"),
+        high=Decimal("60200"),
+        low=Decimal("60000"),
+        close=Decimal("60150"),
+        volume=Decimal("1"),
+    )
+    store = MagicMock()
+    store.opportunity_consumed.return_value = False
+    decision = engine.evaluate(
+        RiskEvaluationInput(
+            signal=Signal(
+                action=SignalAction.BUY,
+                reason="new setup",
+                suggested_sl=Decimal("59000"),
+                suggested_tp=Decimal("62000"),
+            ),
+            strategy_instance=_instance(),
+            portfolio=_portfolio(),
+            open_positions=[existing],
+            risk_profile=_risk(max_open_positions=10),
+            current_candle=later_candle,
+            instrument=_instrument(),
+            store=store,
         )
     )
     assert decision.approved is True
-    assert decision.intent is not None
 
 
 def test_paper_competition_allows_long_and_short_same_asset():

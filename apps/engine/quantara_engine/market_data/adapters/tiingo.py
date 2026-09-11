@@ -24,6 +24,7 @@ from quantara_engine.market_data.provider_budgets import (
     record_request,
 )
 from quantara_engine.market_data.registry import AssetClass, AssetDefinition, ProviderName, provider_symbol
+from quantara_engine.market_data.sessions import is_us_equity_rth
 from quantara_engine.persistence.store import TradingStore
 
 logger = logging.getLogger(__name__)
@@ -128,6 +129,12 @@ class TiingoMarketDataProvider:
                 "resampleFreq": freq,
             }
             url = "https://api.tiingo.com/tiingo/crypto/prices?" + urllib.parse.urlencode(params)
+        elif self._asset and self._asset.asset_class in (AssetClass.FOREX, AssetClass.COMMODITY):
+            params = {
+                "startDate": start.strftime("%Y-%m-%d"),
+                "resampleFreq": freq,
+            }
+            url = f"https://api.tiingo.com/tiingo/fx/{symbol.lower()}/prices?" + urllib.parse.urlencode(params)
         else:
             params = {
                 "startDate": start.strftime("%Y-%m-%d"),
@@ -137,8 +144,52 @@ class TiingoMarketDataProvider:
 
         payload = self._request(url, symbol)
         if isinstance(payload, list):
+            if self._asset and self._asset.asset_class == AssetClass.CRYPTO:
+                rows: list[dict[str, Any]] = []
+                for item in payload:
+                    if not isinstance(item, dict):
+                        continue
+                    nested = item.get("priceData")
+                    if isinstance(nested, list):
+                        rows.extend(n for n in nested if isinstance(n, dict))
+                    elif "date" in item or "datetime" in item:
+                        rows.append(item)
+                return rows[-limit:]
             return payload[-limit:]
         return []
+
+    def fetch_fx_top_quote(self, ticker: str | None = None) -> dict[str, Decimal] | None:
+        """Latest FX bid/ask/mid from Tiingo /tiingo/fx/top (one request, cached by caller)."""
+        symbol = (ticker or self._provider_ticker()).lower()
+        url = f"https://api.tiingo.com/tiingo/fx/top?tickers={urllib.parse.quote(symbol)}"
+        payload = self._request(url, symbol)
+        rows = payload if isinstance(payload, list) else []
+        if not rows:
+            return None
+        row = rows[0]
+        try:
+            bid = Decimal(str(row["bidPrice"]))
+            ask = Decimal(str(row["askPrice"]))
+            mid = Decimal(str(row.get("midPrice") or (bid + ask) / 2))
+            return {"bid": bid, "ask": ask, "mid": mid}
+        except (KeyError, InvalidOperation, TypeError, ValueError):
+            return None
+
+    def fetch_fx_latest_close(self, ticker: str) -> Decimal | None:
+        """Latest completed FX close from intraday prices (USDJPY conversion helper)."""
+        start = datetime.now(timezone.utc) - timedelta(days=2)
+        params = {
+            "startDate": start.strftime("%Y-%m-%d"),
+            "resampleFreq": "5min",
+        }
+        url = f"https://api.tiingo.com/tiingo/fx/{ticker.lower()}/prices?" + urllib.parse.urlencode(params)
+        rows = self._request(url, ticker)
+        if not isinstance(rows, list) or not rows:
+            return None
+        try:
+            return Decimal(str(rows[-1]["close"]))
+        except (KeyError, InvalidOperation, TypeError, ValueError):
+            return None
 
     def _parse_row(self, row: dict[str, Any], instrument_id: str, timeframe: str) -> Candle | None:
         try:
@@ -183,6 +234,9 @@ class TiingoMarketDataProvider:
             candle = self._parse_row(row, instrument_id, timeframe)
             if candle is None or not candle.is_complete:
                 continue
+            if self._asset and self._asset.asset_class == AssetClass.STOCK:
+                if not is_us_equity_rth(candle.timestamp):
+                    continue
             if since and candle.timestamp <= since:
                 continue
             candles.append(candle)

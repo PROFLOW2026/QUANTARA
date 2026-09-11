@@ -9,6 +9,7 @@ from quantara_engine.market_data.active_universe import list_active_db_symbols
 from quantara_engine.strategies.base import BaseStrategy
 from quantara_engine.strategies.opening_range_breakout.indicators import atr, candles_to_df
 from quantara_engine.strategies.opening_range_breakout.session import ORB_RANGE_COMPLETE, to_et
+from quantara_engine.risk.opportunity import orb_opportunity_key
 from quantara_engine.strategies.opening_range_breakout.session_router import get_orb_session_handler
 
 
@@ -170,6 +171,21 @@ class OpeningRangeBreakoutV1(BaseStrategy):
                 metadata=metadata,
             )
         if close > opening_range.high + min_distance:
+            opp_key = orb_opportunity_key(
+                symbol=str(self._runtime(context).get("db_symbol", "NVDA")),
+                session_date=session_date.isoformat(),
+                direction="long",
+                range_high=opening_range.high,
+                range_low=opening_range.low,
+                strategy_version=self.version(),
+            )
+            consumed = set(self._runtime(context).get("consumed_opportunity_keys") or [])
+            if opp_key in consumed:
+                return Signal(
+                    action=SignalAction.HOLD,
+                    reason="breakout_already_consumed",
+                    metadata={**metadata, "opportunity_key": opp_key},
+                )
             sl = close - stop_distance
             risk_per_unit = close - sl
             tp = close + risk_per_unit * Decimal(str(rr))
@@ -179,7 +195,7 @@ class OpeningRangeBreakoutV1(BaseStrategy):
                 confidence=Decimal("0.65"),
                 suggested_sl=sl,
                 suggested_tp=tp,
-                metadata=metadata,
+                metadata={**metadata, "opportunity_key": opp_key},
             )
 
         if low < opening_range.low - min_distance and close >= opening_range.low:
@@ -189,6 +205,21 @@ class OpeningRangeBreakoutV1(BaseStrategy):
                 metadata=metadata,
             )
         if close < opening_range.low - min_distance:
+            opp_key = orb_opportunity_key(
+                symbol=str(self._runtime(context).get("db_symbol", "NVDA")),
+                session_date=session_date.isoformat(),
+                direction="short",
+                range_high=opening_range.high,
+                range_low=opening_range.low,
+                strategy_version=self.version(),
+            )
+            consumed = set(self._runtime(context).get("consumed_opportunity_keys") or [])
+            if opp_key in consumed:
+                return Signal(
+                    action=SignalAction.HOLD,
+                    reason="breakout_already_consumed",
+                    metadata={**metadata, "opportunity_key": opp_key},
+                )
             sl = close + stop_distance
             risk_per_unit = sl - close
             tp = close - risk_per_unit * Decimal(str(rr))
@@ -198,7 +229,7 @@ class OpeningRangeBreakoutV1(BaseStrategy):
                 confidence=Decimal("0.65"),
                 suggested_sl=sl,
                 suggested_tp=tp,
-                metadata=metadata,
+                metadata={**metadata, "opportunity_key": opp_key},
             )
 
         return Signal(

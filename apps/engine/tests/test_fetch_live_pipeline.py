@@ -47,7 +47,7 @@ def test_incremental_derive_only_touched_15m_bucket():
     assert derived[0].timeframe == "15m"
 
 
-def test_twelve_data_blocked_skips_live_poll():
+def test_twelve_data_blocked_still_polls_when_tiingo_fallback_available():
     class FakeStore:
         def __init__(self, settings: dict):
             self._settings = settings
@@ -73,6 +73,42 @@ def test_twelve_data_blocked_skips_live_poll():
         force_bootstrap=False,
         live=True,
     )
+    assert should is True
+    assert reason is None
+
+
+def test_twelve_data_blocked_no_fallback_deferred():
+    from unittest.mock import patch
+
+    class FakeStore:
+        def __init__(self, settings: dict):
+            self._settings = settings
+
+        def get_settings_dict(self) -> dict:
+            return self._settings
+
+    store = FakeStore(
+        {
+            "provider_credits:twelvedata": {
+                "date": _today_key(),
+                "used": DAILY_HARD_LIMIT,
+                "events": [],
+            }
+        }
+    )
+    xau = next(a for a in list_target_assets() if a.db_symbol == "XAUUSD")
+    with patch(
+        "quantara_workers.jobs.fetch_data.has_eligible_provider",
+        return_value=False,
+    ):
+        should, reason = _should_poll_asset(
+            store,
+            xau,
+            now=datetime.now(timezone.utc),
+            stored=500,
+            force_bootstrap=False,
+            live=True,
+        )
     assert should is False
     assert reason is not None and "blocked" in reason
 

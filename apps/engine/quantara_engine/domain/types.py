@@ -296,6 +296,7 @@ class DecisionLogEntry:
 class ExecutionAssumptions:
     spread: Decimal = Decimal("0.30")
     slippage_pct: Decimal = Decimal("0.0001")
+    slippage_per_side: Decimal | None = None
     fee_rate: Decimal = Decimal("0")
     fill_timing: str = "next_open"
 

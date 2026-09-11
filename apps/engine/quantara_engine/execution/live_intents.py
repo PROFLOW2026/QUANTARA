@@ -82,7 +82,9 @@ def execute_pending_intents_live(store: TradingStore, now: datetime | None = Non
 
         portfolios_checked += 1
         state = store.load_portfolio_state(portfolio.id)
-        broker = PaperBrokerAdapter(instrument.id, ExecutionAssumptions())
+        from quantara_engine.execution.cost_profile import execution_assumptions_for
+
+        broker = PaperBrokerAdapter(instrument.id, execution_assumptions_for(instrument))
         processor = CandleProcessor(
             portfolio_state=state,
             strategy_instance=instance,

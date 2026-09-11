@@ -129,8 +129,14 @@ def _intent_idempotency_key(
     strategy_instance_id: str,
     signal_candle_timestamp: datetime,
     direction: str,
+    *,
+    opportunity_key: str | None = None,
 ) -> str:
-    """One pending intent per portfolio instance + signal candle + direction."""
+    """One intent per portfolio instance + canonical opportunity (preferred) or signal candle."""
+    if opportunity_key:
+        from quantara_engine.risk.opportunity import opportunity_idempotency_key
+
+        return opportunity_idempotency_key(strategy_instance_id, opportunity_key)
     raw = f"{strategy_instance_id}:{signal_candle_timestamp.isoformat()}:{direction}"
     return hashlib.sha256(raw.encode()).hexdigest()
 
@@ -488,45 +494,10 @@ class TradingStore:
         return self._instrument_to_domain(row) if row else None
 
     def resolve_jpy_per_usd(self) -> Decimal:
-        """Live JPY per 1 USD from USDJPY latest 5m candle, with provider fallback."""
-        from quantara_engine.persistence.batch_summary import batch_latest_candle_closes
-        from quantara_engine.portfolio.currency import USDJPY_DB_SYMBOL, usdjpy_instrument_row
+        """Canonical JPY per 1 USD from hourly shared cache (no per-call provider access)."""
+        from quantara_engine.portfolio.fx_rate_cache import get_canonical_jpy_per_usd
 
-        self.ensure_usdjpy_conversion_instrument()
-        row = self.session.scalar(
-            select(OrmInstrument).where(OrmInstrument.symbol == USDJPY_DB_SYMBOL)
-        )
-        if not row:
-            raise ValueError("USDJPY conversion instrument missing")
-        closes = batch_latest_candle_closes(self, [str(row.id)], "5m")
-        if closes:
-            return closes[str(row.id)]
-        return self._fetch_usdjpy_rate_from_provider(str(row.id))
-
-    def _fetch_usdjpy_rate_from_provider(self, instrument_id: str) -> Decimal:
-        from quantara_engine.market_data.adapters.twelvedata import TwelveDataMarketDataProvider
-        from quantara_engine.market_data.registry import AssetDefinition, AssetClass, ProviderName
-        from quantara_engine.portfolio.currency import USDJPY_DB_SYMBOL, USDJPY_PROVIDER_SYMBOL
-
-        asset = AssetDefinition(
-            canonical_symbol="USD/JPY",
-            db_symbol=USDJPY_DB_SYMBOL,
-            display_symbol="USD/JPY",
-            asset_class=AssetClass.FOREX,
-            primary_provider=ProviderName.TWELVE_DATA,
-            secondary_provider=None,
-            provider_symbols={ProviderName.TWELVE_DATA.value: USDJPY_PROVIDER_SYMBOL},
-            trading_sessions={"sessions": ["24x5"]},
-            pip_size="0.01",
-            price_tick_size="0.001",
-            quantity_step="1000",
-            min_quantity="1000",
-        )
-        provider = TwelveDataMarketDataProvider(store=self, caller="fx_rate", asset=asset)
-        candles = provider.fetch_latest(instrument_id, "5m")
-        if not candles:
-            raise ValueError("Unable to resolve USDJPY rate from DB or provider")
-        return candles[-1].close
+        return get_canonical_jpy_per_usd(self)
 
     def ensure_usdjpy_conversion_instrument(self) -> None:
         from quantara_engine.portfolio.currency import USDJPY_DB_SYMBOL, usdjpy_instrument_row
@@ -1220,6 +1191,15 @@ class TradingStore:
         )
         self.session.merge(row)
 
+    def merge_signal_metadata(self, signal_id: str, patch: dict) -> None:
+        """Merge keys into signal.metadata (e.g. risk_audit after approval)."""
+        row = self.session.get(OrmSignal, _uuid(signal_id))
+        if not row:
+            return
+        meta = dict(row.metadata_ or {})
+        meta.update(patch)
+        row.metadata_ = meta
+
     def list_backtest_entry_signals(self, backtest_run_id: str) -> list[dict]:
         rows = self.session.scalars(
             select(OrmSignal)
@@ -1254,11 +1234,133 @@ class TradingStore:
         )
         self.session.merge(row)
 
-    def save_order_intent(self, intent: OrderIntent) -> OrderIntent:
+    def list_consumed_opportunity_keys(self, strategy_instance_id: str) -> list[str]:
+        """Opportunity keys with pending or filled entry intents (restart-safe)."""
+        rows = self.session.execute(
+            text(
+                """
+                SELECT DISTINCT s.metadata->>'opportunity_key' AS opp_key
+                FROM order_intents oi
+                JOIN signals s ON s.id = oi.signal_id
+                LEFT JOIN orders o ON o.intent_id = oi.id
+                LEFT JOIN fills f ON f.order_id = o.id AND f.side = 'entry'
+                WHERE oi.strategy_instance_id = :si
+                  AND oi.backtest_run_id IS NULL
+                  AND s.metadata->>'opportunity_key' IS NOT NULL
+                  AND (
+                    oi.status = 'pending_execution'
+                    OR f.id IS NOT NULL
+                  )
+                """
+            ),
+            {"si": _uuid(strategy_instance_id)},
+        ).scalars().all()
+        return [k for k in rows if k]
+
+    def opportunity_consumed(
+        self,
+        strategy_instance_id: str,
+        opportunity_key: str,
+        *,
+        include_open: bool = True,
+    ) -> bool:
+        """True when this canonical opportunity already has a pending or filled entry."""
+        from quantara_engine.models.enums import OrderIntentStatus as OrmIntentStatus
+        from quantara_engine.risk.opportunity import opportunity_idempotency_key
+
+        idem = opportunity_idempotency_key(strategy_instance_id, opportunity_key)
+        row = self.session.scalar(
+            select(OrmOrderIntent).where(OrmOrderIntent.idempotency_key == idem).limit(1)
+        )
+        if not row:
+            return False
+        if row.status == OrmIntentStatus.PENDING_EXECUTION:
+            return True
+        if row.status == OrmIntentStatus.EXECUTED:
+            fill = self.session.scalar(
+                select(OrmFill.id)
+                .join(OrmOrder, OrmOrder.id == OrmFill.order_id)
+                .where(
+                    OrmOrder.intent_id == row.id,
+                    OrmFill.side == "entry",
+                )
+                .limit(1)
+            )
+            return fill is not None
+        return False
+
+    def resolve_entry_opportunity_key(
+        self,
+        intent: OrderIntent,
+        opportunity_key: str | None = None,
+    ) -> str | None:
+        if opportunity_key:
+            return opportunity_key
+        row = self.session.get(OrmSignal, _uuid(intent.signal_id))
+        if not row:
+            return None
+        meta = dict(row.metadata_ or {})
+        existing = meta.get("opportunity_key")
+        if existing:
+            return str(existing)
+        if row.action not in (OrmSignalAction.BUY, OrmSignalAction.SELL):
+            return None
+        instance = self.session.get(OrmStrategyInstance, _uuid(intent.strategy_instance_id))
+        if not instance:
+            return None
+        instrument_row = self.session.get(OrmInstrument, _uuid(instance.instrument_id))
+        if not instrument_row:
+            return None
+        from quantara_engine.risk.opportunity import opportunity_key_from_signal
+
+        signal = Signal(
+            action=SignalAction(row.action.value),
+            reason=row.reason or "",
+            suggested_sl=intent.stop_loss,
+            suggested_tp=intent.take_profit,
+            metadata=meta,
+        )
+        timeframe = (
+            instance.timeframe.value
+            if hasattr(instance.timeframe, "value")
+            else str(instance.timeframe)
+        )
+        return opportunity_key_from_signal(
+            signal,
+            symbol=instrument_row.symbol,
+            timeframe=timeframe,
+            strategy_slug=instance.strategy_slug,
+            setup_candle_timestamp=intent.signal_candle_timestamp,
+        )
+
+    def _requires_canonical_opportunity_key(self, intent: OrderIntent) -> bool:
+        if self._bt_uuid() is not None:
+            return False
+        if intent.is_close or intent.take_profit is None:
+            return False
+        from quantara_engine.competition.leverage import is_paper_competition_portfolio
+
+        if not is_paper_competition_portfolio(intent.portfolio_id):
+            return False
+        instance = self.session.get(OrmStrategyInstance, _uuid(intent.strategy_instance_id))
+        if not instance:
+            return False
+        return instance.strategy_slug in ("opening-range-breakout", "gold-trend-pullback")
+
+    def save_order_intent(
+        self, intent: OrderIntent, *, opportunity_key: str | None = None
+    ) -> OrderIntent:
+        resolved_key = self.resolve_entry_opportunity_key(intent, opportunity_key)
+        if self._requires_canonical_opportunity_key(intent) and not resolved_key:
+            raise ValueError(
+                "Competition entry intent requires canonical opportunity_key "
+                f"(instance={intent.strategy_instance_id})"
+            )
         idempotency_key = _intent_idempotency_key(
             intent.strategy_instance_id,
             intent.signal_candle_timestamp,
             intent.direction.value,
+            opportunity_key=resolved_key,
         )
         existing = self.session.scalar(
             select(OrmOrderIntent).where(OrmOrderIntent.idempotency_key == idempotency_key)
@@ -1557,10 +1659,38 @@ class TradingStore:
                 if resolved:
                     position.strategy_version_id = resolved
 
+    def _lookup_entry_risk_for_position(
+        self, position_id: str
+    ) -> tuple[Decimal, Decimal] | None:
+        row = self.session.execute(
+            text(
+                """
+                SELECT oi.target_risk_amount, oi.actual_risk_amount
+                FROM fills f
+                JOIN orders o ON o.id = f.order_id
+                JOIN order_intents oi ON oi.id = o.intent_id
+                WHERE f.position_id = :pid AND f.side = 'entry'
+                ORDER BY f.filled_at ASC
+                LIMIT 1
+                """
+            ),
+            {"pid": _uuid(position_id)},
+        ).first()
+        if not row:
+            return None
+        return Decimal(str(row[0])), Decimal(str(row[1]))
+
     def save_trade(self, trade: Trade) -> None:
         strategy_version_id = trade.strategy_version_id
         if not _is_uuid(strategy_version_id):
             strategy_version_id = self.resolve_strategy_version_id(trade.strategy_instance_id)
+        target_risk = trade.target_risk_amount
+        actual_risk = trade.actual_risk_amount
+        if target_risk <= 0 or actual_risk <= 0:
+            looked_up = self._lookup_entry_risk_for_position(trade.position_id)
+            if looked_up:
+                target_risk = target_risk if target_risk > 0 else looked_up[0]
+                actual_risk = actual_risk if actual_risk > 0 else looked_up[1]
         row = OrmTrade(
             id=_uuid(trade.id),
             position_id=_uuid(trade.position_id),
@@ -1577,8 +1707,8 @@ class TradingStore:
             fees_total=trade.fees_total,
             slippage_total=trade.slippage_total,
             spread_total=trade.spread_total,
-            target_risk_amount=trade.target_risk_amount,
-            actual_risk_amount=trade.actual_risk_amount,
+            target_risk_amount=target_risk,
+            actual_risk_amount=actual_risk,
             exit_reason=OrmExitReason(trade.exit_reason.value),
             duration_seconds=trade.duration_seconds,
             opened_at=trade.opened_at,
@@ -1587,6 +1717,18 @@ class TradingStore:
             backtest_run_id=self._bt_uuid(),
         )
         self.session.merge(row)
+
+    def hydrate_position_risk_from_intents(self, positions: list[Position]) -> None:
+        """Fill in-memory risk amounts from entry order intents when missing."""
+        if not positions:
+            return
+        for pos in positions:
+            if pos.target_risk_amount > 0 and pos.actual_risk_amount > 0:
+                continue
+            looked_up = self._lookup_entry_risk_for_position(pos.id)
+            if looked_up:
+                pos.target_risk_amount = looked_up[0]
+                pos.actual_risk_amount = looked_up[1]
 
     def update_portfolio(self, portfolio: Portfolio, *, flush: bool = True) -> None:
         row = self.session.get(OrmPortfolio, _uuid(portfolio.id))
@@ -1885,6 +2027,7 @@ class TradingStore:
         ).all()
         positions = [self._position_to_domain(row) for row in position_rows]
         self._hydrate_position_strategy_versions(positions)
+        self.hydrate_position_risk_from_intents(positions)
 
         trade_rows = self.session.scalars(
             select(OrmTrade)

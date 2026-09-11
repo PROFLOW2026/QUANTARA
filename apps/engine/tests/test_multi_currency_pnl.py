@@ -119,17 +119,19 @@ def test_fx_rate_table_conversion():
 
 
 @pytest.mark.parametrize(
-    "risk_pct,expected_target,expected_actual",
+    "risk_pct,expected_target,expect_deny",
     [
-        ("0.25", Decimal("5"), Decimal("10")),
-        ("0.5", Decimal("10"), Decimal("10")),
-        ("1", Decimal("20"), Decimal("20")),
-        ("1.5", Decimal("30"), Decimal("30")),
-        ("2", Decimal("40"), Decimal("40")),
+        ("0.25", Decimal("5"), True),
+        ("0.5", Decimal("10"), False),
+        ("1", Decimal("20"), False),
+        ("1.5", Decimal("30"), False),
+        ("2", Decimal("40"), False),
     ],
 )
-def test_gbpjpy_risk_tiers_match_sizing(risk_pct, expected_target, expected_actual):
+def test_gbpjpy_risk_tiers_match_sizing(risk_pct, expected_target, expect_deny):
     from quantara_engine.domain.types import RiskProfile
+    from quantara_engine.execution.cost_profile import execution_assumptions_for
+    from quantara_engine.risk.sizing import max_allowed_risk_amount
 
     inst = _gbpjpy()
     portfolio = Portfolio(
@@ -152,6 +154,7 @@ def test_gbpjpy_risk_tiers_match_sizing(risk_pct, expected_target, expected_actu
     )
     entry = Decimal("200.000")
     stop = Decimal("198.500")
+    assumptions = execution_assumptions_for(inst, entry)
     qty, target, actual, denial = compute_position_size(
         portfolio,
         risk,
@@ -163,12 +166,15 @@ def test_gbpjpy_risk_tiers_match_sizing(risk_pct, expected_target, expected_actu
         entry,
         allow_virtual_leverage=True,
         fx_rates=FX_150,
+        execution_assumptions=assumptions,
     )
-    assert denial is None
-    assert qty >= inst.min_quantity
     assert target == expected_target
-    assert abs(actual - expected_actual) <= Decimal("1.00")
-    assert fx_risk_usd(qty, abs(entry - stop), inst, FX_150) == actual
+    if expect_deny:
+        assert denial is not None
+    else:
+        assert denial is None
+        assert qty >= inst.min_quantity
+        assert actual <= max_allowed_risk_amount(target)
 
 
 def test_portfolio_aggregation_gbpjpy_usd():

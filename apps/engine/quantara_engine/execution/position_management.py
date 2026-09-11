@@ -218,7 +218,9 @@ def process_position_management(
     if position.status.value != "open":
         return {"position_id": position.id, "status": "skipped_not_open"}
 
-    broker = broker or PaperBrokerAdapter(instrument.id, ExecutionAssumptions())
+    from quantara_engine.execution.cost_profile import execution_assumptions_for
+
+    broker = broker or PaperBrokerAdapter(instrument.id, execution_assumptions_for(instrument))
     cursor_state = cursors if cursors is not None else _get_cursors(store)
     last_managed_raw = cursor_state.get(position.id)
     last_managed = (

@@ -17,10 +17,17 @@ from quantara_engine.db.session import session_scope
 from quantara_engine.domain.types import ExecutionAssumptions, Mode
 from quantara_engine.execution.catch_up import list_catchup_candle_indices
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
+from quantara_engine.execution.strategy_scheduling import (
+    ROBOT_A_LIVE_CURSOR_KEY,
+    ROBOT_B_ORB_LIVE_CURSOR_KEY,
+    load_scheduling_cursor,
+    rotated_indices,
+    save_scheduling_cursor,
+)
 from quantara_engine.market_data.factory import get_market_data_provider
 from quantara_engine.market_data.registry import get_asset
 from quantara_engine.market_data.symbols import list_target_db_symbols
-from quantara_engine.competition.constants import ACTIVE_COMPETITION_EXPERIMENT_ID
+from quantara_engine.competition.constants import ACTIVE_COMPETITION_EXPERIMENT_ID, OWNER_ID
 from quantara_engine.market_data.polling import (
     STRATEGY_MIN_CANDLES,
     bar_staleness_minutes,
@@ -406,6 +413,7 @@ def _process_experiment(
     deadline: float,
     per_portfolio_eval: bool = False,
     order_by_timeframe_first: bool = False,
+    scheduling_cursor_key: str | None = None,
 ) -> tuple[int, int, int, dict[str, dict], dict[str, dict], list[str]]:
     if not entries:
         return 0, 0, 0, {}, {}, []
@@ -424,13 +432,23 @@ def _process_experiment(
     pairs = _experiment_iteration_pairs(
         symbols, timeframes, order_by_timeframe_first=order_by_timeframe_first
     )
-    for timeframe, symbol in pairs:
+    visit_order = (
+        rotated_indices(len(pairs), load_scheduling_cursor(s, scheduling_cursor_key))
+        if scheduling_cursor_key and pairs
+        else list(range(len(pairs)))
+    )
+    last_visited: int | None = None
+    for pair_index in visit_order:
         if time.perf_counter() >= deadline:
+            timeframe, symbol = pairs[pair_index]
+            skipped_reasons.append(f"{symbol}/{timeframe}:deadline_exhausted")
             logger.warning(
                 "Strategy cycle time budget exhausted during %s %s scan", symbol, timeframe
             )
             break
 
+        timeframe, symbol = pairs[pair_index]
+        last_visited = pair_index
         instrument = s.get_instrument_by_symbol(symbol)
         if not instrument:
             logger.warning("Instrument %s not found — skipping", symbol)
@@ -443,7 +461,9 @@ def _process_experiment(
         if not group:
             continue
 
-        broker = PaperBrokerAdapter(instrument.id, ExecutionAssumptions())
+        from quantara_engine.execution.cost_profile import execution_assumptions_for
+
+        broker = PaperBrokerAdapter(instrument.id, execution_assumptions_for(instrument))
         candles_processed, decisions, tf_status = _process_timeframe_group(
             s,
             instrument,
@@ -471,6 +491,9 @@ def _process_experiment(
         prev = timeframe_status.setdefault(timeframe, {"backlog": 0, "instances": 0})
         prev["backlog"] = int(prev.get("backlog", 0)) + int(tf_status.get("backlog", 0))
         prev["instances"] = int(prev.get("instances", 0)) + int(tf_status.get("instances", 0))
+
+    if scheduling_cursor_key and pairs and last_visited is not None:
+        save_scheduling_cursor(s, scheduling_cursor_key, (last_visited + 1) % len(pairs))
 
     return (
         groups_evaluated,
@@ -509,12 +532,16 @@ def _process_orb_live_sweep(
     timeframe_status: dict[str, dict] = {}
     skipped_reasons: list[str] = []
 
-    for symbol in symbols:
+    visit_order = rotated_indices(len(symbols), load_scheduling_cursor(s, ROBOT_B_ORB_LIVE_CURSOR_KEY))
+    last_visited: int | None = None
+    for symbol_index in visit_order:
+        symbol = symbols[symbol_index]
         if time.perf_counter() >= deadline:
             skipped_reasons.append(f"{symbol}/{timeframe}:deadline_exhausted")
             logger.warning("ORB live sweep deadline reached before %s", symbol)
-            continue
+            break
 
+        last_visited = symbol_index
         instrument = s.get_instrument_by_symbol(symbol)
         if not instrument:
             logger.warning("Instrument %s not found — skipping ORB sweep", symbol)
@@ -524,7 +551,9 @@ def _process_orb_live_sweep(
         if not symbol_group:
             continue
 
-        broker = PaperBrokerAdapter(instrument.id, ExecutionAssumptions())
+        from quantara_engine.execution.cost_profile import execution_assumptions_for
+
+        broker = PaperBrokerAdapter(instrument.id, execution_assumptions_for(instrument))
         candles_processed, decisions, tf_status = _process_timeframe_group(
             s,
             instrument,
@@ -552,6 +581,9 @@ def _process_orb_live_sweep(
         ),
         "instances": len(group),
     }
+    if symbols and last_visited is not None:
+        save_scheduling_cursor(s, ROBOT_B_ORB_LIVE_CURSOR_KEY, (last_visited + 1) % len(symbols))
+
     return (
         groups_evaluated,
         portfolios_touched,
@@ -601,6 +633,7 @@ def _process_competition(
             time_budget_sec=LIVE_ROBOT_A_BUDGET_SEC,
             deadline=deadline_a,
             order_by_timeframe_first=True,
+            scheduling_cursor_key=ROBOT_A_LIVE_CURSOR_KEY,
         )
         robot_a_duration_ms = round((time.perf_counter() - cycle_t0) * 1000, 1)
 

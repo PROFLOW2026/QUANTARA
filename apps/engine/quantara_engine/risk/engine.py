@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
+from quantara_engine.competition.leverage import is_paper_competition_portfolio
 from quantara_engine.domain.types import (
     Candle,
     Direction,
+    ExecutionAssumptions,
     Instrument,
     OrderIntent,
     Portfolio,
@@ -21,9 +24,15 @@ from quantara_engine.domain.types import (
     IntentStatus,
     new_id,
 )
+from quantara_engine.execution.cost_profile import execution_assumptions_for
+from quantara_engine.execution.economics import compute_executable_economics, tp_economically_valid
 from quantara_engine.portfolio.currency import FxRateTable
-from quantara_engine.risk.sizing import compute_position_size
-from quantara_engine.competition.leverage import is_paper_competition_portfolio
+from quantara_engine.risk.open_risk_guard import DEFAULT_OPEN_RISK_LIMITS, evaluate_all_open_risk_guards
+from quantara_engine.risk.opportunity import opportunity_key_from_signal
+from quantara_engine.risk.sizing import DEFAULT_RISK_ROUNDING_TOLERANCE_PCT, compute_position_size
+
+if TYPE_CHECKING:
+    from quantara_engine.persistence.store import TradingStore
 
 
 @dataclass
@@ -39,6 +48,8 @@ class RiskEvaluationInput:
     all_active_instances: list[StrategyInstance] = field(default_factory=list)
     atr_value: Optional[Decimal] = None
     fx_rates: FxRateTable | None = None
+    execution_assumptions: ExecutionAssumptions | None = None
+    store: TradingStore | None = None
 
 
 @dataclass
@@ -102,6 +113,27 @@ class RiskEngine:
 
         direction = Direction.LONG if signal.action == SignalAction.BUY else Direction.SHORT
         paper_competition = is_paper_competition_portfolio(inp.portfolio.id)
+        assumptions = inp.execution_assumptions or execution_assumptions_for(
+            inp.instrument, inp.current_candle.close
+        )
+
+        opportunity_key = opportunity_key_from_signal(
+            signal,
+            symbol=inp.instrument.symbol,
+            timeframe=inp.strategy_instance.timeframe,
+            strategy_slug=inp.strategy_instance.strategy_slug,
+            setup_candle_timestamp=inp.current_candle.timestamp,
+        )
+
+        if opportunity_key and inp.store:
+            if inp.store.opportunity_consumed(
+                inp.strategy_instance.id, opportunity_key, include_open=True
+            ):
+                return RiskDecision(
+                    approved=False,
+                    denial_reason="OPPORTUNITY_ALREADY_USED",
+                    checks_failed=["opportunity_consumed"],
+                )
 
         if not paper_competition:
             same_asset = [p for p in inp.open_positions if p.instrument_id == inp.instrument.id]
@@ -189,7 +221,7 @@ class RiskEngine:
                     checks_failed=["sl_too_wide"],
                 )
 
-        qty, target_risk, actual_risk, deny = compute_position_size(
+        qty, target_risk, expected_risk, deny = compute_position_size(
             portfolio=inp.portfolio,
             risk_profile=inp.risk_profile,
             instrument=inp.instrument,
@@ -200,6 +232,7 @@ class RiskEngine:
             mark_price=mark,
             allow_virtual_leverage=virtual_leverage,
             fx_rates=inp.fx_rates,
+            execution_assumptions=assumptions,
         )
 
         if deny:
@@ -208,6 +241,98 @@ class RiskEngine:
                 denial_reason=f"RISK_DENIED: {deny}",
                 checks_failed=["sizing"],
             )
+
+        if signal.suggested_tp is not None and inp.fx_rates is not None:
+            valid, econ = tp_economically_valid(
+                direction,
+                entry_ref,
+                signal.suggested_tp,
+                qty,
+                inp.instrument,
+                assumptions,
+                inp.fx_rates,
+            )
+            if not valid:
+                return RiskDecision(
+                    approved=False,
+                    denial_reason="TP_INSIDE_EXECUTION_COST",
+                    checks_failed=["tp_economics"],
+                    metadata={
+                        "expected_net_reward_usd": float(econ.net_reward_usd),
+                        "execution_cost_quote": float(econ.execution_cost_quote),
+                        "strategy_tp": float(signal.suggested_tp),
+                    },
+                )
+
+        if inp.fx_rates is not None:
+            ok, guard_reason = evaluate_all_open_risk_guards(
+                store=inp.store,
+                portfolio=inp.portfolio,
+                open_positions=inp.open_positions,
+                instrument=inp.instrument,
+                strategy_instance=inp.strategy_instance,
+                incremental_risk_usd=expected_risk,
+            )
+            if not ok:
+                return RiskDecision(
+                    approved=False,
+                    denial_reason=guard_reason or "OPEN_RISK_LIMIT",
+                    checks_failed=["open_risk_guard"],
+                )
+
+        effective_risk_pct = (
+            (expected_risk / inp.portfolio.equity * Decimal("100")).quantize(Decimal("0.0001"))
+            if inp.portfolio.equity > 0
+            else Decimal("0")
+        )
+        risk_audit = {
+            "requested_tier_pct": str(inp.risk_profile.risk_per_trade_pct),
+            "target_risk_usd": str(target_risk),
+            "selected_quantity": str(qty),
+            "effective_expected_risk_usd": str(expected_risk),
+            "effective_expected_risk_pct": str(effective_risk_pct),
+            "risk_rounding_tolerance_pct": str(DEFAULT_RISK_ROUNDING_TOLERANCE_PCT),
+            "sl_execution_assumption": {
+                "spread": str(assumptions.spread),
+                "slippage_pct": str(assumptions.slippage_pct),
+                "slippage_per_side": str(assumptions.slippage_per_side)
+                if assumptions.slippage_per_side is not None
+                else None,
+            },
+            "fx_jpy_per_usd": (
+                str(inp.fx_rates.quote_per_usd.get("JPY"))
+                if inp.fx_rates and inp.fx_rates.quote_per_usd.get("JPY")
+                else None
+            ),
+            "risk_calculated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        economics_meta = {"risk_audit": risk_audit}
+        if signal.suggested_tp is not None and inp.fx_rates is not None:
+            econ = compute_executable_economics(
+                direction,
+                entry_ref,
+                sl,
+                signal.suggested_tp,
+                qty,
+                inp.instrument,
+                assumptions,
+                inp.fx_rates,
+            )
+            economics_meta = {
+                "opportunity_key": opportunity_key,
+                "risk_tier": inp.risk_profile.slug if hasattr(inp.risk_profile, "slug") else None,
+                "expected_entry_fill": float(econ.entry_fill),
+                "expected_sl_fill": float(econ.sl_fill),
+                "expected_tp_fill": float(econ.tp_fill) if econ.tp_fill else None,
+                "gross_reward_usd": float(econ.gross_reward_usd),
+                "net_expected_reward_usd": float(econ.net_reward_usd),
+                "expected_loss_usd": float(econ.expected_loss_usd),
+                "net_reward_risk_ratio": float(econ.net_reward_risk_ratio)
+                if econ.net_reward_risk_ratio
+                else None,
+                "execution_cost_quote": float(econ.execution_cost_quote),
+            }
 
         intent = OrderIntent(
             id=new_id(),
@@ -219,13 +344,18 @@ class RiskEngine:
             stop_loss=sl,
             take_profit=signal.suggested_tp,
             target_risk_amount=target_risk,
-            actual_risk_amount=actual_risk,
+            actual_risk_amount=expected_risk,
             signal_candle_timestamp=inp.current_candle.timestamp,
             risk_profile_id=inp.risk_profile.id,
             status=IntentStatus.PENDING_EXECUTION,
         )
-        checks_passed.extend(["sizing", "sl_valid", "exposure_ok"])
-        return RiskDecision(approved=True, intent=intent, checks_passed=checks_passed)
+        checks_passed.extend(["sizing", "sl_valid", "exposure_ok", "tp_economics", "open_risk_ok"])
+        return RiskDecision(
+            approved=True,
+            intent=intent,
+            checks_passed=checks_passed,
+            metadata=economics_meta,
+        )
 
     def _find_position(
         self, positions: list[Position], strategy_instance_id: str

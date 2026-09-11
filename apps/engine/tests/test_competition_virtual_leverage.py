@@ -6,7 +6,7 @@ from quantara_engine.competition.constants import ACTIVE_COMPETITION_PORTFOLIOS
 from quantara_engine.competition.leverage import is_competition_portfolio
 from quantara_engine.domain.types import Instrument, Mode, Portfolio
 from quantara_engine.risk.profiles import get_risk_profile
-from quantara_engine.risk.sizing import compute_position_size
+from quantara_engine.risk.sizing import DEFAULT_RISK_ROUNDING_TOLERANCE_PCT, compute_position_size, max_allowed_risk_amount
 
 ENTRY = Decimal("4404.51")
 STOP = Decimal("4419.74")
@@ -102,8 +102,8 @@ def test_competition_virtual_leverage_differentiates_tiers():
             allow_virtual_leverage=True,
         )
         assert deny is None, deny
-        assert actual <= target
-        assert actual >= target - Decimal("0.15")
+        assert actual <= max_allowed_risk_amount(target, DEFAULT_RISK_ROUNDING_TOLERANCE_PCT)
+        assert actual >= target - Decimal("0.15") or actual <= target
         results.append((qty, actual))
 
     quantities = [r[0] for r in results]

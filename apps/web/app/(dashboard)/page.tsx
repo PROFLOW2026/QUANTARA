@@ -8,7 +8,6 @@ import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import { LatestDecisionsPanel } from "@/components/trading/LatestDecisionsPanel";
 import { StrategyFreshnessPanel } from "@/components/trading/StrategyFreshnessPanel";
 import {
-  ActiveAssetsSummary,
   ActiveAssetsTable,
   ProviderHealthPanel,
 } from "@/components/trading/ActiveAssetsPanel";
@@ -120,8 +119,6 @@ export default function HomePageClient() {
   const initialCapital = competitionReady
     ? (competition?.combined?.initial_equity ?? competition?.experiment?.total_initial_capital ?? null)
     : null;
-  const robotACount = competitionReady ? competition?.experiment?.robot_a_portfolio_count : null;
-  const robotBCount = competitionReady ? competition?.experiment?.robot_b_portfolio_count : null;
   const combinedRealized = competitionReady
     ? portfolios.reduce((sum, row) => sum + row.realized_pnl, 0)
     : null;
@@ -140,7 +137,6 @@ export default function HomePageClient() {
     ? (competition?.experiment?.portfolio_count ?? portfolios.length)
     : null;
   const assetRows = assetAnalytics?.assets ?? [];
-  const activeProviders = ["Twelve Data", "Tiingo", "Alpaca"];
   const strategyRunner = workers?.workers?.find((w) => w.name === "strategy_runner");
   const freshness = workers?.strategy_freshness ?? strategyRunner?.freshness;
 
@@ -163,13 +159,6 @@ export default function HomePageClient() {
             ) : (
               <>
                 <p className="font-mono text-2xl">{portfolioCount ?? "—"}</p>
-                <p className="mt-1 text-xs text-muted">{t("home.competition_card_title")}</p>
-                <div className="mt-2 space-y-1 text-xs text-muted">
-                  <p>{t("home.robot_a_portfolios")}: {robotACount ?? "—"}</p>
-                  {(robotBCount ?? 0) > 0 ? (
-                    <p>{t("home.robot_b_portfolios")}: {robotBCount}</p>
-                  ) : null}
-                </div>
               </>
             )}
           </CardContent>
@@ -182,7 +171,6 @@ export default function HomePageClient() {
         ) : (
           <MetricCardCurrency
             label={t("home.competition_initial_capital")}
-            hint={t("home.equity_hint")}
             value={initialCapital ?? 0}
           />
         )}
@@ -244,13 +232,6 @@ export default function HomePageClient() {
         </Card>
       </div>
 
-      <div className="mt-4">
-        <ActiveAssetsSummary
-          assetsActive={assetAnalytics?.assets_active ?? 8}
-          providers={activeProviders}
-        />
-      </div>
-
       {assetRows.length ? (
         <div className="mt-4">
           <ActiveAssetsTable assets={assetRows} />
@@ -258,15 +239,15 @@ export default function HomePageClient() {
       ) : null}
 
       <div className="mt-4">
+        <LatestDecisionsPanel decisions={assetDecisions} timeframe="5m" />
+      </div>
+
+      <div className="mt-4">
         <ProviderHealthPanel marketStatus={marketStatus} />
       </div>
 
       <div className="mt-4">
         <StrategyFreshnessPanel freshness={freshness} />
-      </div>
-
-      <div className="mt-4">
-        <LatestDecisionsPanel decisions={assetDecisions} timeframe="5m" />
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

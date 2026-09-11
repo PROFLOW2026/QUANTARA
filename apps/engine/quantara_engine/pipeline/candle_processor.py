@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -25,7 +25,9 @@ from quantara_engine.domain.types import (
     StrategyInstance,
     new_id,
 )
+from quantara_engine.execution.cost_profile import execution_assumptions_for
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
+from quantara_engine.risk.opportunity import opportunity_key_from_signal
 from quantara_engine.execution.timing import freshness_max_age_minutes, live_fill_allowed
 from quantara_engine.market_data.polling import timeframe_minutes
 from quantara_engine.market_data.registry import get_asset
@@ -161,6 +163,17 @@ class CandleProcessor:
     def _persist_signal(self, signal, signal_id: str, candle: Candle) -> None:
         if not self.store:
             return
+        opp = opportunity_key_from_signal(
+            signal,
+            symbol=self.instrument.symbol,
+            timeframe=self.instance.timeframe,
+            strategy_slug=self.instance.strategy_slug,
+            setup_candle_timestamp=candle.timestamp,
+        )
+        if opp:
+            meta = dict(signal.metadata or {})
+            meta.setdefault("opportunity_key", opp)
+            signal = replace(signal, metadata=meta)
         self.store.save_signal(
             signal_id=signal_id,
             signal=signal,
@@ -171,10 +184,10 @@ class CandleProcessor:
         )
         self._flush_store()
 
-    def _persist_intent(self, intent: OrderIntent) -> None:
+    def _persist_intent(self, intent: OrderIntent, *, opportunity_key: str | None = None) -> None:
         if not self.store or intent.id in self._persisted_intents:
             return
-        self.store.save_order_intent(intent)
+        self.store.save_order_intent(intent, opportunity_key=opportunity_key)
         self._persisted_intents.add(intent.id)
         self._flush_store()
 
@@ -191,8 +204,12 @@ class CandleProcessor:
         if not self.store:
             return
         if intent:
-            self._persist_intent(intent)
-            self.store.update_order_intent_status(intent.id, intent.status)
+            if intent.id in self._persisted_intents:
+                self.store.update_order_intent_status(intent.id, intent.status)
+            else:
+                resolved = self.store.resolve_entry_opportunity_key(intent)
+                self._persist_intent(intent, opportunity_key=resolved)
+                self.store.update_order_intent_status(intent.id, intent.status)
         self.store.save_order(
             order,
             strategy_instance_id=self.instance.id,
@@ -254,6 +271,13 @@ class CandleProcessor:
                     self.instrument.id,
                     session_date,
                 )
+            runtime["consumed_opportunity_keys"] = self.store.list_consumed_opportunity_keys(
+                self.instance.id
+            )
+        if self.instance.strategy_slug == "gold-trend-pullback" and self.store:
+            runtime["consumed_opportunity_keys"] = self.store.list_consumed_opportunity_keys(
+                self.instance.id
+            )
         return runtime
 
     def evaluate_signal(self, candle_index: int):
@@ -572,6 +596,14 @@ class CandleProcessor:
             atr_value = Decimal(str(signal.metadata["atr"]))
 
         ctx = self._currency_context()
+        assumptions = execution_assumptions_for(self.instrument, candle.close)
+        opportunity_key = opportunity_key_from_signal(
+            signal,
+            symbol=self.instrument.symbol,
+            timeframe=self.instance.timeframe,
+            strategy_slug=self.instance.strategy_slug,
+            setup_candle_timestamp=candle.timestamp,
+        )
         decision = self.risk_engine.evaluate(
             RiskEvaluationInput(
                 signal=signal,
@@ -584,6 +616,8 @@ class CandleProcessor:
                 signal_id=signal_id,
                 atr_value=atr_value,
                 fx_rates=ctx.fx_rates,
+                execution_assumptions=assumptions,
+                store=self.store,
             )
         )
 
@@ -620,7 +654,7 @@ class CandleProcessor:
             candle, candle_index
         )
         self.pending_intents.append(intent)
-        self._persist_intent(intent)
+        self._persist_intent(intent, opportunity_key=opportunity_key)
         from quantara_engine.competition.leverage import compute_sizing_metrics, is_competition_portfolio
 
         metrics = compute_sizing_metrics(
@@ -632,26 +666,36 @@ class CandleProcessor:
         )
         msg = (
             f"RISK_APPROVED: qty={intent.quantity}, target_risk=${intent.target_risk_amount}, "
-            f"actual_risk=${intent.actual_risk_amount}, SL={intent.stop_loss}"
+            f"expected_risk=${intent.actual_risk_amount}, SL={intent.stop_loss}"
         )
         if is_competition_portfolio(self.state.portfolio.id):
             msg += (
                 f", exposure={metrics['exposure_pct']}%, "
                 f"virtual_leverage={metrics['virtual_leverage']}x"
             )
+        approval_meta = {
+            "target_risk_pct": str(metrics["target_risk_pct"]),
+            "actual_risk_pct": str(metrics["actual_risk_pct"]),
+            "exposure_pct": str(metrics["exposure_pct"]),
+            "virtual_leverage": str(metrics["virtual_leverage"]),
+            "notional": str(metrics["notional"]),
+            "opportunity_key": opportunity_key,
+        }
+        if decision.metadata:
+            approval_meta.update(decision.metadata)
         self._log(
             candle,
             DecisionType.RISK_APPROVED,
             msg,
             signal_id,
-            metadata={
-                "target_risk_pct": str(metrics["target_risk_pct"]),
-                "actual_risk_pct": str(metrics["actual_risk_pct"]),
-                "exposure_pct": str(metrics["exposure_pct"]),
-                "virtual_leverage": str(metrics["virtual_leverage"]),
-                "notional": str(metrics["notional"]),
-            },
+            metadata=approval_meta,
         )
+        if self.store and signal_id:
+            metadata_patch = {"risk_audit": approval_meta.get("risk_audit", approval_meta)}
+            if opportunity_key:
+                metadata_patch["opportunity_key"] = opportunity_key
+            self.store.merge_signal_metadata(signal_id, metadata_patch)
+            self._flush_store()
 
     def _handle_close_signal(self, signal, candle: Candle, signal_id: str) -> None:
         ctx = self._currency_context()
