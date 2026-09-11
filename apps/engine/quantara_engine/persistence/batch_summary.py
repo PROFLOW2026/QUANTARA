@@ -27,7 +27,13 @@ if TYPE_CHECKING:
 
 
 def _uuids(ids: list[str]) -> list[uuid.UUID]:
-    return [uuid.UUID(i) for i in ids]
+    out: list[uuid.UUID] = []
+    for i in ids:
+        try:
+            out.append(uuid.UUID(str(i)))
+        except ValueError:
+            continue
+    return out
 
 
 @dataclass(frozen=True)

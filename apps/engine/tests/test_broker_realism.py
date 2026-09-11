@@ -7,7 +7,7 @@ import pytest
 from quantara_engine.broker.account import build_account_snapshot
 from quantara_engine.broker.instruments import get_instrument_spec
 from quantara_engine.broker.margin import quote_notional_usd
-from quantara_engine.broker.netting import apply_fill_to_net_position
+from quantara_engine.broker.netting import apply_fill_to_net_position, apply_fill_with_realized_pnl
 from quantara_engine.broker.normalizer import normalize_quantity, validate_quantity
 from quantara_engine.broker.pre_trade import evaluate_broker_order
 from quantara_engine.broker.profile import QUANTARA_STANDARD_PAPER
@@ -55,6 +55,7 @@ def test_order_exceeds_max_leverage_rejected():
     account.gross_exposure = Decimal("18000")
     account.gross_leverage = Decimal("1.8")
     account.free_margin = Decimal("5000")
+    account.available_margin = Decimal("5000")
     account.buying_power = Decimal("5000")
     req = BrokerOrderRequest(
         symbol="NVDA",
@@ -192,3 +193,65 @@ def test_market_closed_rejected():
     )
     decision = evaluate_broker_order(account, QUANTARA_STANDARD_PAPER, req, {"USD": Decimal("1")})
     assert decision.rejection_reason == BrokerRejectionReason.MARKET_CLOSED
+
+
+def test_netting_realized_pnl_partial_close():
+    result = apply_fill_with_realized_pnl(
+        Decimal("100"), Decimal("100"), Decimal("40"), Decimal("110"), "short",
+        mode=PositionMode.NETTING,
+    )
+    assert result.new_net_qty == Decimal("60")
+    assert result.realized_pnl == Decimal("400.00")
+    assert result.closed_quantity == Decimal("40")
+
+
+def test_netting_flip_realized_pnl():
+    result = apply_fill_with_realized_pnl(
+        Decimal("60"), Decimal("100"), Decimal("100"), Decimal("90"), "short",
+        mode=PositionMode.NETTING,
+    )
+    assert result.new_net_qty == Decimal("-40")
+    assert result.new_avg_price == Decimal("90")
+    assert result.realized_pnl == Decimal("-600.00")
+
+
+def test_risk_reducing_close_allowed_over_leverage():
+    from quantara_engine.broker.types import BrokerPosition
+
+    account = _empty_account(Decimal("100000"))
+    account.gross_exposure = Decimal("250000")
+    account.gross_leverage = Decimal("2.5")
+    account.initial_margin_used = Decimal("125000")
+    account.free_margin = Decimal("0")
+    account.available_margin = Decimal("0")
+    account.positions["TSLA"] = BrokerPosition(
+        symbol="TSLA",
+        net_quantity=Decimal("100"),
+        average_price=Decimal("350"),
+        mark_price=Decimal("350"),
+    )
+    req = BrokerOrderRequest(
+        symbol="TSLA",
+        asset_class="stock",
+        direction="short",
+        quantity=Decimal("40"),
+        mark_price=Decimal("350"),
+        is_close=True,
+    )
+    decision = evaluate_broker_order(account, QUANTARA_STANDARD_PAPER, req, {"USD": Decimal("1")})
+    assert decision.accepted
+
+
+def test_margin_call_blocks_risk_increasing():
+    account = _empty_account(Decimal("50000"))
+    account.account_state = AccountState.MARGIN_CALL
+    req = BrokerOrderRequest(
+        symbol="NVDA",
+        asset_class="stock",
+        direction="long",
+        quantity=Decimal("10"),
+        mark_price=Decimal("170"),
+    )
+    decision = evaluate_broker_order(account, QUANTARA_STANDARD_PAPER, req, {"USD": Decimal("1")})
+    assert not decision.accepted
+    assert decision.rejection_reason == BrokerRejectionReason.MARGIN_CALL

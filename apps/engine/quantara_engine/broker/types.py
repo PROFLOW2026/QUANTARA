@@ -134,7 +134,9 @@ class BrokerAccountSnapshot:
     initial_margin_used: Decimal
     maintenance_margin_required: Decimal
     free_margin: Decimal
-    buying_power: Decimal
+    available_margin: Decimal
+    spot_crypto_cash: Decimal
+    buying_power: Decimal  # alias: available_margin for backward compat
     margin_level_pct: Decimal | None
     gross_leverage: Decimal
     net_leverage: Decimal
@@ -157,6 +159,7 @@ class BrokerOrderRequest:
     signal_timestamp: datetime | None = None
     market_open: bool = True
     data_fresh: bool = True
+    is_liquidation: bool = False
 
 
 @dataclass

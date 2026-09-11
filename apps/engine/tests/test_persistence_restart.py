@@ -15,7 +15,7 @@ sys.path.insert(0, str(ENGINE))
 from quantara_engine.backtesting.runner import BacktestRun, BacktestRunner  # noqa: E402
 from quantara_engine.core.config import settings  # noqa: E402
 from quantara_engine.db.session import session_scope  # noqa: E402
-from quantara_engine.domain.types import ExecutionAssumptions, Mode  # noqa: E402
+from quantara_engine.domain.types import ExecutionAssumptions, Mode, StrategyInstance  # noqa: E402
 from quantara_engine.market_data.adapters.mock import MockMarketDataProvider  # noqa: E402
 from quantara_engine.persistence.store import TradingStore  # noqa: E402
 from quantara_workers.jobs.run_strategy import OWNER_ID, run_strategy_job  # noqa: E402
@@ -40,15 +40,28 @@ def test_persistence_restart_counts_match() -> None:
             initial_capital=Decimal("10000"),
         )
         portfolio_id = portfolio.id
-        instance = store.get_paper_strategy_instance(portfolio.id)
-        assert instance is not None, "Run scripts/seed.py before this test"
-        instance_id = instance.id
-
         instrument = store.get_instrument_by_symbol("XAUUSD")
         assert instrument is not None
 
         risk_profile = store.get_risk_profile_by_slug("balanced")
         assert risk_profile is not None
+
+        instance = store.get_paper_strategy_instance(portfolio.id)
+        if instance is None:
+            sv = store.get_strategy_version("gold-trend-pullback", "v1")
+            if sv is None:
+                pytest.skip("Strategy version gold-trend-pullback/v1 not seeded")
+            instance = StrategyInstance(
+                id=str(uuid.uuid4()),
+                portfolio_id=portfolio.id,
+                strategy_version_id=str(sv["id"]),
+                strategy_slug="gold-trend-pullback",
+                strategy_version="v1",
+                instrument_id=instrument.id,
+                timeframe="1h",
+                risk_profile_id=risk_profile.id,
+            )
+        instance_id = instance.id
 
         provider = MockMarketDataProvider()
         candles = provider.generate_candles(instrument.id, "1h", 250)

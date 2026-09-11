@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
@@ -22,7 +23,7 @@ from quantara_workers.jobs.snapshot import snapshot_job
 
 def _mock_instrument(symbol="BTCUSD"):
     inst = MagicMock()
-    inst.id = f"inst-{symbol}"
+    inst.id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"quantara.test.{symbol}"))
     inst.symbol = symbol
     return inst
 
@@ -171,7 +172,7 @@ def test_running_with_recent_start_is_healthy():
         },
         "worker_status:data_fetcher": {"status": "healthy"},
     }
-    store.get_instrument_by_symbol.return_value = MagicMock(id="xau")
+    store.get_instrument_by_symbol.return_value = _mock_instrument("XAUUSD")
     store.latest_candle_timestamp.return_value = now - timedelta(minutes=5)
 
     summary = strategy_freshness_summary(store, now)
@@ -191,7 +192,7 @@ def test_running_beyond_stall_threshold_is_unhealthy():
         },
         "worker_status:data_fetcher": {"status": "healthy"},
     }
-    store.get_instrument_by_symbol.return_value = MagicMock(id="xau")
+    store.get_instrument_by_symbol.return_value = _mock_instrument("XAUUSD")
     store.latest_candle_timestamp.return_value = now - timedelta(minutes=5)
 
     summary = strategy_freshness_summary(store, now)
@@ -260,6 +261,7 @@ def test_decisions_by_asset_preserves_robot_identity():
     decision_b.metadata = {}
 
     store.list_latest_decisions_by_asset_timeframe.return_value = [decision_a, decision_b]
+    store.list_competition_positions.return_value = []
 
     payload = decisions_by_asset(store, timeframe="5m")
     by_id = {row["id"]: row for row in payload["decisions"]}

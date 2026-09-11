@@ -817,7 +817,11 @@ export interface BrokerAccountSummary {
   equity: number;
   realized_pnl: number;
   unrealized_pnl: number;
+  available_margin: number;
+  spot_crypto_cash?: number;
   buying_power: number;
+  position_mode?: string;
+  hedging_supported?: boolean;
   initial_margin_used: number;
   maintenance_margin_required: number;
   free_margin: number;

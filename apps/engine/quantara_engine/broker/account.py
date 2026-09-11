@@ -31,11 +31,14 @@ def build_account_snapshot(
     fx_rates: dict[str, Decimal],
     profile: BrokerProfile | None = None,
     unrealized_override: Decimal | None = None,
+    spot_crypto_cash: Decimal | None = None,
 ) -> BrokerAccountSnapshot:
     """
     Build canonical broker account metrics.
 
     positions: symbol -> (signed_net_qty, avg_price, mark_price)
+    cash: unallocated cash (spot crypto + residual)
+    balance: starting_cash + realized_pnl (margin reserve does NOT reduce balance)
     """
     profile = profile or QUANTARA_STANDARD_PAPER
     broker_positions: dict[str, BrokerPosition] = {}
@@ -53,7 +56,6 @@ def build_account_snapshot(
         notional = quote_notional_usd(qty, mark, spec, fx_rates)
         gross += notional
         net += notional if qty > 0 else -notional
-        # P&L in USD
         if spec.quote_currency.upper() == "USD":
             pnl_quote = (mark - avg) * qty
         else:
@@ -75,7 +77,8 @@ def build_account_snapshot(
 
     equity = balance + unrealized
     free_margin = equity - initial_margin
-    buying_power = max(Decimal("0"), free_margin)
+    available_margin = max(Decimal("0"), free_margin)
+    crypto_cash = spot_crypto_cash if spot_crypto_cash is not None else cash
     ml = margin_level_pct(equity, maintenance)
     g_lev = gross_leverage(gross, equity)
     n_lev = net_leverage(net, equity)
@@ -101,7 +104,9 @@ def build_account_snapshot(
         initial_margin_used=initial_margin,
         maintenance_margin_required=maintenance,
         free_margin=free_margin,
-        buying_power=buying_power,
+        available_margin=available_margin,
+        spot_crypto_cash=crypto_cash,
+        buying_power=available_margin,
         margin_level_pct=ml,
         gross_leverage=g_lev,
         net_leverage=n_lev,

@@ -12,6 +12,7 @@ from quantara_engine.domain.types import (
     Candle,
     DecisionLogEntry,
     DecisionType,
+    Direction,
     ExitReason,
     Instrument,
     IntentStatus,
@@ -412,6 +413,75 @@ class CandleProcessor:
             if self.allow_live_execution:
                 self._handle_close_signal(signal, candle, signal_id)
 
+    def _broker_execute(
+        self,
+        intent: OrderIntent,
+        candle: Candle,
+        *,
+        idempotency_key: str,
+        strategy_position_id: str | None = None,
+        fill_override=None,
+        order_override=None,
+    ) -> tuple[bool, object | None, object | None]:
+        """Final broker validation + persisted fill. Returns (accepted, order, fill)."""
+        from quantara_engine.broker.execution_service import BrokerExecutionService
+        from quantara_engine.broker.integration import should_use_broker_realism
+
+        if fill_override is not None and order_override is not None:
+            order, fill = order_override, fill_override
+        else:
+            order, fill = self.broker.execute_entry(intent, candle)
+        if not self.store or not should_use_broker_realism(self.state.portfolio.id):
+            return True, order, fill
+
+        opp_key = None
+        if self.store:
+            opp_key = self.store.resolve_entry_opportunity_key(intent)
+
+        svc = BrokerExecutionService(self.store)
+        result = svc.execute_intent(
+            intent,
+            self.instrument,
+            fill,
+            execution_at=candle.timestamp,
+            timeframe=candle.timeframe,
+            idempotency_key=idempotency_key,
+            opportunity_key=opp_key,
+            strategy_position_id=strategy_position_id,
+        )
+        if not result.accepted:
+            reason = (
+                result.decision.rejection_reason.value
+                if result.decision and result.decision.rejection_reason
+                else "unknown"
+            )
+            detail = result.decision.rejection_detail if result.decision else ""
+            self._log(
+                candle,
+                DecisionType.RISK_DENIED,
+                f"BROKER_REJECT: {reason} — {detail}",
+                metadata={
+                    "layer": "broker_execution",
+                    "broker_decision": "rejected",
+                    "broker_reason": reason,
+                    "broker_detail": detail,
+                    "strategy_decision": "approved",
+                },
+            )
+            return False, None, None
+        self._log(
+            candle,
+            DecisionType.RISK_APPROVED,
+            f"BROKER_FILL: qty={intent.quantity} @ {fill.fill_price}",
+            metadata={
+                "layer": "broker_execution",
+                "broker_decision": "filled",
+                "broker_order_id": result.broker_order_id,
+                "broker_fill_id": result.broker_fill_id,
+            },
+        )
+        return True, order, fill
+
     def _execute_pending(self, candle: Candle) -> None:
         to_execute = [
             i
@@ -480,7 +550,20 @@ class CandleProcessor:
                     None,
                 )
                 if position:
-                    order, fill = self.broker.execute_entry(intent, candle)
+                    accepted, order, fill = self._broker_execute(
+                        intent,
+                        candle,
+                        idempotency_key=f"intent:{intent.id}",
+                        strategy_position_id=position.id,
+                    )
+                    if not accepted or fill is None:
+                        intent.status = IntentStatus.REJECTED
+                        if self.store:
+                            self.store.update_order_intent_status(
+                                intent.id, IntentStatus.REJECTED, "broker_rejected"
+                            )
+                            self._flush_store()
+                        continue
                     trade = self.state.close_position(
                         position,
                         fill,
@@ -491,7 +574,19 @@ class CandleProcessor:
                     intent.status = IntentStatus.EXECUTED
                     self._persist_execution(intent, order, fill, "exit", candle, position, trade)
             else:
-                order, fill = self.broker.execute_entry(intent, candle)
+                accepted, order, fill = self._broker_execute(
+                    intent,
+                    candle,
+                    idempotency_key=f"intent:{intent.id}",
+                )
+                if not accepted or fill is None:
+                    intent.status = IntentStatus.REJECTED
+                    if self.store:
+                        self.store.update_order_intent_status(
+                            intent.id, IntentStatus.REJECTED, "broker_rejected"
+                        )
+                        self._flush_store()
+                    continue
                 position = self.state.open_position_from_fill(
                     intent,
                     fill,
@@ -512,6 +607,9 @@ class CandleProcessor:
         for position in list(self.state.open_positions()):
             if position.instrument_id != candle.instrument_id:
                 continue
+            asset = get_asset(self.instrument.symbol)
+            if asset and not session_allows_entries(asset.trading_sessions, candle.timestamp):
+                continue
             trigger = detect_exit_trigger(position, candle)
             if not trigger:
                 continue
@@ -527,6 +625,34 @@ class CandleProcessor:
                 self.state.portfolio.id,
                 gap_exit=gap_exit,
             )
+            close_dir = Direction.SHORT if position.direction == Direction.LONG else Direction.LONG
+            close_intent = OrderIntent(
+                id=new_id(),
+                signal_id="",
+                strategy_instance_id=self.instance.id,
+                portfolio_id=self.state.portfolio.id,
+                direction=close_dir,
+                quantity=position.quantity,
+                stop_loss=Decimal("0"),
+                take_profit=None,
+                target_risk_amount=Decimal("0"),
+                actual_risk_amount=Decimal("0"),
+                signal_candle_timestamp=candle.timestamp,
+                risk_profile_id=self.risk_profile.id,
+                status=IntentStatus.PENDING_EXECUTION,
+                is_close=True,
+                position_id=position.id,
+            )
+            accepted, order, fill = self._broker_execute(
+                close_intent,
+                candle,
+                idempotency_key=f"exit:{position.id}:{reason.value}:{candle.timestamp.isoformat()}",
+                strategy_position_id=position.id,
+                fill_override=fill,
+                order_override=order,
+            )
+            if not accepted or fill is None:
+                continue
             trade = self.state.close_position(
                 position, fill, reason, candle.timestamp, self._currency_context()
             )
@@ -649,47 +775,6 @@ class CandleProcessor:
         candle_index = self._candle_index(candle)
         if candle_index is None:
             return
-
-        # Broker pre-trade check (competition → shared paper broker account)
-        from quantara_engine.broker.integration import check_broker_acceptance, should_use_broker_realism
-
-        if self.store and should_use_broker_realism(self.state.portfolio.id):
-
-            data_fresh = True
-            broker_decision = check_broker_acceptance(
-                self.store,
-                intent,
-                self.instrument,
-                candle.close,
-                market_open=True,
-                data_fresh=data_fresh,
-                opportunity_key=opportunity_key,
-            )
-            if not broker_decision.accepted:
-                reason = broker_decision.rejection_reason.value if broker_decision.rejection_reason else "unknown"
-                self._log(
-                    candle,
-                    DecisionType.RISK_DENIED,
-                    f"BROKER_REJECT: {reason} — {broker_decision.rejection_detail}",
-                    signal_id,
-                    metadata={
-                        "broker_decision": "rejected",
-                        "broker_reason": reason,
-                        "broker_detail": broker_decision.rejection_detail,
-                        **broker_decision.diagnostics,
-                    },
-                )
-                if self.store:
-                    self.store.save_broker_rejection(
-                        portfolio_id=intent.portfolio_id,
-                        symbol=self.instrument.symbol,
-                        quantity=intent.quantity,
-                        reason=reason,
-                        detail=broker_decision.rejection_detail,
-                        opportunity_key=opportunity_key,
-                    )
-                    self._flush_store()
-                return
 
         intent.execution_candle_timestamp = self._next_execution_timestamp(
             candle, candle_index

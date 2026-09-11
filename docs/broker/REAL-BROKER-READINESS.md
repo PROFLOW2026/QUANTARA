@@ -1,51 +1,53 @@
 # Real Broker Readiness
 
-## What Paper Models Today (QUANTARA_STANDARD_PAPER)
+## Canonical Execution Truth (Post-Closure)
 
-| Capability | Status |
-|------------|--------|
-| Single shared broker account ($320,000) | Implemented |
-| Strategy portfolios as attribution only | Implemented |
-| Pre-trade broker check | Implemented |
-| Buying power / initial margin / free margin | Implemented |
-| Gross & net leverage caps (2× default) | Implemented |
-| Asset-class margin rules | Implemented |
-| NETTING position mode | Implemented |
-| HEDGING architecture | Implemented (mode switch) |
-| Order rejection audit log | Implemented |
-| JPY→USD conversion | Implemented |
-| Stale-data entry block | Preserved + broker layer |
-| Gap-through-stop exits | Existing exit_triggers (US RTH) |
+| Layer | Source of truth |
+|-------|-----------------|
+| Broker account | `broker_accounts` table |
+| Broker positions | `broker_positions` (NETTING only) |
+| Broker orders | `broker_orders` with DB idempotency |
+| Broker fills | `broker_fills` — every execution |
+| Strategy legs | Attribution only via `broker_attribution_ledger` |
 
-## Paper Assumptions (Not Named Broker)
+**Final broker validation runs at execution time** (N+1 open), not at signal creation.
 
-- US equities: 50% initial margin, 25% maintenance, 2× max leverage
-- Forex: 5% initial margin (20×), shorting allowed
-- Crypto: 100% cash (spot), no short unless profile changed
-- Gold/commodity: 10% initial margin
-- Max gross account leverage: 2.0×
-- Default position mode: NETTING
+## Position Mode
 
-## What Future RealBrokerAdapter Must Provide
+**NETTING ONLY** at runtime. Schema `UNIQUE(broker_account_id, instrument_id)` supports netting.
+HEDGING is **not** implemented — do not enable until schema/runtime supports simultaneous long+short.
 
-- `get_account()`, `get_positions()`, `get_buying_power()`
-- `submit_order()`, `cancel_order()`, `get_order()`, `get_fills()`
-- Broker-specific margin tables, short locate, order min/step
-- External reconciliation vs internal ledger
+## QUANTARA_STANDARD_PAPER Assumptions
 
-## Strategy-Independent Layers
+| Asset | Model |
+|-------|--------|
+| US equities | 50% initial / 25% maintenance margin, RTH entries |
+| Forex | 5% initial margin, 24×5 |
+| Gold | 10% initial margin |
+| **BTCUSD / ETHUSD** | **SPOT crypto** — 100% cash, **SHORT signals broker-rejected** |
+| Account | $320,000 shared; 160×$2k = reference allocation only |
 
-Strategy engine, opportunity keys, and risk-to-SL guards unchanged. Broker layer is the only gate for account reality.
+## Account Semantics
 
-## Pre-Live Checklist
+- **Balance** = starting cash + realized P&L (margin reserve does not reduce balance)
+- **Equity** = balance + unrealized P&L
+- **Available margin** = equity − initial margin used (shown in UI; not universal "buying power")
+- **Spot crypto cash** = unallocated cash for BTC/ETH spot purchases
 
-- [ ] Select live broker and map to BrokerProfile override
-- [ ] Owner-approved clean Paper reset (`quantara_paper_competition` account)
-- [ ] Replay historical entries under new rules
-- [ ] Verify reconciliation $0.00 after reset
-- [ ] Connect RealBrokerAdapter in staging
-- [ ] Compare broker-reported vs internal for 1 week paper
+## Risk-Reducing Orders
 
-## Legacy Data
+Closes/reductions are allowed in margin call. Closes correctly reduce gross/net/margin.
+Flips validate the opening remainder separately.
 
-Competition run before broker rebuild = **LEGACY_SIMULATION**. Not converted. Preserved for research only.
+## Future RealBrokerAdapter
+
+- `get_account()`, `get_positions()`, `submit_order()`, `get_fills()`
+- Broker-specific margin, short locate, partial fills
+- External reconciliation
+
+## Owner Actions Before Live Paper Reset
+
+1. Review migration `0006_broker_account.sql` (revised)
+2. Apply migration when ready
+3. Approve clean reset (`scripts/paper_broker_reset.py --dry-run`)
+4. Start runtime manually

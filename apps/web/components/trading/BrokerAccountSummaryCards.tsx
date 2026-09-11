@@ -28,10 +28,13 @@ export function BrokerAccountSummaryCards({
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>Buying Power</CardTitle>
+          <CardTitle>Available Margin</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="font-mono text-2xl">{v(account?.buying_power)}</p>
+          <p className="font-mono text-2xl">{v(account?.available_margin ?? account?.buying_power)}</p>
+          {account?.spot_crypto_cash != null && (
+            <p className="text-muted mt-1 text-xs">Spot crypto cash: {v(account.spot_crypto_cash)}</p>
+          )}
         </CardContent>
       </Card>
       <Card>
