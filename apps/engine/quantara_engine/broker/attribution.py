@@ -124,6 +124,18 @@ def _insert_entry_lot(
     )
 
 
+def _lots_for_close(
+    lots: list[AttributionLot],
+    *,
+    order_purpose: str,
+    strategy_position_id: str | None,
+) -> list[AttributionLot]:
+    """Strategy exits consume own lots; opposite entries and liquidation use global FIFO."""
+    if order_purpose in ("sl", "tp", "close", "flatten") and strategy_position_id:
+        return [lot for lot in lots if lot.strategy_position_id == strategy_position_id]
+    return lots
+
+
 def allocate_fill_to_strategy_legs(
     store: TradingStore,
     *,
@@ -138,6 +150,7 @@ def allocate_fill_to_strategy_legs(
     closed_quantity: Decimal,
     fx_rates: dict[str, Decimal],
     opportunity_key: str | None = None,
+    order_purpose: str = "entry",
 ) -> AllocationResult:
     """
     Decompose fill into closed + opened portions with FIFO attribution.
@@ -151,7 +164,11 @@ def allocate_fill_to_strategy_legs(
     opened_qty = max(Decimal("0"), quantity - closed_qty)
 
     remaining = closed_qty
-    lots = _load_open_lots(store, broker_account_id, symbol)
+    lots = _lots_for_close(
+        _load_open_lots(store, broker_account_id, symbol),
+        order_purpose=order_purpose,
+        strategy_position_id=strategy_position_id,
+    )
     for lot in lots:
         if remaining <= 0:
             break

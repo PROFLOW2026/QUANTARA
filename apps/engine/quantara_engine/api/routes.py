@@ -588,6 +588,7 @@ def broker_rejections(store: StoreDep, limit: int = 100):
 @router.get("/broker/account")
 def broker_account_summary(store: StoreDep):
     """Canonical paper broker account (shared across 160 strategy portfolios)."""
+    from quantara_engine.broker.physical_risk import compute_physical_broker_risk
     from quantara_engine.broker.state_builder import build_competition_broker_account
 
     from quantara_engine.broker.execution_service import BrokerExecutionService
@@ -597,6 +598,7 @@ def broker_account_summary(store: StoreDep):
     gross_realized = float(row.get("gross_realized_pnl") or account.realized_pnl)
     fees_paid = float(row.get("fees_paid") or 0)
     net_realized = float(account.realized_pnl)
+    physical_risk = compute_physical_broker_risk(store)
     return {
         "profile": account.profile_slug,
         "account_state": account.account_state.value,
@@ -631,6 +633,14 @@ def broker_account_summary(store: StoreDep):
             }
             for p in account.positions.values()
         ],
+        "physical_remaining_sl_risk_usd": float(
+            physical_risk["physical_remaining_sl_risk_usd"]
+        ),
+        "projected_broker_equity_at_stops": (
+            float(physical_risk["projected_broker_equity_at_stops"])
+            if physical_risk["projected_broker_equity_at_stops"] is not None
+            else None
+        ),
     }
 
 

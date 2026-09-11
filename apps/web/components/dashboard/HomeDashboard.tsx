@@ -125,6 +125,9 @@ export function HomeDashboard() {
       </div>
 
       <div className="mt-4">
+        <h2 className="mb-2 text-sm font-medium text-muted">
+          Strategy Shadow / Research Risk (not broker account risk)
+        </h2>
         <ExposureRiskSummaryCards summary={exposureSummary} loading={loading && !exposureSummary} />
       </div>
 

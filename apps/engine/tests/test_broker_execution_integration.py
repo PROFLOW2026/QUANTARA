@@ -432,3 +432,234 @@ def test_reset_dry_run_and_execute_on_test_db(monkeypatch):
     finally:
         session.rollback()
         session.close()
+
+
+def test_bridge_entry_persists_strategy_intent_uuid(monkeypatch):
+    patch_paper_account_slug(monkeypatch)
+    from quantara_engine.db.session import SessionLocal
+
+    session = SessionLocal()
+    try:
+        store = TradingStore(session)
+        setup_active_test_account(store)
+        instrument = store.get_instrument_by_symbol("NVDA")
+        assert instrument
+        intent_id = str(uuid.uuid4())
+        pid = str(uuid.uuid4())
+        at = datetime.now(timezone.utc)
+        result = execute_through_broker(
+            store,
+            portfolio_id=pid,
+            instrument=instrument,
+            direction=Direction.LONG,
+            quantity=Decimal("5"),
+            fill=_fill(Decimal("100")),
+            execution_at=at,
+            timeframe="5m",
+            idempotency_key=f"intent:{intent_id}",
+            strategy_intent_id=intent_id,
+            skip_if_not_competition=False,
+        )
+        assert result is not None and result.accepted
+        row = store.session.execute(
+            text(
+                """
+                SELECT strategy_intent_id::text, idempotency_key
+                FROM broker_orders WHERE id = CAST(:oid AS uuid)
+                """
+            ),
+            {"oid": result.broker_order_id},
+        ).mappings().first()
+        assert row["strategy_intent_id"] == intent_id
+        assert row["idempotency_key"] == f"intent:{intent_id}"
+        session.flush()
+    finally:
+        session.rollback()
+        session.close()
+
+
+def test_pm_sl_bridge_nullable_strategy_intent(monkeypatch):
+    patch_paper_account_slug(monkeypatch)
+    from quantara_engine.db.session import SessionLocal
+
+    session = SessionLocal()
+    try:
+        store = TradingStore(session)
+        setup_active_test_account(store)
+        instrument = store.get_instrument_by_symbol("NVDA")
+        pid = str(uuid.uuid4())
+        spid = str(uuid.uuid4())
+        at = datetime.now(timezone.utc)
+        svc = BrokerExecutionService(store)
+        svc.execute_order(
+            _intent(qty=Decimal("10"), direction=Direction.LONG, portfolio_id=pid),
+            instrument,
+            _fill(Decimal("100")),
+            execution_at=at,
+            timeframe="5m",
+            idempotency_key="itest:sl:entry",
+            strategy_position_id=spid,
+        )
+        sl = execute_through_broker(
+            store,
+            portfolio_id=pid,
+            instrument=instrument,
+            direction=Direction.SHORT,
+            quantity=Decimal("10"),
+            fill=_fill(Decimal("95")),
+            execution_at=at,
+            timeframe="5m",
+            idempotency_key=f"pm:sl:{spid}:{at.isoformat()}",
+            strategy_intent_id=None,
+            is_close=True,
+            strategy_position_id=spid,
+            order_purpose="sl",
+            skip_if_not_competition=False,
+        )
+        assert sl is not None and sl.accepted
+        row = store.session.execute(
+            text(
+                """
+                SELECT strategy_intent_id, idempotency_key, order_purpose
+                FROM broker_orders ORDER BY submitted_at DESC LIMIT 1
+                """
+            )
+        ).mappings().first()
+        assert row["strategy_intent_id"] is None
+        assert str(row["order_purpose"]) == "sl"
+        session.flush()
+    finally:
+        session.rollback()
+        session.close()
+
+
+def test_physical_fill_pnl_remains_gross_not_attribution(monkeypatch):
+    patch_paper_account_slug(monkeypatch)
+    from quantara_engine.db.session import SessionLocal
+
+    session = SessionLocal()
+    try:
+        store = TradingStore(session)
+        account_id = setup_active_test_account(store)
+        instrument = store.get_instrument_by_symbol("NVDA")
+        svc = BrokerExecutionService(store)
+        pid_a = str(uuid.uuid4())
+        pid_c = str(uuid.uuid4())
+        spid_a = str(uuid.uuid4())
+        spid_c = str(uuid.uuid4())
+        at = datetime.now(timezone.utc)
+        svc.execute_order(
+            _intent(qty=Decimal("50"), direction=Direction.LONG, portfolio_id=pid_a),
+            instrument,
+            _fill(Decimal("100"), Decimal("0")),
+            execution_at=at,
+            timeframe="5m",
+            idempotency_key="itest:pa",
+            strategy_position_id=spid_a,
+        )
+        svc.execute_order(
+            _intent(qty=Decimal("50"), direction=Direction.LONG, portfolio_id=pid_c),
+            instrument,
+            _fill(Decimal("100"), Decimal("0")),
+            execution_at=at,
+            timeframe="5m",
+            idempotency_key="itest:pc",
+            strategy_position_id=spid_c,
+        )
+        svc.execute_order(
+            _intent(qty=Decimal("50"), direction=Direction.SHORT, portfolio_id=pid_c, is_close=True),
+            instrument,
+            _fill(Decimal("110"), Decimal("0")),
+            execution_at=at,
+            timeframe="5m",
+            idempotency_key="itest:pc-close",
+            strategy_position_id=spid_c,
+            order_purpose="close",
+        )
+        fill_row = store.session.execute(
+            text(
+                """
+                SELECT f.realized_pnl AS fill_pnl,
+                       COALESCE(SUM(l.realized_pnl), 0) AS attr_pnl
+                FROM broker_fills f
+                LEFT JOIN broker_attribution_ledger l ON l.broker_fill_id = f.id
+                JOIN broker_orders o ON o.id = f.broker_order_id
+                WHERE o.idempotency_key = 'itest:pc-close'
+                GROUP BY f.id, f.realized_pnl
+                """
+            )
+        ).mappings().first()
+        assert fill_row
+        assert Decimal(str(fill_row["fill_pnl"])) == Decimal("500")
+        assert Decimal(str(fill_row["attr_pnl"])) == Decimal("500")
+        attr_c = attributed_remaining_quantity(
+            store, broker_account_id=account_id, symbol="NVDA", strategy_position_id=spid_c
+        )
+        attr_a = attributed_remaining_quantity(
+            store, broker_account_id=account_id, symbol="NVDA", strategy_position_id=spid_a
+        )
+        assert attr_c == Decimal("0")
+        assert attr_a == Decimal("50")
+        bal = read_account_balances(store, account_id)
+        assert bal["gross_realized_pnl"] == Decimal("500")
+        session.flush()
+    finally:
+        session.rollback()
+        session.close()
+
+
+def test_paper_run_reset_excludes_legacy_pnl_from_sync(monkeypatch):
+    patch_paper_account_slug(monkeypatch)
+    from quantara_engine.db.session import SessionLocal
+    from quantara_engine.competition.paper_run import get_current_paper_run_id
+    from quantara_engine.domain.types import Portfolio, PortfolioStatus
+
+    root = Path(__file__).resolve().parents[3]
+    sys.path.insert(0, str(root / "scripts"))
+    import paper_broker_reset as reset_mod
+
+    monkeypatch.setattr(reset_mod, "ACCOUNT_SLUG", TEST_ACCOUNT_SLUG)
+
+    session = SessionLocal()
+    try:
+        store = TradingStore(session)
+        setup_active_test_account(store)
+        pid = str(uuid.uuid4())
+        pos_id = str(uuid.uuid4())
+        store.session.execute(
+            text(
+                """
+                INSERT INTO trades (
+                  id, position_id, portfolio_id, strategy_instance_id, strategy_version_id,
+                  instrument_id, direction, quantity, entry_price, exit_price,
+                  gross_pnl, realized_pnl, fees_total, slippage_total, spread_total,
+                  target_risk_amount, actual_risk_amount, exit_reason, duration_seconds,
+                  opened_at, closed_at, mode, backtest_run_id, paper_run_id
+                )
+                SELECT
+                  CAST(:tid AS uuid), CAST(:pos AS uuid), CAST(:port AS uuid),
+                  si.id, si.strategy_version_id, si.instrument_id, 'long', 1, 100, 105,
+                  500, 500, 0, 0, 0, 100, 100, 'strategy', 60, NOW(), NOW(), 'paper', NULL, NULL
+                FROM strategy_instances si LIMIT 1
+                """
+            ),
+            {"tid": str(uuid.uuid4()), "pos": pos_id, "port": pid},
+        )
+        reset_mod._execute_reset(store)
+        session.flush()
+        run_id = get_current_paper_run_id(store)
+        assert run_id
+        portfolio = Portfolio(
+            id=pid,
+            name="test",
+            initial_capital=Decimal("2000"),
+            balance=Decimal("2000"),
+            equity=Decimal("2000"),
+            status=PortfolioStatus.ACTIVE,
+        )
+        store.sync_portfolios_financial_state_from_ledger([portfolio])
+        assert portfolio.balance == Decimal("2000")
+        session.flush()
+    finally:
+        session.rollback()
+        session.close()

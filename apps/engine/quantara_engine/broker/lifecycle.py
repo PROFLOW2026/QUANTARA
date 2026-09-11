@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from quantara_engine.broker.attribution import attributed_remaining_quantity
 from quantara_engine.broker.execution_service import PAPER_ACCOUNT_SLUG
-from quantara_engine.domain.types import ExitReason, Position, PositionStatus, new_id
+from quantara_engine.domain.types import ExitReason, Position, new_id
 from quantara_engine.execution.fill_calculator import FillResult
 from quantara_engine.persistence.store import TradingStore
 from quantara_engine.portfolio.currency import CurrencyContext
@@ -69,41 +69,6 @@ def close_shadow_position(
         fees=Decimal("0"),
     )
     return state.close_position(position, fill, exit_reason, closed_at, currency)
-
-
-def reconcile_consumed_shadow_legs(
-    store: TradingStore,
-    state,
-    *,
-    symbol: str,
-    instrument_id: str,
-    closed_at,
-    currency: CurrencyContext | None = None,
-) -> list[ShadowCloseResult]:
-    """Auto-close strategy legs with zero remaining physical attribution."""
-    from quantara_engine.broker.integration import should_use_broker_realism
-
-    if not should_use_broker_realism(state.portfolio.id):
-        return []
-
-    results: list[ShadowCloseResult] = []
-    for position in list(state.open_positions()):
-        if position.instrument_id != instrument_id or position.status != PositionStatus.OPEN:
-            continue
-        physical = physical_attributed_qty(store, strategy_position_id=position.id, symbol=symbol)
-        if physical > 0:
-            position.physical_attributed_qty = physical
-            continue
-        position.physical_attributed_qty = Decimal("0")
-        trade = close_shadow_position(
-            state,
-            position,
-            exit_reason=ExitReason.STRATEGY,
-            closed_at=closed_at,
-            currency=currency,
-        )
-        results.append(ShadowCloseResult(closed=True, trade=trade))
-    return results
 
 
 def open_strategy_leg_from_broker_fill(

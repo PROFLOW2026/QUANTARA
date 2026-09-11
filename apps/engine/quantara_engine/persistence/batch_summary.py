@@ -80,6 +80,8 @@ class AssetExposureRiskMetrics:
 def batch_trade_metrics(store: TradingStore, portfolio_ids: list[str]) -> dict[str, TradeBatchMetrics]:
     if not portfolio_ids:
         return {}
+    from quantara_engine.competition.paper_run import trade_scope_clause
+
     ids = _uuids(portfolio_ids)
     wins_expr = func.count().filter(OrmTrade.realized_pnl > 0)
     rows = store.session.execute(
@@ -91,7 +93,7 @@ def batch_trade_metrics(store: TradingStore, portfolio_ids: list[str]) -> dict[s
         )
         .where(
             OrmTrade.portfolio_id.in_(ids),
-            OrmTrade.backtest_run_id.is_(None),
+            trade_scope_clause(store),
         )
         .group_by(OrmTrade.portfolio_id)
     ).all()
@@ -113,11 +115,14 @@ def batch_open_positions_by_portfolio(
 ) -> dict[str, list[Position]]:
     if not portfolio_ids:
         return {}
+    from quantara_engine.competition.paper_run import position_scope_clause
+
     ids = _uuids(portfolio_ids)
     rows = store.session.scalars(
         select(OrmPosition).where(
             OrmPosition.portfolio_id.in_(ids),
             OrmPosition.status == OrmPositionStatus.OPEN,
+            position_scope_clause(store),
         )
     ).all()
     positions = [store._position_to_domain(row) for row in rows]
@@ -134,6 +139,8 @@ def batch_entry_actual_risk_by_position(
     """First entry-fill actual_risk_amount per open position — single query."""
     if not position_ids:
         return {}
+    from quantara_engine.competition.paper_run import intent_scope_clause
+
     pids = _uuids(position_ids)
     rows = store.session.execute(
         select(OrmFill.position_id, OrmOrderIntent.actual_risk_amount, OrmFill.filled_at)
@@ -142,7 +149,7 @@ def batch_entry_actual_risk_by_position(
         .where(
             OrmFill.position_id.in_(pids),
             OrmFill.side == OrmFillSide.ENTRY,
-            OrmOrderIntent.backtest_run_id.is_(None),
+            intent_scope_clause(store),
         )
         .order_by(OrmFill.position_id, OrmFill.filled_at)
     ).all()
@@ -532,6 +539,8 @@ def batch_asset_metrics(
 ) -> dict[str, AssetBatchMetrics]:
     if not portfolio_ids:
         return {}
+    from quantara_engine.competition.paper_run import position_scope_clause, trade_scope_clause
+
     ids = _uuids(portfolio_ids)
     open_rows = store.session.execute(
         select(
@@ -542,6 +551,7 @@ def batch_asset_metrics(
         .where(
             OrmPosition.portfolio_id.in_(ids),
             OrmPosition.status == OrmPositionStatus.OPEN,
+            position_scope_clause(store),
         )
         .group_by(OrmPosition.instrument_id)
     ).all()
@@ -553,7 +563,7 @@ def batch_asset_metrics(
         )
         .where(
             OrmTrade.portfolio_id.in_(ids),
-            OrmTrade.backtest_run_id.is_(None),
+            trade_scope_clause(store),
         )
         .group_by(OrmTrade.instrument_id)
     ).all()
@@ -744,10 +754,12 @@ def batch_recent_snapshots(
 def sum_realized_pnl_for_portfolios(store: TradingStore, portfolio_ids: list[str]) -> Decimal:
     if not portfolio_ids:
         return Decimal("0")
+    from quantara_engine.competition.paper_run import trade_scope_clause
+
     total = store.session.scalar(
         select(func.coalesce(func.sum(OrmTrade.realized_pnl), 0)).where(
             OrmTrade.portfolio_id.in_(_uuids(portfolio_ids)),
-            OrmTrade.backtest_run_id.is_(None),
+            trade_scope_clause(store),
         )
     )
     return Decimal(str(total or 0))

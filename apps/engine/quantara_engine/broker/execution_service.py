@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from quantara_engine.broker.account import build_account_snapshot
 from quantara_engine.broker.attribution import allocate_fill_to_strategy_legs
+from quantara_engine.broker.provenance import coerce_uuid
 from quantara_engine.broker.instruments import get_instrument_spec
 from quantara_engine.broker.margin import (
     initial_margin_for_notional,
@@ -315,6 +316,7 @@ class BrokerExecutionService:
         execution_at: datetime,
         timeframe: str,
         idempotency_key: str,
+        strategy_intent_id: str | None = None,
         opportunity_key: str | None = None,
         strategy_position_id: str | None = None,
         order_purpose: str = "entry",
@@ -384,6 +386,8 @@ class BrokerExecutionService:
         decision = evaluate_broker_order(snapshot, self.profile, request, fx_map)
 
         order_id = str(uuid.uuid4())
+        db_strategy_intent_id = None if is_liquidation else coerce_uuid(strategy_intent_id)
+        db_strategy_portfolio_id = None if is_liquidation else coerce_uuid(intent.portfolio_id)
         try:
             self.store.session.execute(
                 text(
@@ -401,8 +405,8 @@ class BrokerExecutionService:
                 {
                     "id": order_id,
                     "aid": account_id,
-                    "iid": getattr(intent, "id", None),
-                    "pid": intent.portfolio_id,
+                    "iid": db_strategy_intent_id,
+                    "pid": db_strategy_portfolio_id,
                     "inst": instrument.id,
                     "dir": direction,
                     "qty": intent.quantity,
@@ -442,7 +446,7 @@ class BrokerExecutionService:
                 {
                     "aid": account_id,
                     "oid": order_id,
-                    "pid": intent.portfolio_id,
+                    "pid": db_strategy_portfolio_id,
                     "sym": instrument.symbol,
                     "qty": intent.quantity,
                     "reason": reason,
@@ -641,10 +645,7 @@ class BrokerExecutionService:
             closed_quantity=netting.closed_quantity,
             fx_rates=fx_map,
             opportunity_key=opportunity_key,
-        )
-        self.store.session.execute(
-            text("UPDATE broker_fills SET realized_pnl = :pnl WHERE id = :id"),
-            {"id": fill_id, "pnl": allocation.attributed_realized},
+            order_purpose=order_purpose,
         )
 
         self._persist_ledger_balances(
@@ -828,6 +829,7 @@ class BrokerExecutionService:
                     execution_at=at,
                     timeframe="5m",
                     idempotency_key=key,
+                    strategy_intent_id=None,
                     order_purpose="liquidation",
                     is_liquidation=True,
                 )

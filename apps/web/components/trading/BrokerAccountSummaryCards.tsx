@@ -17,14 +17,23 @@ export function BrokerAccountSummaryCards({
     loading ? "…" : n != null ? `${n.toFixed(2)}×` : "—";
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
       <Card>
         <CardHeader>
           <CardTitle>Broker Equity</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="font-mono text-2xl">{v(account?.equity)}</p>
-          <p className="text-muted mt-1 text-xs">Balance {v(account?.balance)}</p>
+          <p className="text-muted mt-1 text-xs">Balance {v(account?.balance)} · Cash {v(account?.cash)}</p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Physical Gross Exposure</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="font-mono text-2xl">{v(account?.gross_exposure)}</p>
+          <p className="text-muted mt-1 text-xs">Net exposure {v(account?.net_exposure)}</p>
         </CardContent>
       </Card>
       <Card>
@@ -74,6 +83,18 @@ export function BrokerAccountSummaryCards({
               Margin level {formatPercentOrUnavailable(account.margin_level_pct)}
             </p>
           )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Physical Remaining SL Risk</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="font-mono text-2xl">{v(account?.physical_remaining_sl_risk_usd ?? 0)}</p>
+          <p className="text-muted mt-1 text-xs">
+            Projected broker equity at stops{" "}
+            {v(account?.projected_broker_equity_at_stops ?? account?.equity ?? 0)}
+          </p>
         </CardContent>
       </Card>
     </div>

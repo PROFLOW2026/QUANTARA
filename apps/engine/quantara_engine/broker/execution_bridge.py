@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from decimal import Decimal
 
 from quantara_engine.broker.attribution import resolve_physical_exit_quantity
+from quantara_engine.broker.provenance import coerce_uuid
 from quantara_engine.broker.execution_service import BrokerExecutionResult, BrokerExecutionService
 from quantara_engine.broker.integration import should_use_broker_realism
 from quantara_engine.domain.types import Direction, Instrument, IntentStatus, OrderIntent
@@ -39,6 +41,7 @@ def execute_through_broker(
     execution_at: datetime,
     timeframe: str,
     idempotency_key: str,
+    strategy_intent_id: str | None = None,
     is_close: bool = False,
     strategy_position_id: str | None = None,
     opportunity_key: str | None = None,
@@ -75,8 +78,9 @@ def execute_through_broker(
             )
         quantity = physical_qty
 
+    domain_intent_id = coerce_uuid(strategy_intent_id) or str(uuid.uuid4())
     intent = OrderIntent(
-        id=idempotency_key,
+        id=domain_intent_id,
         signal_id="",
         strategy_instance_id="",
         portfolio_id=portfolio_id,
@@ -99,6 +103,7 @@ def execute_through_broker(
         execution_at=execution_at,
         timeframe=timeframe,
         idempotency_key=idempotency_key,
+        strategy_intent_id=strategy_intent_id,
         opportunity_key=opportunity_key,
         strategy_position_id=strategy_position_id,
         order_purpose=order_purpose,

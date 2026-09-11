@@ -236,15 +236,22 @@ def _execute_fill(state: ReplayV3State, event: ReplayV3Event, *, is_close: bool)
     _track_margin_peaks(state)
 
 
-def replay_v3(events: list[ReplayV3Event], *, starting_cash: Decimal | None = None) -> dict:
+def replay_v3(
+    events: list[ReplayV3Event],
+    *,
+    starting_cash: Decimal | None = None,
+    initial_state: ReplayV3State | None = None,
+) -> dict:
     profile = QUANTARA_STANDARD_PAPER
     start = starting_cash if starting_cash is not None else profile.starting_cash
-    state = ReplayV3State(
+    state = initial_state or ReplayV3State(
         profile=profile,
         balance=start,
         cash=start,
         spot_crypto_cash=start,
     )
+    if initial_state is not None:
+        start = state.balance
 
     accepted = rejected = orphan_exits = 0
     for event in events:
@@ -483,7 +490,7 @@ def replay_historical_day(
         cash=start,
         spot_crypto_cash=start,
     )
-    result = replay_v3(events, starting_cash=starting_cash)
+    result = replay_v3(events, starting_cash=start, initial_state=state)
     result["entries_total"] = len(entries)
     result["exits_total"] = len(exits)
     result["day_start"] = day_start.isoformat()

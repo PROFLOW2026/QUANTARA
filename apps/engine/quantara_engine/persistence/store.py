@@ -169,6 +169,13 @@ class TradingStore:
             return _uuid(self.backtest_run_id)
         return None
 
+    def _paper_run_uuid(self) -> uuid.UUID | None:
+        if self.backtest_run_id:
+            return None
+        from quantara_engine.competition.paper_run import paper_run_uuid
+
+        return paper_run_uuid(self)
+
     def list_competition_portfolios(self) -> list[Portfolio]:
         return [entry["portfolio"] for entry in self.list_competition_entries()]
 
@@ -1499,6 +1506,9 @@ class TradingStore:
             backtest_run_id=self._bt_uuid(),
         )
         self.session.merge(row)
+        from quantara_engine.competition.paper_run import stamp_paper_run_id
+
+        stamp_paper_run_id(self, table="order_intents", row_id=intent.id)
         return intent
 
     def update_order_intent_status(
@@ -1520,13 +1530,15 @@ class TradingStore:
         portfolio_id: str,
         strategy_instance_id: str,
     ) -> list[OrderIntent]:
+        from quantara_engine.competition.paper_run import intent_scope_clause
+
         rows = self.session.scalars(
             select(OrmOrderIntent)
             .where(
                 OrmOrderIntent.portfolio_id == _uuid(portfolio_id),
                 OrmOrderIntent.strategy_instance_id == _uuid(strategy_instance_id),
                 OrmOrderIntent.status == OrderIntentStatus.PENDING_EXECUTION,
-                OrmOrderIntent.backtest_run_id.is_(None),
+                intent_scope_clause(self),
             )
             .order_by(OrmOrderIntent.execution_candle_timestamp)
         ).all()
@@ -1680,6 +1692,9 @@ class TradingStore:
             backtest_run_id=self._bt_uuid(),
         )
         self.session.merge(row)
+        from quantara_engine.competition.paper_run import stamp_paper_run_id
+
+        stamp_paper_run_id(self, table="positions", row_id=position.id)
         self.session.flush()
 
     def update_position_closed(
@@ -1826,6 +1841,9 @@ class TradingStore:
             backtest_run_id=self._bt_uuid(),
         )
         self.session.merge(row)
+        from quantara_engine.competition.paper_run import stamp_paper_run_id
+
+        stamp_paper_run_id(self, table="trades", row_id=trade.id)
 
     def hydrate_position_risk_from_intents(self, positions: list[Position]) -> None:
         """Fill in-memory risk amounts from entry order intents when missing."""
@@ -1966,6 +1984,8 @@ class TradingStore:
         if not portfolio_ids:
             return {}
         ids = [_uuid(pid) for pid in portfolio_ids]
+        from quantara_engine.competition.paper_run import trade_scope_clause
+
         rows = self.session.execute(
             select(
                 OrmTrade.portfolio_id,
@@ -1973,7 +1993,7 @@ class TradingStore:
             )
             .where(
                 OrmTrade.portfolio_id.in_(ids),
-                OrmTrade.backtest_run_id.is_(None),
+                trade_scope_clause(self),
             )
             .group_by(OrmTrade.portfolio_id)
         ).all()

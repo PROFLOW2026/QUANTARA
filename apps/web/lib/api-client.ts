@@ -842,6 +842,8 @@ export interface BrokerAccountSummary {
     mark_price: number;
     unrealized_pnl: number;
   }>;
+  physical_remaining_sl_risk_usd?: number;
+  projected_broker_equity_at_stops?: number | null;
 }
 
 export interface BrokerRejection {

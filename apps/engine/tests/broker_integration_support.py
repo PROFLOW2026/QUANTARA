@@ -89,10 +89,23 @@ def _patch_session_factory(url: str) -> None:
     config_mod.settings.database_url = url
 
 
+def _owner_database_url() -> str | None:
+    if not settings.database_configured:
+        return None
+    return settings.database_url.strip()
+
+
 def provision_broker_test_database() -> str:
     global _broker_db_ready
     if _broker_db_ready:
         return BROKER_TEST_DATABASE_URL
+
+    owner_url = _owner_database_url()
+    if owner_url and BROKER_TEST_DATABASE_URL.strip() == owner_url:
+        pytest.fail(
+            "BROKER_TEST_DATABASE_URL must not equal Owner DATABASE_URL. "
+            "Use disposable local PostgreSQL or a dedicated test database."
+        )
 
     local_url = _provision_local_database()
     if local_url:
@@ -100,18 +113,19 @@ def provision_broker_test_database() -> str:
         _broker_db_ready = True
         return local_url
 
-    if not settings.database_configured:
-        pytest.fail("DATABASE_URL not configured for broker integration tests")
+    explicit = os.environ.get("BROKER_TEST_DATABASE_URL")
+    if explicit and _broker_tables_exist(explicit):
+        if owner_url and explicit.strip() == owner_url:
+            pytest.fail("BROKER_TEST_DATABASE_URL must not equal Owner DATABASE_URL.")
+        _patch_session_factory(explicit)
+        _broker_db_ready = True
+        return explicit
 
-    url = settings.database_url
-    if not _broker_tables_exist(url):
-        pytest.fail(
-            "Broker migration 0006 not available. Start local postgres "
-            "(docker compose up postgres) or apply 0006 to BROKER_TEST_DATABASE_URL."
-        )
-    _patch_session_factory(url)
-    _broker_db_ready = True
-    return url
+    pytest.fail(
+        "No safe broker test database. Start local PostgreSQL "
+        "(docker compose up postgres) or set BROKER_TEST_DATABASE_URL to a disposable DB "
+        "with migrations 0006+0007 applied."
+    )
 
 
 def _ensure_test_instrument(store: TradingStore) -> str:

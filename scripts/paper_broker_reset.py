@@ -26,6 +26,11 @@ from quantara_engine.competition.orb_constants import (  # noqa: E402
     ORB_COMPETITION_INITIAL_CAPITAL,
     ORB_COMPETITION_PORTFOLIOS,
 )
+from quantara_engine.competition.paper_run import (  # noqa: E402
+    create_paper_run,
+    end_paper_run,
+    get_current_paper_run_id,
+)
 from quantara_engine.core.config import settings  # noqa: E402
 from quantara_engine.db.session import session_scope  # noqa: E402
 from quantara_engine.persistence.store import TradingStore  # noqa: E402
@@ -33,6 +38,7 @@ from quantara_engine.persistence.store import TradingStore  # noqa: E402
 STARTING_CASH = Decimal("320000")
 ACCOUNT_SLUG = "quantara_paper_competition"
 REFERENCE_CAPITAL = COMPETITION_INITIAL_CAPITAL
+EXPECTED_PORTFOLIO_COUNT = 160
 
 
 def _competition_experiment_ids() -> tuple[str, ...]:
@@ -50,7 +56,7 @@ def _portfolio_reference_capital(portfolio_id: str) -> Decimal:
     return ORB_COMPETITION_INITIAL_CAPITAL if portfolio_id in orb_ids else REFERENCE_CAPITAL
 
 
-def _counts(store: TradingStore) -> dict[str, int]:
+def _counts(store: TradingStore, *, paper_run_id: str | None = None) -> dict[str, int]:
     session = store.session
     exp_ids = _competition_experiment_ids()
     tables = [
@@ -66,33 +72,73 @@ def _counts(store: TradingStore) -> dict[str, int]:
         try:
             out[table] = int(session.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar() or 0)
         except Exception:
+            session.rollback()
             out[table] = -1
     try:
         out["broker_accounts"] = int(
             session.execute(text("SELECT COUNT(*) FROM broker_accounts")).scalar() or 0
         )
     except Exception:
+        session.rollback()
         out["broker_accounts"] = -1
     try:
-        out["open_competition_positions"] = int(
-            session.execute(
-                text(
-                    """
-                    SELECT COUNT(*) FROM positions p
-                    WHERE p.status = 'open' AND p.backtest_run_id IS NULL
-                      AND p.strategy_instance_id IN (
-                        SELECT id FROM strategy_instances
-                        WHERE experiment_id = ANY(CAST(:exp_ids AS uuid[]))
-                      )
-                    """
-                ),
-                {"exp_ids": list(exp_ids)},
-            ).scalar()
-            or 0
-        )
+        if paper_run_id:
+            out["open_competition_positions"] = int(
+                session.execute(
+                    text(
+                        """
+                        SELECT COUNT(*) FROM positions p
+                        WHERE p.status = 'open' AND p.paper_run_id = CAST(:run_id AS uuid)
+                        """
+                    ),
+                    {"run_id": paper_run_id},
+                ).scalar()
+                or 0
+            )
+            out["current_run_trades"] = int(
+                session.execute(
+                    text("SELECT COUNT(*) FROM trades WHERE paper_run_id = CAST(:run_id AS uuid)"),
+                    {"run_id": paper_run_id},
+                ).scalar()
+                or 0
+            )
+            out["pending_current_run_intents"] = int(
+                session.execute(
+                    text(
+                        """
+                        SELECT COUNT(*) FROM order_intents
+                        WHERE status = 'pending_execution'
+                          AND paper_run_id = CAST(:run_id AS uuid)
+                        """
+                    ),
+                    {"run_id": paper_run_id},
+                ).scalar()
+                or 0
+            )
+        else:
+            out["open_competition_positions"] = int(
+                session.execute(
+                    text(
+                        """
+                        SELECT COUNT(*) FROM positions p
+                        WHERE p.status = 'open' AND p.backtest_run_id IS NULL
+                          AND p.strategy_instance_id IN (
+                            SELECT id FROM strategy_instances
+                            WHERE experiment_id = ANY(CAST(:exp_ids AS uuid[]))
+                          )
+                        """
+                    ),
+                    {"exp_ids": list(exp_ids)},
+                ).scalar()
+                or 0
+            )
+            out["current_run_trades"] = -1
+            out["pending_current_run_intents"] = -1
     except Exception:
         session.rollback()
         out["open_competition_positions"] = -1
+        out["current_run_trades"] = -1
+        out["pending_current_run_intents"] = -1
     try:
         out["pending_intents"] = int(
             session.execute(
@@ -105,22 +151,31 @@ def _counts(store: TradingStore) -> dict[str, int]:
         out["pending_intents"] = -1
     try:
         out["historical_trades_preserved"] = int(
-            session.execute(
-                text("SELECT COUNT(*) FROM trades WHERE backtest_run_id IS NULL")
-            ).scalar()
-            or 0
+            session.execute(text("SELECT COUNT(*) FROM trades")).scalar() or 0
         )
     except Exception:
         session.rollback()
         out["historical_trades_preserved"] = -1
-    try:
-        out["reference_portfolios"] = len(_competition_portfolio_ids())
-    except Exception:
-        out["reference_portfolios"] = -1
+    out["reference_portfolios"] = len(_competition_portfolio_ids())
     return out
 
 
-def _retire_open_competition_positions(store: TradingStore) -> int:
+def _retire_open_competition_positions(store: TradingStore, *, paper_run_id: str | None) -> int:
+    if paper_run_id:
+        result = store.session.execute(
+            text(
+                """
+                UPDATE positions SET
+                  status = 'closed',
+                  closed_at = COALESCE(closed_at, NOW()),
+                  updated_at = NOW()
+                WHERE status = 'open' AND paper_run_id = CAST(:run_id AS uuid)
+                RETURNING id
+                """
+            ),
+            {"run_id": paper_run_id},
+        )
+        return len(result.fetchall())
     result = store.session.execute(
         text(
             """
@@ -141,11 +196,46 @@ def _retire_open_competition_positions(store: TradingStore) -> int:
     return len(result.fetchall())
 
 
+def _expire_competition_pending_intents(store: TradingStore, *, paper_run_id: str | None) -> int:
+    exp_ids = list(_competition_experiment_ids())
+    if paper_run_id:
+        result = store.session.execute(
+            text(
+                """
+                UPDATE order_intents oi SET status = 'expired'
+                FROM strategy_instances si
+                WHERE si.id = oi.strategy_instance_id
+                  AND oi.status = 'pending_execution'
+                  AND oi.paper_run_id = CAST(:run_id AS uuid)
+                  AND si.experiment_id = ANY(CAST(:exp_ids AS uuid[]))
+                RETURNING oi.id
+                """
+            ),
+            {"run_id": paper_run_id, "exp_ids": exp_ids},
+        )
+        return len(result.fetchall())
+    result = store.session.execute(
+        text(
+            """
+            UPDATE order_intents oi SET status = 'expired'
+            FROM strategy_instances si
+            WHERE si.id = oi.strategy_instance_id
+              AND oi.status = 'pending_execution'
+              AND oi.backtest_run_id IS NULL
+              AND si.experiment_id = ANY(CAST(:exp_ids AS uuid[]))
+            RETURNING oi.id
+            """
+        ),
+        {"exp_ids": exp_ids},
+    )
+    return len(result.fetchall())
+
+
 def _reset_reference_portfolios(store: TradingStore) -> int:
     updated = 0
     for pid in _competition_portfolio_ids():
         cap = _portfolio_reference_capital(pid)
-        store.session.execute(
+        result = store.session.execute(
             text(
                 """
                 UPDATE portfolios SET
@@ -160,15 +250,17 @@ def _reset_reference_portfolios(store: TradingStore) -> int:
                   halt_reason = NULL,
                   updated_at = NOW()
                 WHERE id = CAST(:id AS uuid)
+                RETURNING id
                 """
             ),
             {"id": pid, "cap": cap},
         )
-        updated += 1
+        if result.fetchone():
+            updated += 1
     return updated
 
 
-def _execute_reset(store: TradingStore) -> None:
+def _clear_broker_runtime(store: TradingStore) -> None:
     session = store.session
     session.execute(
         text(
@@ -232,16 +324,10 @@ def _execute_reset(store: TradingStore) -> None:
         ),
         {"slug": ACCOUNT_SLUG},
     )
-    session.execute(
-        text(
-            """
-            UPDATE order_intents SET status = 'expired'
-            WHERE status = 'pending_execution'
-            """
-        )
-    )
-    _retire_open_competition_positions(store)
-    _reset_reference_portfolios(store)
+
+
+def _initialize_broker_account(store: TradingStore) -> None:
+    session = store.session
     session.execute(
         text(
             """
@@ -297,6 +383,120 @@ def _execute_reset(store: TradingStore) -> None:
         )
 
 
+def _assert_postconditions(store: TradingStore, *, new_run_id: str) -> None:
+    session = store.session
+    broker_positions = int(
+        session.execute(
+            text(
+                """
+                SELECT COUNT(*) FROM broker_positions bp
+                JOIN broker_accounts ba ON ba.id = bp.broker_account_id
+                WHERE ba.slug = :slug
+                """
+            ),
+            {"slug": ACCOUNT_SLUG},
+        ).scalar()
+        or 0
+    )
+    if broker_positions != 0:
+        raise RuntimeError(f"postcondition failed: broker positions = {broker_positions}")
+
+    pending = int(
+        session.execute(
+            text(
+                """
+                SELECT COUNT(*) FROM order_intents
+                WHERE status = 'pending_execution' AND paper_run_id = CAST(:run_id AS uuid)
+                """
+            ),
+            {"run_id": new_run_id},
+        ).scalar()
+        or 0
+    )
+    if pending != 0:
+        raise RuntimeError(f"postcondition failed: pending current-run intents = {pending}")
+
+    open_positions = int(
+        session.execute(
+            text(
+                """
+                SELECT COUNT(*) FROM positions
+                WHERE status = 'open' AND paper_run_id = CAST(:run_id AS uuid)
+                """
+            ),
+            {"run_id": new_run_id},
+        ).scalar()
+        or 0
+    )
+    if open_positions != 0:
+        raise RuntimeError(f"postcondition failed: current-run open positions = {open_positions}")
+
+    portfolio_rows = session.execute(
+        text(
+            """
+            SELECT balance FROM portfolios
+            WHERE id = ANY(CAST(:ids AS uuid[]))
+            """
+        ),
+        {"ids": _competition_portfolio_ids()},
+    ).fetchall()
+    if len(portfolio_rows) != EXPECTED_PORTFOLIO_COUNT:
+        raise RuntimeError(
+            f"postcondition failed: expected {EXPECTED_PORTFOLIO_COUNT} portfolios, "
+            f"found {len(portfolio_rows)}"
+        )
+    combined = Decimal("0")
+    for (balance,) in portfolio_rows:
+        bal = Decimal(str(balance))
+        if bal != REFERENCE_CAPITAL and bal != ORB_COMPETITION_INITIAL_CAPITAL:
+            raise RuntimeError(f"postcondition failed: portfolio balance {bal} != reference capital")
+        combined += bal
+    if combined != STARTING_CASH:
+        raise RuntimeError(f"postcondition failed: combined reference capital {combined} != {STARTING_CASH}")
+
+    acct = session.execute(
+        text(
+            """
+            SELECT cash, balance, equity, gross_realized_pnl, fees_paid, realized_pnl
+            FROM broker_accounts WHERE slug = :slug
+            """
+        ),
+        {"slug": ACCOUNT_SLUG},
+    ).mappings().first()
+    if not acct:
+        raise RuntimeError("postcondition failed: broker account missing")
+    for field in ("cash", "balance", "equity"):
+        if Decimal(str(acct[field])) != STARTING_CASH:
+            raise RuntimeError(f"postcondition failed: broker {field} != starting cash")
+    for field in ("gross_realized_pnl", "fees_paid", "realized_pnl"):
+        if Decimal(str(acct[field])) != Decimal("0"):
+            raise RuntimeError(f"postcondition failed: broker {field} != 0")
+
+
+def _execute_reset(store: TradingStore) -> str:
+    session = store.session
+    previous_run = get_current_paper_run_id(store)
+    if previous_run:
+        end_paper_run(store, previous_run)
+        _retire_open_competition_positions(store, paper_run_id=previous_run)
+        _expire_competition_pending_intents(store, paper_run_id=previous_run)
+
+    new_run_id = create_paper_run(
+        store,
+        starting_broker_cash=STARTING_CASH,
+        metadata={"source": "paper_broker_reset"},
+    )
+    _clear_broker_runtime(store)
+    _initialize_broker_account(store)
+    updated = _reset_reference_portfolios(store)
+    if updated != EXPECTED_PORTFOLIO_COUNT:
+        raise RuntimeError(
+            f"expected to update {EXPECTED_PORTFOLIO_COUNT} portfolios, updated {updated}"
+        )
+    _assert_postconditions(store, new_run_id=new_run_id)
+    return new_run_id
+
+
 def _print_dry_run_plan(before: dict[str, int]) -> None:
     broker_rows = sum(
         before.get(k, 0)
@@ -312,7 +512,7 @@ def _print_dry_run_plan(before: dict[str, int]) -> None:
     )
     print("\nDRY-RUN plan:")
     print(f"  open strategy positions to retire = {before.get('open_competition_positions', 0)}")
-    print(f"  pending intents to cancel = {before.get('pending_intents', 0)}")
+    print(f"  competition pending intents to expire = {before.get('pending_intents', 0)}")
     print(f"  broker rows to clear = {broker_rows}")
     print(f"  portfolios to reset/reference = {before.get('reference_portfolios', 0)}")
     print(f"  historical trades preserved = {before.get('historical_trades_preserved', 0)}")
@@ -335,7 +535,7 @@ def main() -> None:
 
     with session_scope() as session:
         store = TradingStore(session)
-        before = _counts(store)
+        before = _counts(store, paper_run_id=get_current_paper_run_id(store))
         print("QUANTARA Paper Broker Reset")
         print("=" * 40)
         print("BEFORE row counts:")
@@ -346,9 +546,16 @@ def main() -> None:
             _print_dry_run_plan(before)
             return
 
-        _execute_reset(store)
-        after = _counts(store)
+        try:
+            new_run_id = _execute_reset(store)
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+
+        after = _counts(store, paper_run_id=new_run_id)
         print("\nEXECUTED reset.")
+        print(f"  new paper_run_id = {new_run_id}")
         print("AFTER row counts:")
         for k, v in after.items():
             print(f"  {k}: {v}")
@@ -362,7 +569,6 @@ def main() -> None:
             {"slug": ACCOUNT_SLUG},
         ).mappings().first()
         print("\nAccount state:", dict(acct) if acct else "MISSING")
-        assert after.get("open_competition_positions", -1) == 0, "open competition positions remain"
 
 
 if __name__ == "__main__":

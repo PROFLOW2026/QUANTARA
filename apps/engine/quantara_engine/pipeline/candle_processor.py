@@ -419,6 +419,7 @@ class CandleProcessor:
         candle: Candle,
         *,
         idempotency_key: str,
+        strategy_intent_id: str | None = None,
         strategy_position_id: str | None = None,
         fill_override=None,
         order_override=None,
@@ -447,6 +448,7 @@ class CandleProcessor:
             execution_at=candle.timestamp,
             timeframe=candle.timeframe,
             idempotency_key=idempotency_key,
+            strategy_intent_id=strategy_intent_id,
             is_close=intent.is_close,
             strategy_position_id=strategy_position_id,
             opportunity_key=opp_key,
@@ -577,7 +579,9 @@ class CandleProcessor:
                         intent,
                         candle,
                         idempotency_key=f"intent:{intent.id}",
+                        strategy_intent_id=intent.id,
                         strategy_position_id=position.id,
+                        order_purpose="close",
                     )
                     broker_result = getattr(self, "_last_broker_result", None)
                     if not accepted or (fill is None and not (broker_result and broker_result.shadow_only)):
@@ -613,6 +617,7 @@ class CandleProcessor:
                     intent,
                     candle,
                     idempotency_key=f"intent:{intent.id}",
+                    strategy_intent_id=intent.id,
                 )
                 if not accepted or fill is None:
                     intent.status = IntentStatus.REJECTED
@@ -658,17 +663,6 @@ class CandleProcessor:
                     )
                 intent.status = IntentStatus.EXECUTED
                 self._persist_execution(intent, order, fill, "entry", candle, position)
-            if self.store:
-                from quantara_engine.broker.lifecycle import reconcile_consumed_shadow_legs
-
-                reconcile_consumed_shadow_legs(
-                    self.store,
-                    self.state,
-                    symbol=self.instrument.symbol,
-                    instrument_id=self.instrument.id,
-                    closed_at=candle.timestamp,
-                    currency=self._currency_context(),
-                )
         self.pending_intents = [
             i for i in self.pending_intents if i.status == IntentStatus.PENDING_EXECUTION
         ]
@@ -743,17 +737,6 @@ class CandleProcessor:
                     position, fill, reason, candle.timestamp, self._currency_context()
                 )
             self._persist_execution(None, order, fill, "exit", candle, position, trade)
-            if self.store:
-                from quantara_engine.broker.lifecycle import reconcile_consumed_shadow_legs
-
-                reconcile_consumed_shadow_legs(
-                    self.store,
-                    self.state,
-                    symbol=self.instrument.symbol,
-                    instrument_id=self.instrument.id,
-                    closed_at=candle.timestamp,
-                    currency=self._currency_context(),
-                )
             if reason == ExitReason.SL:
                 self._log(candle, DecisionType.SL_TRIGGERED, f"SL hit at {trigger_price}")
             else:
