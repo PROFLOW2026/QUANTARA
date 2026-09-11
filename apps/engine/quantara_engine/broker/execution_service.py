@@ -48,6 +48,9 @@ class BrokerExecutionResult:
     decision: BrokerOrderDecision | None = None
     realized_pnl: Decimal = Decimal("0")
     fees: Decimal = Decimal("0")
+    spread_cost: Decimal = Decimal("0")
+    slippage: Decimal = Decimal("0")
+    from_existing_fill: bool = False
 
 
 class BrokerExecutionService:
@@ -70,7 +73,8 @@ class BrokerExecutionService:
         return self.store.session.execute(
             text(
                 """
-                SELECT id::text, is_active, pending_owner_reset, cash, balance, realized_pnl, spot_crypto_cash
+                SELECT id::text, is_active, pending_owner_reset, account_state::text AS account_state,
+                       cash, balance, realized_pnl, spot_crypto_cash
                 FROM broker_accounts WHERE slug = :slug
                 """
             ),
@@ -84,6 +88,16 @@ class BrokerExecutionService:
     def account_is_active(self) -> bool:
         row = self.get_account_row()
         return bool(row and row.get("is_active"))
+
+    def _account_may_trade(self, row: dict) -> tuple[bool, str]:
+        if not row.get("is_active"):
+            return False, "broker account inactive"
+        if row.get("pending_owner_reset"):
+            return False, "pending owner reset"
+        stored = str(row.get("account_state") or "paused")
+        if stored == AccountState.PAUSED.value:
+            return False, "account paused"
+        return True, ""
 
     def load_account_snapshot(self, account_id: str | None = None):
         row = self.get_account_row()
@@ -125,7 +139,7 @@ class BrokerExecutionService:
         fx = resolve_dashboard_fx_rates(self.store, quote_currencies_for_instruments(instruments))
         fx_map = {k: v for k, v in fx.quote_per_usd.items()}
 
-        return build_account_snapshot(
+        snap = build_account_snapshot(
             cash=Decimal(str(row["cash"])),
             balance=Decimal(str(row["balance"])),
             realized_pnl=Decimal(str(row["realized_pnl"])),
@@ -134,8 +148,59 @@ class BrokerExecutionService:
             profile=self.profile,
             spot_crypto_cash=Decimal(str(row["spot_crypto_cash"])),
         )
+        stored = str(row.get("account_state") or AccountState.PAUSED.value)
+        if not row.get("is_active") or row.get("pending_owner_reset"):
+            snap.account_state = AccountState.PAUSED
+        elif stored == AccountState.PAUSED.value:
+            snap.account_state = AccountState.PAUSED
+        elif stored == AccountState.LIQUIDATION_PENDING.value:
+            snap.account_state = AccountState.LIQUIDATION_PENDING
+        elif stored == AccountState.LIQUIDATION.value:
+            snap.account_state = AccountState.LIQUIDATION
+        return snap
 
-    def _persist_account_metrics(self, account_id: str, snapshot) -> None:
+    def _persist_ledger_balances(
+        self,
+        account_id: str,
+        *,
+        cash: Decimal,
+        balance: Decimal,
+        realized_pnl: Decimal,
+        spot_crypto_cash: Decimal,
+    ) -> None:
+        self.store.session.execute(
+            text(
+                """
+                UPDATE broker_accounts SET
+                  cash = :cash, balance = :balance, realized_pnl = :realized,
+                  spot_crypto_cash = :spot, updated_at = NOW()
+                WHERE id = :id
+                """
+            ),
+            {
+                "id": account_id,
+                "cash": cash,
+                "balance": balance,
+                "realized": realized_pnl,
+                "spot": spot_crypto_cash,
+            },
+        )
+
+    def _resolve_persisted_account_state(self, row: dict, calculated) -> str:
+        if not row.get("is_active") or row.get("pending_owner_reset"):
+            return AccountState.PAUSED.value
+        stored = str(row.get("account_state") or AccountState.PAUSED.value)
+        if stored == AccountState.PAUSED.value:
+            return AccountState.PAUSED.value
+        if stored == AccountState.LIQUIDATION_PENDING.value:
+            if calculated.account_state == AccountState.LIQUIDATION:
+                return AccountState.LIQUIDATION_PENDING.value
+            return calculated.account_state.value
+        return calculated.account_state.value
+
+    def _persist_account_metrics(self, account_id: str, snapshot, *, row: dict | None = None) -> None:
+        row = row or self.get_account_row()
+        state = self._resolve_persisted_account_state(row, snapshot) if row else snapshot.account_state.value
         self.store.session.execute(
             text(
                 """
@@ -163,7 +228,7 @@ class BrokerExecutionService:
                 "fm": snapshot.free_margin,
                 "am": snapshot.available_margin,
                 "sc": snapshot.spot_crypto_cash,
-                "state": snapshot.account_state.value,
+                "state": state,
             },
         )
 
@@ -173,7 +238,7 @@ class BrokerExecutionService:
                 """
                 SELECT o.id::text AS order_id, o.status::text AS status,
                        f.id::text AS fill_id, f.fill_price, f.fill_quantity,
-                       f.realized_pnl, f.fees
+                       f.realized_pnl, f.fees, f.spread_cost, f.slippage
                 FROM broker_orders o
                 LEFT JOIN broker_fills f ON f.broker_order_id = o.id
                 WHERE o.broker_account_id = :aid AND o.idempotency_key = :key
@@ -192,13 +257,17 @@ class BrokerExecutionService:
                 fill_quantity=Decimal(str(row["fill_quantity"])),
                 realized_pnl=Decimal(str(row["realized_pnl"])),
                 fees=Decimal(str(row["fees"])),
+                spread_cost=Decimal(str(row["spread_cost"] or 0)),
+                slippage=Decimal(str(row["slippage"] or 0)),
+                from_existing_fill=True,
             )
         if row["status"] == "rejected":
             return BrokerExecutionResult(accepted=False, broker_order_id=row["order_id"])
         return None
 
     def _execution_fees(self, fill: FillResult) -> Decimal:
-        return (fill.fees + fill.spread_cost).quantize(Decimal("0.0001"))
+        """Explicit commission only — spread/slippage are embedded in fill price."""
+        return fill.fees.quantize(Decimal("0.0001"))
 
     def execute_order(
         self,
@@ -238,14 +307,15 @@ class BrokerExecutionService:
             )
 
         account_id = account_row["id"]
-        if not account_row.get("is_active") and not is_liquidation:
+        may_trade, block_reason = self._account_may_trade(account_row)
+        if not may_trade:
             return BrokerExecutionResult(
                 accepted=False,
                 decision=BrokerOrderDecision(
                     accepted=False,
                     accepted_quantity=Decimal("0"),
                     rejection_reason=BrokerRejectionReason.ACCOUNT_PAUSED,
-                    rejection_detail="broker account inactive — pending owner reset",
+                    rejection_detail=block_reason,
                 ),
             )
 
@@ -404,17 +474,20 @@ class BrokerExecutionService:
         )
 
         new_balance = snapshot.balance + netting.realized_pnl - fees
-        new_cash = snapshot.cash - fees
+        new_realized = snapshot.realized_pnl + netting.realized_pnl
+        new_cash = snapshot.cash
         new_spot = snapshot.spot_crypto_cash
 
         if spec.asset_class == "crypto" and rules.initial_margin_pct >= Decimal("100"):
             notional = quote_notional_usd(quantity, fill.fill_price, spec, fx_map)
             if direction == "long" and not is_close:
-                new_spot -= notional
-                new_cash -= notional
-            elif is_close or direction == "short":
-                new_spot += notional
-                new_cash += notional
+                new_cash -= notional + fees
+                new_spot -= notional + fees
+            else:
+                new_cash += notional - fees
+                new_spot += notional - fees
+        else:
+            new_cash -= fees
 
         fill_id = str(uuid.uuid4())
         position_id = pos_row["id"] if pos_row else str(uuid.uuid4())
@@ -505,7 +578,7 @@ class BrokerExecutionService:
             },
         )
 
-        allocate_fill_to_strategy_legs(
+        attributed_realized = allocate_fill_to_strategy_legs(
             self.store,
             broker_account_id=account_id,
             broker_fill_id=fill_id,
@@ -518,9 +591,19 @@ class BrokerExecutionService:
             closed_quantity=netting.closed_quantity,
             fx_rates=fx_map,
             opportunity_key=opportunity_key,
-            is_entry=not is_close and netting.closed_quantity == 0,
+        )
+        self.store.session.execute(
+            text("UPDATE broker_fills SET realized_pnl = :pnl WHERE id = :id"),
+            {"id": fill_id, "pnl": attributed_realized},
         )
 
+        self._persist_ledger_balances(
+            account_id,
+            cash=new_cash,
+            balance=new_balance,
+            realized_pnl=new_realized,
+            spot_crypto_cash=new_spot,
+        )
         self._refresh_account_from_db(account_id)
         self.store.session.flush()
 
@@ -532,11 +615,14 @@ class BrokerExecutionService:
             fill_quantity=quantity,
             realized_pnl=netting.realized_pnl,
             fees=fees,
+            spread_cost=fill.spread_cost,
+            slippage=fill.slippage,
         )
 
     def _refresh_account_from_db(self, account_id: str) -> None:
+        row = self.get_account_row()
         snapshot = self.load_account_snapshot(account_id)
-        self._persist_account_metrics(account_id, snapshot)
+        self._persist_account_metrics(account_id, snapshot, row=row)
 
     def mark_to_market(self, marks: dict[str, Decimal], *, at: datetime | None = None) -> None:
         """Update broker position marks and account metrics without a fill."""
@@ -591,6 +677,17 @@ class BrokerExecutionService:
         self._refresh_account_from_db(account_id)
         self.run_liquidation_if_required(at=at)
 
+    def _set_account_state(self, account_id: str, state: AccountState) -> None:
+        self.store.session.execute(
+            text(
+                """
+                UPDATE broker_accounts SET account_state = :state, updated_at = NOW()
+                WHERE id = :id
+                """
+            ),
+            {"id": account_id, "state": state.value},
+        )
+
     def run_liquidation_if_required(self, *, at: datetime | None = None) -> list[BrokerExecutionResult]:
         """Force-close positions when maintenance breached — largest maintenance first."""
         if not self._tables_ready() or not self.account_is_active():
@@ -599,74 +696,104 @@ class BrokerExecutionService:
         if not account_id:
             return []
 
-        snapshot = self.load_account_snapshot(account_id)
-        if snapshot.account_state not in (AccountState.LIQUIDATION, AccountState.MARGIN_CALL):
-            return []
-
-        if snapshot.account_state != AccountState.LIQUIDATION:
-            return []
-
-        rows = self.store.session.execute(
-            text(
-                """
-                SELECT bp.id::text, bp.net_quantity, bp.mark_price, bp.maintenance_margin,
-                       i.symbol, i.id::text AS instrument_id
-                FROM broker_positions bp
-                JOIN instruments i ON i.id = bp.instrument_id
-                WHERE bp.broker_account_id = :aid
-                ORDER BY bp.maintenance_margin DESC
-                """
-            ),
-            {"aid": account_id},
-        ).mappings().all()
-
+        at = at or datetime.now()
         results: list[BrokerExecutionResult] = []
-        for row in rows:
-            instrument = self.store.get_instrument_by_symbol(row["symbol"])
-            if not instrument:
-                continue
-            qty = abs(Decimal(str(row["net_quantity"])))
-            net = Decimal(str(row["net_quantity"]))
-            direction = Direction.SHORT if net > 0 else Direction.LONG
-            from quantara_engine.execution.fill_calculator import FillResult as FR
+        max_passes = 20
 
-            fill = FR(
-                fill_price=Decimal(str(row["mark_price"])),
-                base_price=Decimal(str(row["mark_price"])),
-                spread_cost=Decimal("0"),
-                slippage=Decimal("0"),
-                fees=Decimal("0"),
-            )
-            intent = OrderIntent(
-                id=str(uuid.uuid4()),
-                signal_id="",
-                strategy_instance_id="",
-                portfolio_id="",
-                direction=direction,
-                quantity=qty,
-                stop_loss=Decimal("0"),
-                take_profit=None,
-                target_risk_amount=Decimal("0"),
-                actual_risk_amount=Decimal("0"),
-                signal_candle_timestamp=at or datetime.now(),
-                risk_profile_id="",
-                status=IntentStatus.PENDING_EXECUTION,
-                is_close=True,
-            )
-            key = f"liquidation:{row['id']}:{at.isoformat() if at else 'now'}"
-            res = self.execute_order(
-                intent,
-                instrument,
-                fill,
-                execution_at=at or datetime.now(),
-                timeframe="5m",
-                idempotency_key=key,
-                order_purpose="liquidation",
-                is_liquidation=True,
-            )
-            results.append(res)
-            if res.accepted:
+        for _ in range(max_passes):
+            snapshot = self.load_account_snapshot(account_id)
+            if snapshot.account_state not in (
+                AccountState.LIQUIDATION,
+                AccountState.LIQUIDATION_PENDING,
+            ):
                 break
+
+            rows = self.store.session.execute(
+                text(
+                    """
+                    SELECT bp.id::text, bp.net_quantity, bp.mark_price, bp.maintenance_margin,
+                           i.symbol, i.id::text AS instrument_id
+                    FROM broker_positions bp
+                    JOIN instruments i ON i.id = bp.instrument_id
+                    WHERE bp.broker_account_id = :aid
+                    ORDER BY bp.maintenance_margin DESC, i.symbol ASC, bp.id ASC
+                    """
+                ),
+                {"aid": account_id},
+            ).mappings().all()
+            if not rows:
+                self._set_account_state(account_id, AccountState.ACTIVE)
+                break
+
+            executed_this_pass = False
+            deferred_closed_market = False
+
+            for row in rows:
+                instrument = self.store.get_instrument_by_symbol(row["symbol"])
+                if not instrument:
+                    continue
+
+                market_open = market_open_for_instrument(instrument, at)
+                if not market_open:
+                    deferred_closed_market = True
+                    continue
+
+                from quantara_engine.execution.cost_profile import execution_assumptions_for
+                from quantara_engine.execution.fill_calculator import FillResult as FR, calculate_fill_price
+
+                qty = abs(Decimal(str(row["net_quantity"])))
+                net = Decimal(str(row["net_quantity"]))
+                close_dir = Direction.SHORT if net > 0 else Direction.LONG
+                base = Decimal(str(row["mark_price"]))
+                assumptions = execution_assumptions_for(instrument)
+                fill_calc = calculate_fill_price(close_dir, "exit", base, qty, assumptions)
+
+                intent = OrderIntent(
+                    id=str(uuid.uuid4()),
+                    signal_id="",
+                    strategy_instance_id="",
+                    portfolio_id="",
+                    direction=close_dir,
+                    quantity=qty,
+                    stop_loss=Decimal("0"),
+                    take_profit=None,
+                    target_risk_amount=Decimal("0"),
+                    actual_risk_amount=Decimal("0"),
+                    signal_candle_timestamp=at,
+                    risk_profile_id="",
+                    status=IntentStatus.PENDING_EXECUTION,
+                    is_close=True,
+                )
+                key = f"liquidation:{row['id']}:{at.isoformat()}"
+                res = self.execute_order(
+                    intent,
+                    instrument,
+                    fill_calc,
+                    execution_at=at,
+                    timeframe="5m",
+                    idempotency_key=key,
+                    order_purpose="liquidation",
+                    is_liquidation=True,
+                )
+                results.append(res)
+                if res.accepted:
+                    executed_this_pass = True
+                    break
+
+            if deferred_closed_market and not executed_this_pass:
+                self._set_account_state(account_id, AccountState.LIQUIDATION_PENDING)
+                break
+            if not executed_this_pass:
+                break
+
+            refreshed = self.load_account_snapshot(account_id)
+            if refreshed.account_state not in (
+                AccountState.LIQUIDATION,
+                AccountState.LIQUIDATION_PENDING,
+            ):
+                self._set_account_state(account_id, refreshed.account_state)
+                break
+
         return results
 
     # backward compat alias

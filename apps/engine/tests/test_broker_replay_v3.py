@@ -15,6 +15,7 @@ def _events():
             quantity=Decimal("10"),
             price=Decimal("170"),
             portfolio_id="p-a",
+            strategy_position_id="sp-a",
             fees=Decimal("1.50"),
         ),
         ReplayV3Event(
@@ -25,6 +26,7 @@ def _events():
             quantity=Decimal("5"),
             price=Decimal("175"),
             portfolio_id="p-b",
+            strategy_position_id="sp-b",
             fees=Decimal("0.75"),
         ),
         ReplayV3Event(
@@ -40,9 +42,10 @@ def _events():
             symbol="NVDA",
             asset_class="stock",
             direction="short",
-            quantity=Decimal("8"),
+            quantity=Decimal("10"),
             price=Decimal("180"),
             portfolio_id="p-a",
+            strategy_position_id="sp-a",
             fees=Decimal("1.20"),
         ),
         ReplayV3Event(
@@ -50,9 +53,10 @@ def _events():
             symbol="NVDA",
             asset_class="stock",
             direction="short",
-            quantity=Decimal("7"),
+            quantity=Decimal("5"),
             price=Decimal("178"),
             portfolio_id="p-b",
+            strategy_position_id="sp-b",
             fees=Decimal("1.05"),
         ),
     ]

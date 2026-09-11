@@ -18,6 +18,7 @@ class AccountState(str, Enum):
     MARGIN_WARNING = "margin_warning"
     MARGIN_CALL = "margin_call"
     LIQUIDATION = "liquidation"
+    LIQUIDATION_PENDING = "liquidation_pending"
     PAUSED = "paused"
 
 

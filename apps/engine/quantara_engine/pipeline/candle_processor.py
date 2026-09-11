@@ -425,7 +425,11 @@ class CandleProcessor:
         order_purpose: str = "entry",
     ) -> tuple[bool, object | None, object | None]:
         """Final broker validation + persisted fill. Returns (accepted, order, fill)."""
-        from quantara_engine.broker.execution_bridge import execute_through_broker
+        from quantara_engine.broker.attribution import link_strategy_position_to_fill
+        from quantara_engine.broker.execution_bridge import (
+            canonical_fill_from_result,
+            execute_through_broker,
+        )
 
         if fill_override is not None and order_override is not None:
             order, fill = order_override, fill_override
@@ -473,17 +477,20 @@ class CandleProcessor:
                 },
             )
             return False, None, None
+        fill = canonical_fill_from_result(fill, result)
         self._log(
             candle,
             DecisionType.RISK_APPROVED,
-            f"BROKER_FILL: qty={intent.quantity} @ {fill.fill_price}",
+            f"BROKER_FILL: qty={result.fill_quantity} @ {fill.fill_price}",
             metadata={
                 "layer": "broker_execution",
                 "broker_decision": "filled",
                 "broker_order_id": result.broker_order_id,
                 "broker_fill_id": result.broker_fill_id,
+                "from_existing_fill": result.from_existing_fill,
             },
         )
+        self._broker_last_fill_id = result.broker_fill_id
         return True, order, fill
 
     def _execute_pending(self, candle: Candle) -> None:
@@ -599,6 +606,12 @@ class CandleProcessor:
                     self.instrument.id,
                     candle.timestamp,
                 )
+                if self.store and getattr(self, "_broker_last_fill_id", None):
+                    link_strategy_position_to_fill(
+                        self.store,
+                        broker_fill_id=self._broker_last_fill_id,
+                        strategy_position_id=position.id,
+                    )
                 intent.status = IntentStatus.EXECUTED
                 self._persist_execution(intent, order, fill, "entry", candle, position)
         self.pending_intents = [

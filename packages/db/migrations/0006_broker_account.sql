@@ -9,6 +9,7 @@ CREATE TYPE broker_account_state AS ENUM (
   'margin_warning',
   'margin_call',
   'liquidation',
+  'liquidation_pending',
   'paused'
 );
 
@@ -51,9 +52,7 @@ CREATE TABLE broker_accounts (
   is_legacy_simulation BOOLEAN NOT NULL DEFAULT FALSE,
   metadata JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT broker_accounts_cash_nonneg CHECK (cash >= 0),
-  CONSTRAINT broker_accounts_balance_nonneg CHECK (balance >= 0)
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE broker_positions (
@@ -130,6 +129,10 @@ CREATE TABLE broker_attribution_lots (
   opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE UNIQUE INDEX broker_attribution_lots_open_fill_uq
+  ON broker_attribution_lots (broker_fill_id, strategy_portfolio_id, direction)
+  WHERE remaining_qty > 0;
+
 CREATE INDEX broker_attribution_lots_account_symbol_idx
   ON broker_attribution_lots (broker_account_id, symbol, opened_at);
 
@@ -147,6 +150,12 @@ CREATE TABLE broker_attribution_ledger (
   direction direction NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX broker_attribution_ledger_close_uq
+  ON broker_attribution_ledger (
+    broker_fill_id, strategy_position_id, quantity, entry_price, exit_price, direction
+  )
+  WHERE exit_price IS NOT NULL;
 
 CREATE TABLE broker_order_rejections (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -166,12 +175,12 @@ CREATE INDEX broker_rejections_created_idx ON broker_order_rejections (created_a
 -- Placeholder row: inactive until Owner-approved reset (NOT a live $320k account)
 INSERT INTO broker_accounts (
   slug, profile_slug, position_mode, starting_cash, cash, balance, equity,
-  is_active, pending_owner_reset, account_state
+  spot_crypto_cash, is_active, pending_owner_reset, account_state
 ) VALUES (
   'quantara_paper_competition',
   'quantara_standard_paper',
   'netting',
-  320000, 0, 0, 0,
+  320000, 0, 0, 0, 0,
   FALSE, TRUE, 'paused'
 ) ON CONFLICT (slug) DO NOTHING;
 

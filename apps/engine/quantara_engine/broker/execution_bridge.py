@@ -5,11 +5,27 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
+from quantara_engine.broker.attribution import resolve_physical_exit_quantity
 from quantara_engine.broker.execution_service import BrokerExecutionResult, BrokerExecutionService
 from quantara_engine.broker.integration import should_use_broker_realism
 from quantara_engine.domain.types import Direction, Instrument, IntentStatus, OrderIntent
 from quantara_engine.execution.fill_calculator import FillResult
 from quantara_engine.persistence.store import TradingStore
+
+
+def canonical_fill_from_result(local_fill: FillResult, result: BrokerExecutionResult) -> FillResult:
+    """Prefer persisted broker fill values (especially on idempotent retry)."""
+    if not result.accepted or result.fill_price is None or result.fill_quantity is None:
+        return local_fill
+    if result.from_existing_fill or result.broker_fill_id:
+        return FillResult(
+            fill_price=result.fill_price,
+            base_price=result.fill_price,
+            spread_cost=result.spread_cost,
+            slippage=result.slippage,
+            fees=result.fees,
+        )
+    return local_fill
 
 
 def execute_through_broker(
@@ -38,6 +54,25 @@ def execute_through_broker(
     if skip_if_not_competition and not should_use_broker_realism(portfolio_id):
         return None
 
+    svc = BrokerExecutionService(store)
+    account_id = svc.get_account_id()
+    if is_close and account_id:
+        physical_qty = resolve_physical_exit_quantity(
+            store,
+            broker_account_id=account_id,
+            symbol=instrument.symbol,
+            requested_quantity=quantity,
+            strategy_position_id=strategy_position_id,
+            portfolio_id=portfolio_id,
+            opportunity_key=opportunity_key,
+        )
+        if physical_qty <= 0:
+            return BrokerExecutionResult(
+                accepted=False,
+                decision=None,
+            )
+        quantity = physical_qty
+
     intent = OrderIntent(
         id=idempotency_key,
         signal_id="",
@@ -55,7 +90,6 @@ def execute_through_broker(
         is_close=is_close,
         position_id=strategy_position_id,
     )
-    svc = BrokerExecutionService(store)
     return svc.execute_order(
         intent=intent,
         instrument=instrument,

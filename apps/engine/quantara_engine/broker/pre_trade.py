@@ -161,15 +161,15 @@ def evaluate_broker_order(
     if not request.data_fresh:
         return _reject(BrokerRejectionReason.STALE_MARKET_DATA, "market data stale", account=account)
 
-    # US equities: no execution while market closed (entries OR closes)
-    if spec.session_key == "us_equity_rth" and not request.market_open and not request.is_liquidation:
+    # US equities: no execution while market closed (entries, closes, liquidation)
+    if spec.session_key == "us_equity_rth" and not request.market_open:
         return _reject(
             BrokerRejectionReason.MARKET_CLOSED,
             "US equity market closed — no executable price",
             account=account,
         )
 
-    if not request.is_close and not request.market_open and not request.is_liquidation:
+    if not request.is_close and not request.market_open:
         return _reject(
             BrokerRejectionReason.MARKET_CLOSED,
             "market closed for new entries",
