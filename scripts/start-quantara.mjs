@@ -10,8 +10,11 @@ import {
   engineService,
   workersService,
   isEngineRunning,
-  isEngineProcessRunning,
+  isEnginePortListening,
+  getEngineListenerPid,
   isWorkerRunning,
+  getWorkerRunningPid,
+  recoverStaleWorkerLockIfNeeded,
   isTunnelRunning,
   quickTunnelService,
   startWindowsTerminal,
@@ -20,6 +23,12 @@ import {
   waitForTunnel,
   printTunnelBanner,
 } from "./dev-common.mjs";
+import {
+  getProcessCommandLine,
+  isQuantaraEngineCommandLine,
+  killProcessTree,
+  waitForProcessExit,
+} from "./process-utils.mjs";
 
 const { ROOT, ENGINE } = prepareDevEnv();
 
@@ -43,33 +52,59 @@ function ensureCloudflared() {
   }
 }
 
-async function launchEngine() {
-  if ((await isEngineRunning()) || isEngineProcessRunning()) {
-    log("[ENGINE] Already running — skipping duplicate start");
-    return { ok: true, started: false };
+async function clearStaleEngineListeners() {
+  if (await isEngineRunning()) return false;
+  if (!isEnginePortListening()) return false;
+  const pid = getEngineListenerPid();
+  if (!pid) return false;
+  const cmd = getProcessCommandLine(pid);
+  if (isQuantaraEngineCommandLine(cmd)) {
+    log(`[ENGINE] Port 8000 held by stale engine PID=${pid} — terminating`);
+  } else {
+    log(`[ENGINE] Port 8000 held by non-engine PID=${pid} — terminating`);
   }
+  killProcessTree(pid);
+  await waitForProcessExit(pid, 10000);
+  return true;
+}
+
+async function launchEngine() {
+  if (await isEngineRunning()) {
+    const pid = getEngineListenerPid();
+    log(`[ENGINE] Already running${pid ? ` PID=${pid}` : ""} — health OK`);
+    return { ok: true, started: false, pid };
+  }
+  await clearStaleEngineListeners();
   const service = engineService();
   service.label = "QUANTARA ENGINE";
   startWindowsTerminal(service);
   log("[ENGINE] Starting in new window...");
   const up = await waitForEngine();
-  return { ok: up, started: true };
+  return { ok: up, started: true, pid: getEngineListenerPid() };
 }
 
 async function launchWorker() {
-  if (isWorkerRunning()) {
-    log("[WORKER] Existing scheduler detected — skipping duplicate start");
-    return { ok: true, started: false };
+  const recovery = recoverStaleWorkerLockIfNeeded();
+  if (recovery.removed) {
+    log(`[WORKER] Stale lock removed (${recovery.state.reason})`);
   }
+
+  const runningPid = getWorkerRunningPid();
+  if (isWorkerRunning() && runningPid) {
+    log(`[WORKER] Already running PID=${runningPid} — skipping duplicate start`);
+    return { ok: true, started: false, pid: runningPid };
+  }
+
   const service = workersService();
   if (!service) {
-    return { ok: isWorkerRunning(), started: false };
+    const pid = getWorkerRunningPid();
+    return { ok: Boolean(pid && isWorkerRunning()), started: false, pid };
   }
   service.label = "QUANTARA WORKER";
   startWindowsTerminal(service);
   log("[WORKER] Starting in new window...");
   const up = await waitForWorker();
-  return { ok: up, started: true };
+  return { ok: up, started: true, pid: getWorkerRunningPid() };
 }
 
 async function launchTunnel() {
@@ -139,14 +174,23 @@ async function main() {
   if (!workerUp && worker.started) {
     workerUp = await waitForWorker(30000);
   }
+  const workerPid = getWorkerRunningPid();
 
   let tunnelUp = isTunnelRunning();
   if (!tunnelUp && tunnel.started) {
     tunnelUp = await waitForTunnel(30000);
   }
 
-  statusLine("Engine", engineUp, engineUp ? "http://127.0.0.1:8000/api/v1/health" : "not responding");
-  statusLine("Worker + Scheduler", workerUp, workerUp ? ".quantara-workers.lock active" : "lock not held");
+  statusLine(
+    "Engine",
+    engineUp,
+    engineUp ? "http://127.0.0.1:8000/api/v1/health" : "health endpoint not responding"
+  );
+  statusLine(
+    "Worker + Scheduler",
+    workerUp,
+    workerUp ? `quantara_workers.main PID=${workerPid ?? "?"}` : "no live worker process"
+  );
   statusLine(
     "Quick Cloudflare Tunnel",
     tunnelUp,

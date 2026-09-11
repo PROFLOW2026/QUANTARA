@@ -20,7 +20,8 @@
     "demo": "python scripts/demo.py",
     "verify:db": "python scripts/verify_supabase_runtime.py",
     "verify:twelvedata": "python scripts/verify_twelvedata.py",
-    "test:engine": "cd apps/engine && python -m pytest tests/ -q"
+    "test:engine": "cd apps/engine && python -m pytest tests/ -q",
+    "test:launcher": "node --test scripts/test-quantara-launcher.mjs"
   },
   "devDependencies": {
     "pg": "^8.23.0"

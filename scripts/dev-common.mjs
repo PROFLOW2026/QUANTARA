@@ -5,6 +5,19 @@ import { spawn, spawnSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { loadRepoEnv, getRepoRoot } from "./load-env.cjs";
+import {
+  findQuantaraWorkerPids,
+  getEngineListenerPids,
+  getProcessCommandLine,
+  inspectWorkerState,
+  isProcessAlive,
+  isQuantaraEngineCommandLine,
+  isQuantaraWorkerCommandLine,
+  killProcessTree,
+  recoverStaleWorkerLock,
+  removeWorkerLockFile,
+  waitForProcessExit,
+} from "./process-utils.mjs";
 
 const ROOT = getRepoRoot();
 const ENGINE = path.join(ROOT, "apps", "engine");
@@ -46,59 +59,54 @@ export async function isEngineRunning() {
   }
 }
 
+export function workerLockPath() {
+  return path.join(ROOT, ".quantara-workers.lock");
+}
+
+export function getWorkerState() {
+  return inspectWorkerState(workerLockPath());
+}
+
 export function isEnginePortListening() {
   const port = (process.env.ENGINE_PORT || "8000").trim();
-  if (process.platform === "win32") {
-    const result = spawnSync("netstat", ["-ano"], { encoding: "utf8" });
-    return String(result.stdout || "")
-      .split(/\r?\n/)
-      .some((line) => line.includes(`:${port}`) && /LISTENING/i.test(line));
-  }
-  const result = spawnSync("lsof", ["-i", `TCP:${port}`, "-sTCP:LISTEN"], { encoding: "utf8" });
-  return Boolean(String(result.stdout || "").trim());
+  return getEngineListenerPids(port).length > 0;
+}
+
+export function getEngineListenerPid() {
+  const port = (process.env.ENGINE_PORT || "8000").trim();
+  const pids = getEngineListenerPids(port);
+  return pids.length ? pids[0] : null;
 }
 
 export function isEngineProcessRunning() {
-  if (process.platform !== "win32") {
-    const result = spawnSync("pgrep", ["-f", "apps/engine.*main.py"], {
-      encoding: "utf8",
-    });
-    return Boolean(result.stdout?.trim());
-  }
-  return isEnginePortListening();
+  const pid = getEngineListenerPid();
+  if (!pid) return false;
+  return isQuantaraEngineCommandLine(getProcessCommandLine(pid));
+}
+
+export function recoverStaleWorkerLockIfNeeded() {
+  return recoverStaleWorkerLock(workerLockPath());
 }
 
 export function isWorkerRunning() {
-  const lockPath = path.join(ROOT, ".quantara-workers.lock");
-  if (!fs.existsSync(lockPath)) return false;
-  try {
-    const pid = parseInt(fs.readFileSync(lockPath, "utf8").trim().split(/\r?\n/)[0], 10);
-    if (!Number.isFinite(pid) || pid <= 0) return false;
-    if (process.platform === "win32") {
-      const result = spawnSync("tasklist", ["/FI", `PID eq ${pid}`], {
-        encoding: "utf8",
-      });
-      return result.stdout.includes(String(pid));
-    }
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  } catch (err) {
-    // Exclusive lock held by live worker — file unreadable while scheduler runs.
-    if (err && typeof err === "object" && "code" in err && err.code === "EBUSY") {
-      return true;
-    }
-    return false;
-  }
+  return getWorkerState().running;
+}
+
+export function getWorkerRunningPid() {
+  return getWorkerState().pid;
 }
 
 export function workersService() {
-  if (isWorkerRunning()) {
-    console.log("[WORKERS] Existing worker scheduler detected — not spawning duplicate");
+  const state = getWorkerState();
+  if (state.running) {
+    console.log(
+      `[WORKERS] Existing worker scheduler detected (PID ${state.pid}) — not spawning duplicate`
+    );
     return null;
+  }
+  const recovery = recoverStaleWorkerLockIfNeeded();
+  if (recovery.removed) {
+    console.log(`[WORKERS] Removed stale worker lock (${recovery.state.reason})`);
   }
   return {
     name: "workers",
