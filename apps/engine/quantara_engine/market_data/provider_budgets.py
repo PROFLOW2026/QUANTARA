@@ -16,6 +16,7 @@ SETTINGS_PREFIX = "provider_budget:"
 LIMITS: dict[str, dict[str, int]] = {
     "tiingo": {"hourly": 50, "daily": 1000},
     "alpaca": {"minute": 200, "daily": 100000},
+    "coinbase": {"hourly": 300, "daily": 5000},
 }
 
 TIINGO_HOURLY_HARD_LIMIT = int(LIMITS["tiingo"]["hourly"])
@@ -191,8 +192,24 @@ def record_request(
 
 
 def status_payload(store: TradingStore | None, provider: str) -> dict[str, Any]:
+    from quantara_engine.market_data.provider_cooldown import cooldown_payload, is_in_cooldown
+
     limits = LIMITS.get(provider, {})
     state = _load(store, provider)
+    if store and is_in_cooldown(store, provider):
+        cd = cooldown_payload(store, provider) or {}
+        return {
+            "provider": provider,
+            "status": "cooldown",
+            "used_hour": state.get("used_hour", 0),
+            "hourly_limit": limits.get("hourly"),
+            "used_day": state.get("used_day", 0),
+            "daily_limit": limits.get("daily") or limits.get("minute"),
+            "active_symbols": state.get("active_symbols") or [],
+            "last_success": state.get("last_success"),
+            "last_error": cd.get("reason") or state.get("last_error"),
+            "cooldown_until": cd.get("until"),
+        }
     hourly_limit = limits.get("hourly")
     daily_limit = limits.get("daily") or limits.get("minute")
     return {

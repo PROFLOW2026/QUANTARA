@@ -650,6 +650,47 @@ class CandleProcessor:
         if candle_index is None:
             return
 
+        # Broker pre-trade check (competition → shared paper broker account)
+        from quantara_engine.broker.integration import check_broker_acceptance, should_use_broker_realism
+
+        if self.store and should_use_broker_realism(self.state.portfolio.id):
+
+            data_fresh = True
+            broker_decision = check_broker_acceptance(
+                self.store,
+                intent,
+                self.instrument,
+                candle.close,
+                market_open=True,
+                data_fresh=data_fresh,
+                opportunity_key=opportunity_key,
+            )
+            if not broker_decision.accepted:
+                reason = broker_decision.rejection_reason.value if broker_decision.rejection_reason else "unknown"
+                self._log(
+                    candle,
+                    DecisionType.RISK_DENIED,
+                    f"BROKER_REJECT: {reason} — {broker_decision.rejection_detail}",
+                    signal_id,
+                    metadata={
+                        "broker_decision": "rejected",
+                        "broker_reason": reason,
+                        "broker_detail": broker_decision.rejection_detail,
+                        **broker_decision.diagnostics,
+                    },
+                )
+                if self.store:
+                    self.store.save_broker_rejection(
+                        portfolio_id=intent.portfolio_id,
+                        symbol=self.instrument.symbol,
+                        quantity=intent.quantity,
+                        reason=reason,
+                        detail=broker_decision.rejection_detail,
+                        opportunity_key=opportunity_key,
+                    )
+                    self._flush_store()
+                return
+
         intent.execution_candle_timestamp = self._next_execution_timestamp(
             candle, candle_index
         )

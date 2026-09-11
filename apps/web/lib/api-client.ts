@@ -809,7 +809,48 @@ function portfolioQs(portfolioId?: string, extra?: Record<string, string>): stri
 
 // --- API methods ---
 
+export interface BrokerAccountSummary {
+  profile: string;
+  account_state: string;
+  cash: number;
+  balance: number;
+  equity: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  buying_power: number;
+  initial_margin_used: number;
+  maintenance_margin_required: number;
+  free_margin: number;
+  margin_level_pct: number | null;
+  gross_exposure: number;
+  net_exposure: number;
+  gross_leverage: number;
+  net_leverage: number;
+  broker_positions: Array<{
+    symbol: string;
+    net_quantity: number;
+    average_price: number;
+    mark_price: number;
+    unrealized_pnl: number;
+  }>;
+}
+
+export interface BrokerRejection {
+  timestamp: string;
+  symbol: string;
+  quantity: number;
+  reason: string;
+  detail?: string | null;
+  opportunity_key?: string | null;
+  portfolio_id?: string | null;
+}
+
 export const api = {
+  getBrokerAccount: () => apiFetch<BrokerAccountSummary>("/broker/account"),
+  getBrokerRejections: (limit = 100) =>
+    apiFetch<{ available: boolean; rejections: BrokerRejection[] }>(
+      `/broker/rejections?limit=${limit}`
+    ),
   getPortfolio: (portfolioId?: string) =>
     apiFetch<Portfolio>(`/portfolio${portfolioQs(portfolioId)}`),
   getRiskStatus: (portfolioId?: string) =>

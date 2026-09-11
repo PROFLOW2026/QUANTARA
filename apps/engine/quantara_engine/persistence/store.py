@@ -1114,6 +1114,41 @@ class TradingStore:
             self.session.flush()
         self.invalidate_settings_cache()
 
+    def save_broker_rejection(
+        self,
+        *,
+        portfolio_id: str,
+        symbol: str,
+        quantity: Decimal,
+        reason: str,
+        detail: str = "",
+        opportunity_key: str | None = None,
+    ) -> None:
+        """Persist broker pre-trade rejection for audit (requires migration 0006)."""
+        from sqlalchemy import text
+
+        try:
+            self.session.execute(
+                text(
+                    """
+                    INSERT INTO broker_order_rejections
+                      (strategy_portfolio_id, symbol, quantity, reason, detail, opportunity_key)
+                    VALUES (:pid, :sym, :qty, :reason, :detail, :opp)
+                    """
+                ),
+                {
+                    "pid": _uuid(portfolio_id),
+                    "sym": symbol,
+                    "qty": quantity,
+                    "reason": reason,
+                    "detail": detail[:2000] if detail else None,
+                    "opp": opportunity_key,
+                },
+            )
+            self.session.flush()
+        except Exception:
+            pass  # migration 0006 may not be applied yet
+
     # ------------------------------------------------------------------ Candles
 
     def upsert_candle(self, candle: DomainCandle) -> None:

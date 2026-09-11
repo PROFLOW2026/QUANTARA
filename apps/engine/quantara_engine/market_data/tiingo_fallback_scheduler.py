@@ -165,10 +165,20 @@ def _safe_calls_this_cycle(candle_remaining: int, now: datetime) -> int:
 
 
 def _priority_key(ctx: AssetFetchContext, rotation: int) -> tuple:
+    # Staleness dominates open-position count so no asset starves >~20m while quota remains.
+    stale_score = min(ctx.staleness_min, 10_000.0)
+    stale_tier = 0
+    if stale_score >= 30:
+        stale_tier = 3
+    elif stale_score >= 20:
+        stale_tier = 2
+    elif stale_score >= 10:
+        stale_tier = 1
     return (
+        -stale_tier,
+        -stale_score,
         -ctx.open_positions,
         -int(ctx.session_active),
-        -min(ctx.staleness_min, 10_000.0),
         rotation,
     )
 

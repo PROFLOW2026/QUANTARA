@@ -377,7 +377,7 @@ def test_alpaca_cooldown_recovery_after_expiry(provider_factory, settings_mock):
 
 def test_btc_provider_chain():
     chain = provider_chain_for_asset(_btc_asset())
-    assert chain == (ProviderName.ALPACA, ProviderName.TIINGO)
+    assert chain == (ProviderName.COINBASE, ProviderName.ALPACA, ProviderName.TIINGO)
 
 
 def test_nvda_provider_chain():

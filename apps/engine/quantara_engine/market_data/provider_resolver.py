@@ -34,10 +34,14 @@ class FetchOutcome:
 
 
 def provider_chain_for_asset(asset: AssetDefinition) -> tuple[ProviderName, ...]:
-    """Ordered providers for an asset — primary then secondary."""
+    """Ordered providers for an asset — primary then secondary (+ Tiingo emergency for crypto)."""
+    from quantara_engine.market_data.registry import AssetClass
+
     chain: list[ProviderName] = [asset.primary_provider]
     if asset.secondary_provider and asset.secondary_provider not in chain:
         chain.append(asset.secondary_provider)
+    if asset.asset_class == AssetClass.CRYPTO and ProviderName.TIINGO not in chain:
+        chain.append(ProviderName.TIINGO)
     return tuple(chain)
 
 
@@ -60,6 +64,8 @@ def is_provider_configured(provider: ProviderName) -> bool:
         return bool(settings.tiingo_api_key.strip())
     if provider == ProviderName.ALPACA:
         return bool(settings.alpaca_api_key_id.strip() and settings.alpaca_api_secret_key.strip())
+    if provider == ProviderName.COINBASE:
+        return True  # public exchange API — no key required
     return False
 
 

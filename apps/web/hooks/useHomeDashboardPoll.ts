@@ -5,6 +5,7 @@ import {
   api,
   isEngineConnectionError,
   type AssetAnalyticsResponse,
+  type BrokerAccountSummary,
   type Decision,
   type MarketProviderStatus,
   type TodayActivity,
@@ -36,6 +37,7 @@ export function useHomeDashboardPoll() {
     null
   );
   const [marketStatus, setMarketStatus] = useState<MarketProviderStatus | null>(null);
+  const [brokerAccount, setBrokerAccount] = useState<BrokerAccountSummary | null>(null);
   const [engineHealthy, setEngineHealthy] = useState<boolean | null>(null);
   const [engineConnectionError, setEngineConnectionError] = useState(false);
   const [competitionUnavailable, setCompetitionUnavailable] = useState(false);
@@ -107,6 +109,13 @@ export function useHomeDashboardPoll() {
         partialFailure = true;
       }
 
+      const brokerResult = await settle(api.getBrokerAccount());
+      if (brokerResult.ok) {
+        setBrokerAccount(brokerResult.value);
+      } else {
+        partialFailure = true;
+      }
+
       if (showLoading) setLoading(false);
 
       const decisionsResult = await settle(api.getDecisionsByAsset("5m"));
@@ -163,6 +172,7 @@ export function useHomeDashboardPoll() {
     workers,
     competition,
     assetAnalytics,
+    brokerAccount,
     marketStatus,
     engineHealthy,
     engineConnectionError,

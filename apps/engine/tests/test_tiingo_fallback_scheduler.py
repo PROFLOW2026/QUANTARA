@@ -232,6 +232,9 @@ def test_primary_healthy_skips_fallback_plan():
     with patch(
         "quantara_engine.market_data.tiingo_fallback_scheduler._open_positions_by_symbol",
         return_value={},
+    ), patch(
+        "quantara_engine.market_data.tiingo_fallback_scheduler._primary_eligible",
+        return_value=True,
     ):
         plan = build_tiingo_fallback_plan(store, now)
     assert not plan.fallback_active

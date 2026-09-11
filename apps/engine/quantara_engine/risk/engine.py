@@ -152,6 +152,8 @@ class RiskEngine:
                 )
 
         mark = inp.current_candle.close
+        # Strategy risk-to-SL sizing may use virtual leverage for competition tiers;
+        # broker pre-trade check (separate layer) enforces account margin/buying power.
         virtual_leverage = paper_competition
         if not virtual_leverage:
             total_exposure = sum(p.quantity * mark for p in inp.open_positions)

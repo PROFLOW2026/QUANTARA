@@ -39,11 +39,11 @@ def test_orb_session_mapping():
 
 def test_provider_routing_by_asset_class():
     assets = {a.db_symbol: a for a in list_target_assets()}
-    assert assets["BTCUSD"].primary_provider.value == "alpaca"
-    assert assets["ETHUSD"].primary_provider.value == "alpaca"
+    assert assets["BTCUSD"].primary_provider.value == "coinbase"
+    assert assets["ETHUSD"].primary_provider.value == "coinbase"
     assert assets["XAUUSD"].primary_provider.value == "twelvedata"
     assert assets["GBPJPY"].primary_provider.value == "twelvedata"
     assert assets["NVDA"].primary_provider.value == "alpaca"
     assert assets["NVDA"].secondary_provider.value == "tiingo"
-    assert assets["BTCUSD"].secondary_provider.value == "tiingo"
+    assert assets["BTCUSD"].secondary_provider.value == "alpaca"
     assert assets["TSLA"].primary_provider.value == "alpaca"

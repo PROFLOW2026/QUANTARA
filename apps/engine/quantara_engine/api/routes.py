@@ -538,6 +538,79 @@ def portfolio(store: StoreDep, portfolio_id: str = "competition"):
     return _portfolio_ui(store, portfolio_id)
 
 
+@router.get("/broker/rejections")
+def broker_rejections(store: StoreDep, limit: int = 100):
+    """Recent broker pre-trade rejections (requires migration 0006)."""
+    from sqlalchemy import text
+
+    try:
+        rows = store.session.execute(
+            text(
+                """
+                SELECT created_at, symbol, quantity, reason, detail,
+                       opportunity_key, strategy_portfolio_id::text AS portfolio_id
+                FROM broker_order_rejections
+                ORDER BY created_at DESC
+                LIMIT :lim
+                """
+            ),
+            {"lim": min(limit, 500)},
+        ).mappings().all()
+    except Exception:
+        return {"rejections": [], "available": False}
+    return {
+        "available": True,
+        "rejections": [
+            {
+                "timestamp": str(r["created_at"]),
+                "symbol": r["symbol"],
+                "quantity": float(r["quantity"]),
+                "reason": r["reason"],
+                "detail": r.get("detail"),
+                "opportunity_key": r.get("opportunity_key"),
+                "portfolio_id": r.get("portfolio_id"),
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/broker/account")
+def broker_account_summary(store: StoreDep):
+    """Canonical paper broker account (shared across 160 strategy portfolios)."""
+    from quantara_engine.broker.state_builder import build_competition_broker_account
+
+    account = build_competition_broker_account(store)
+    return {
+        "profile": account.profile_slug,
+        "account_state": account.account_state.value,
+        "cash": float(account.cash),
+        "balance": float(account.balance),
+        "equity": float(account.equity),
+        "realized_pnl": float(account.realized_pnl),
+        "unrealized_pnl": float(account.unrealized_pnl),
+        "buying_power": float(account.buying_power),
+        "initial_margin_used": float(account.initial_margin_used),
+        "maintenance_margin_required": float(account.maintenance_margin_required),
+        "free_margin": float(account.free_margin),
+        "margin_level_pct": float(account.margin_level_pct) if account.margin_level_pct else None,
+        "gross_exposure": float(account.gross_exposure),
+        "net_exposure": float(account.net_exposure),
+        "gross_leverage": float(account.gross_leverage),
+        "net_leverage": float(account.net_leverage),
+        "broker_positions": [
+            {
+                "symbol": p.symbol,
+                "net_quantity": float(p.net_quantity),
+                "average_price": float(p.average_price),
+                "mark_price": float(p.mark_price),
+                "unrealized_pnl": float(p.unrealized_pnl),
+            }
+            for p in account.positions.values()
+        ],
+    }
+
+
 @router.get("/portfolio/risk-status")
 def portfolio_risk_status(store: StoreDep, portfolio_id: str = "competition"):
     portfolio = _resolve_portfolio(store, portfolio_id)

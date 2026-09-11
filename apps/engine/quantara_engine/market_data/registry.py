@@ -12,6 +12,7 @@ class ProviderName(str, Enum):
     TWELVE_DATA = "twelvedata"
     ALPACA = "alpaca"
     TIINGO = "tiingo"
+    COINBASE = "coinbase"
     MOCK = "mock"
 
 
@@ -61,14 +62,16 @@ def _equity(db_symbol: str, display: str | None = None) -> AssetDefinition:
 
 
 def _crypto(db_symbol: str, canonical: str, tiingo_ticker: str) -> AssetDefinition:
+    coinbase_product = canonical.replace("/", "-")
     return AssetDefinition(
         canonical_symbol=canonical,
         db_symbol=db_symbol,
         display_symbol=canonical,
         asset_class=AssetClass.CRYPTO,
-        primary_provider=ProviderName.ALPACA,
-        secondary_provider=ProviderName.TIINGO,
+        primary_provider=ProviderName.COINBASE,
+        secondary_provider=ProviderName.ALPACA,
         provider_symbols={
+            ProviderName.COINBASE.value: coinbase_product,
             ProviderName.ALPACA.value: canonical,
             ProviderName.TIINGO.value: tiingo_ticker,
         },

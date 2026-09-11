@@ -9,6 +9,7 @@ import {
   ActiveAssetsTable,
   ProviderHealthPanel,
 } from "@/components/trading/ActiveAssetsPanel";
+import { BrokerAccountSummaryCards } from "@/components/trading/BrokerAccountSummaryCards";
 import { ExposureRiskSummaryCards } from "@/components/trading/ExposureRiskSummaryCards";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useHomeDashboardPoll } from "@/hooks/useHomeDashboardPoll";
@@ -22,6 +23,7 @@ export function HomeDashboard() {
     workers,
     competition,
     assetAnalytics,
+    brokerAccount,
     marketStatus,
     engineHealthy,
     engineConnectionError,
@@ -48,7 +50,8 @@ export function HomeDashboard() {
     combinedRealized != null && combinedUnrealized != null
       ? combinedRealized + combinedUnrealized
       : null;
-  const openPositions = competitionReady ? competition?.combined?.open_positions_total : null;
+  const strategyLegsOpen = competitionReady ? competition?.combined?.open_positions_total : null;
+  const brokerPositionCount = brokerAccount?.broker_positions?.length ?? null;
   const closedTrades = competitionReady
     ? portfolios.reduce((sum, row) => sum + row.trades_count, 0)
     : null;
@@ -114,6 +117,11 @@ export function HomeDashboard() {
             <WorkerIndicator healthy={engineStatusHealthy} />
           </CardContent>
         </Card>
+      </div>
+
+      <div className="mt-4">
+        <h2 className="mb-2 text-sm font-medium text-muted">Paper Broker Account</h2>
+        <BrokerAccountSummaryCards account={brokerAccount} loading={loading && !brokerAccount} />
       </div>
 
       <div className="mt-4">
@@ -187,10 +195,18 @@ export function HomeDashboard() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>{t("home.open_positions")}</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Strategy Legs</CardTitle></CardHeader>
           <CardContent>
-            <p className="font-mono text-2xl">{openPositions}</p>
-            <p className="mt-1 text-xs text-muted">{t("home.open_positions_hint")}</p>
+            <p className="font-mono text-2xl">{strategyLegsOpen ?? "—"}</p>
+            <p className="mt-1 text-xs text-muted">Attributed strategy positions across all robots</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>Broker Positions</CardTitle></CardHeader>
+          <CardContent>
+            <p className="font-mono text-2xl">{brokerPositionCount ?? "—"}</p>
+            <p className="mt-1 text-xs text-muted">Net physical holdings in the shared paper broker account</p>
           </CardContent>
         </Card>
 
