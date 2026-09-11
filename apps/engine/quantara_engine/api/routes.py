@@ -389,6 +389,15 @@ def analytics_assets(store: StoreDep):
     instrument_by_symbol = {
         asset.db_symbol: store.get_instrument_by_symbol(asset.db_symbol) for asset in assets
     }
+    symbol_by_instrument_id = {
+        inst.id: asset.db_symbol
+        for asset in assets
+        if (inst := instrument_by_symbol.get(asset.db_symbol))
+    }
+    exposure_summary, exposure_by_instrument = store.batch_competition_exposure_risk_summary(
+        portfolio_ids,
+        symbol_by_instrument_id=symbol_by_instrument_id,
+    )
     instrument_ids = [inst.id for inst in instrument_by_symbol.values() if inst]
     candle_bundle = dashboard_candle_bundle(store, instrument_ids)
     candle_counts = candle_bundle["counts"]
@@ -431,6 +440,12 @@ def analytics_assets(store: StoreDep):
             realized_pnl = float(metrics.get("realized_pnl", 0.0))
             unrealized_pnl = float(metrics.get("unrealized_pnl", 0.0))
 
+        risk_metrics = exposure_by_instrument.get(inst.id if inst else "", None)
+        open_exposure = float(risk_metrics.open_exposure) if risk_metrics else 0.0
+        open_risk_usd = float(risk_metrics.open_risk_usd) if risk_metrics else 0.0
+        open_risk_pct = risk_metrics.open_risk_pct if risk_metrics else 0.0
+        global_risk_cap_pct = risk_metrics.global_risk_cap_pct if risk_metrics else 2.0
+
         asset_health = (worker_raw.get("assets") or {}).get(asset.db_symbol, {})
         data_status = asset_health.get("status") or ("stale" if stale else "healthy")
         if not last_candle and asset.primary_provider.value == "twelvedata":
@@ -457,11 +472,21 @@ def analytics_assets(store: StoreDep):
                 "realized_pnl": round(realized_pnl, 2),
                 "unrealized_pnl": round(unrealized_pnl, 2),
                 "total_pnl": round(realized_pnl + unrealized_pnl, 2),
+                "open_exposure": round(open_exposure, 2),
+                "open_risk_usd": round(open_risk_usd, 2),
+                "open_risk_pct": round(open_risk_pct, 2),
+                "global_risk_cap_pct": global_risk_cap_pct,
             }
         )
 
     return {
         "assets_active": len(list_target_assets()),
+        "summary": {
+            "open_exposure": float(exposure_summary.total_open_exposure),
+            "open_risk_usd": float(exposure_summary.total_open_risk_usd),
+            "open_risk_pct": exposure_summary.open_risk_pct,
+            "total_equity": float(exposure_summary.total_equity),
+        },
         "assets": rows,
     }
 

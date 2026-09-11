@@ -761,6 +761,23 @@ class TradingStore:
             for iid, m in metrics.items()
         }
 
+    def batch_competition_exposure_risk_summary(
+        self,
+        portfolio_ids: list[str],
+        *,
+        symbol_by_instrument_id: dict[str, str],
+    ) -> tuple[Any, dict[str, Any]]:
+        from quantara_engine.persistence.batch_summary import (
+            batch_competition_exposure_risk_summary,
+        )
+
+        summary, by_instrument = batch_competition_exposure_risk_summary(
+            self,
+            portfolio_ids,
+            symbol_by_instrument_id=symbol_by_instrument_id,
+        )
+        return summary, by_instrument
+
     def list_competition_instance_ids(self) -> list[str]:
         _, _, combined = self.list_all_competition_entries()
         return [e["instance"].id for e in combined]

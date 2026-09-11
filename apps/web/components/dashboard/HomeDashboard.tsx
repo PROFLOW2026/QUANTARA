@@ -9,6 +9,7 @@ import {
   ActiveAssetsTable,
   ProviderHealthPanel,
 } from "@/components/trading/ActiveAssetsPanel";
+import { ExposureRiskSummaryCards } from "@/components/trading/ExposureRiskSummaryCards";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useHomeDashboardPoll } from "@/hooks/useHomeDashboardPoll";
 import { t } from "@/lib/i18n";
@@ -55,6 +56,7 @@ export function HomeDashboard() {
     ? (competition?.experiment?.portfolio_count ?? portfolios.length)
     : null;
   const assetRows = assetAnalytics?.assets ?? [];
+  const exposureSummary = assetAnalytics?.summary ?? null;
   const strategyRunner = workers?.workers?.find((w) => w.name === "strategy_runner");
   const freshness = workers?.strategy_freshness ?? strategyRunner?.freshness;
   const engineStatusHealthy = engineHealthy === true;
@@ -112,6 +114,10 @@ export function HomeDashboard() {
             <WorkerIndicator healthy={engineStatusHealthy} />
           </CardContent>
         </Card>
+      </div>
+
+      <div className="mt-4">
+        <ExposureRiskSummaryCards summary={exposureSummary} loading={loading && !exposureSummary} />
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

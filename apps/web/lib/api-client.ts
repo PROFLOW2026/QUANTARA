@@ -572,10 +572,22 @@ export interface AssetAnalyticsRow {
   realized_pnl: number;
   unrealized_pnl: number;
   total_pnl: number;
+  open_exposure?: number;
+  open_risk_usd?: number;
+  open_risk_pct?: number;
+  global_risk_cap_pct?: number;
+}
+
+export interface AssetAnalyticsSummary {
+  open_exposure: number;
+  open_risk_usd: number;
+  open_risk_pct: number;
+  total_equity: number;
 }
 
 export interface AssetAnalyticsResponse {
   assets_active: number;
+  summary?: AssetAnalyticsSummary;
   assets: AssetAnalyticsRow[];
 }
 

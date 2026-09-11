@@ -10,7 +10,7 @@ import {
 } from "@/lib/api-client";
 import { translateDataStatus } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
-import { formatCurrency, formatRelativeTime } from "@/lib/utils";
+import { formatCurrency, formatPercent, formatRelativeTime } from "@/lib/utils";
 
 function statusBadge(status: string, stale?: boolean) {
   const key = stale ? "stale" : status;
@@ -19,18 +19,10 @@ function statusBadge(status: string, stale?: boolean) {
       ? "success"
       : key === "deferred"
         ? "muted"
-      : key === "blocked" || key === "error"
-        ? "danger"
-        : "warning";
+        : key === "blocked" || key === "error"
+          ? "danger"
+          : "warning";
   return <Badge variant={variant}>{translateDataStatus(status, stale)}</Badge>;
-}
-
-function tfBadge(available: boolean) {
-  return (
-    <span className={available ? "text-success" : "text-muted"}>
-      {available ? "✓" : "—"}
-    </span>
-  );
 }
 
 function providerLabel(name: string) {
@@ -38,6 +30,16 @@ function providerLabel(name: string) {
   if (name === "tiingo") return "Tiingo";
   if (name === "alpaca") return "Alpaca";
   return name;
+}
+
+function formatRiskPct(asset: AssetAnalyticsRow) {
+  const pct = asset.open_risk_pct ?? 0;
+  const cap = asset.global_risk_cap_pct ?? 2;
+  return (
+    <span title={t("home.asset_risk_cap_hint", { cap: formatPercent(cap) })}>
+      {formatPercent(pct)} / {formatPercent(cap)}
+    </span>
+  );
 }
 
 function ProviderHealthCard({
@@ -72,7 +74,7 @@ function ProviderHealthCard({
         </p>
       ) : null}
       {health && health.last_error ? (
-        <p className="mt-1 text-xs text-warning truncate" title={health.last_error}>
+        <p className="mt-1 truncate text-xs text-warning" title={health.last_error}>
           {health.last_error}
         </p>
       ) : null}
@@ -134,84 +136,96 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
                 {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
               </p>
               <div className="mt-2">{statusBadge(asset.data_status, asset.stale)}</div>
-              <div className="mt-2 flex gap-4 text-xs">
-                <span>5m {tfBadge(asset.timeframes_available["5m"])}</span>
-                <span>15m {tfBadge(asset.timeframes_available["15m"])}</span>
-                <span>1h {tfBadge(asset.timeframes_available["1h"])}</span>
-              </div>
               <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                <p>{t("home.open_positions")}: {asset.open_positions}</p>
-                <p>{t("home.closed_trades")}: {asset.closed_trades}</p>
-                <p>{t("home.realized_pnl")}: <PnLDisplay value={asset.realized_pnl} size="sm" /></p>
-                <p>{t("home.unrealized_pnl")}: <PnLDisplay value={asset.unrealized_pnl} size="sm" /></p>
-                <p className="col-span-2">{t("home.total_pnl")}: <PnLDisplay value={asset.total_pnl} size="sm" /></p>
+                <p>
+                  {t("home.open_positions")}: {asset.open_positions}
+                </p>
+                <p>
+                  {t("home.closed_trades")}: {asset.closed_trades}
+                </p>
+                <p>
+                  {t("home.realized_pnl")}: <PnLDisplay value={asset.realized_pnl} size="sm" />
+                </p>
+                <p>
+                  {t("home.unrealized_pnl")}: <PnLDisplay value={asset.unrealized_pnl} size="sm" />
+                </p>
+                <p className="col-span-2">
+                  {t("home.total_pnl")}: <PnLDisplay value={asset.total_pnl} size="sm" />
+                </p>
+                <p>
+                  {t("home.asset_exposure_short")}: {formatCurrency(asset.open_exposure ?? 0)}
+                </p>
+                <p>
+                  {t("home.asset_risk_short")}: {formatCurrency(asset.open_risk_usd ?? 0)}
+                </p>
+                <p className="col-span-2">
+                  {t("home.asset_risk_pct_short")}: {formatRiskPct(asset)}
+                </p>
               </div>
             </div>
           ))}
         </div>
-        <table className="hidden w-full table-fixed text-sm md:table">
+        <table className="hidden w-full table-fixed text-xs md:table">
           <colgroup>
-            <col className="w-[7%]" />
+            <col className="w-[8%]" />
             <col className="w-[8%]" />
             <col className="w-[8%]" />
             <col className="w-[9%]" />
             <col className="w-[7%]" />
-            <col className="w-[4%]" />
-            <col className="w-[4%]" />
-            <col className="w-[4%]" />
-            <col className="w-[7%]" />
-            <col className="w-[7%]" />
-            <col className="w-[11%]" />
-            <col className="w-[11%]" />
-            <col className="w-[11%]" />
+            <col className="w-[6%]" />
+            <col className="w-[6%]" />
+            <col className="w-[9%]" />
+            <col className="w-[9%]" />
+            <col className="w-[9%]" />
+            <col className="w-[9%]" />
+            <col className="w-[6%]" />
+            <col className="w-[6%]" />
           </colgroup>
           <thead>
             <tr className="border-b border-border text-muted">
-              <th className="py-2 pe-2 text-right">{t("home.asset_symbol")}</th>
-              <th className="py-2 px-1 text-right">{t("home.asset_provider")}</th>
-              <th className="py-2 px-1 text-right">{t("home.asset_price")}</th>
-              <th className="py-2 px-1 text-right">{t("home.asset_freshness")}</th>
-              <th className="py-2 px-1 text-right">{t("home.asset_session")}</th>
-              <th className="py-2 px-1 text-center">5m</th>
-              <th className="py-2 px-1 text-center">15m</th>
-              <th className="py-2 px-1 text-center">1h</th>
-              <th className="py-2 ps-3 pe-2 text-right">{t("home.open_positions")}</th>
-              <th className="py-2 px-2 text-right">{t("home.closed_trades")}</th>
-              <th className="py-2 px-2 text-right">{t("home.realized_pnl")}</th>
-              <th className="py-2 px-2 text-right">{t("home.unrealized_pnl")}</th>
-              <th className="py-2 ps-2 text-right">{t("home.total_pnl")}</th>
+              <th className="py-2 pe-1 text-right">{t("home.asset_symbol")}</th>
+              <th className="px-1 py-2 text-right">{t("home.asset_provider")}</th>
+              <th className="px-1 py-2 text-right">{t("home.asset_price")}</th>
+              <th className="px-1 py-2 text-right">{t("home.asset_freshness")}</th>
+              <th className="px-1 py-2 text-right">{t("home.asset_session")}</th>
+              <th className="px-1 py-2 text-right">{t("home.open_positions")}</th>
+              <th className="px-1 py-2 text-right">{t("home.closed_trades")}</th>
+              <th className="px-1 py-2 text-right">{t("home.realized_pnl")}</th>
+              <th className="px-1 py-2 text-right">{t("home.unrealized_pnl")}</th>
+              <th className="px-1 py-2 text-right">{t("home.total_pnl")}</th>
+              <th className="px-1 py-2 text-right">{t("home.asset_exposure_short")}</th>
+              <th className="px-1 py-2 text-right">{t("home.asset_risk_short")}</th>
+              <th className="ps-1 py-2 text-right">{t("home.asset_risk_pct_short")}</th>
             </tr>
           </thead>
           <tbody>
             {assets.map((asset) => (
               <tr key={asset.db_symbol} className="border-b border-border/50">
-                <td className="py-2 pe-2 font-medium truncate">{asset.symbol}</td>
-                <td className="py-2 px-1 truncate">{providerLabel(asset.provider)}</td>
-                <td className="py-2 px-1 font-mono truncate">
+                <td className="truncate py-2 pe-1 font-medium">{asset.symbol}</td>
+                <td className="truncate px-1 py-2">{providerLabel(asset.provider)}</td>
+                <td className="truncate px-1 py-2 font-mono">
                   {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
                 </td>
-                <td className="py-2 px-1">{statusBadge(asset.data_status, asset.stale)}</td>
-                <td className="py-2 px-1 truncate">{t(`home.session_${asset.session_status}`)}</td>
-                <td className="py-2 px-1 text-center">
-                  {tfBadge(asset.timeframes_available["5m"])}
-                </td>
-                <td className="py-2 px-1 text-center">
-                  {tfBadge(asset.timeframes_available["15m"])}
-                </td>
-                <td className="py-2 px-1 text-center">
-                  {tfBadge(asset.timeframes_available["1h"])}
-                </td>
-                <td className="py-2 ps-3 pe-2 text-right">{asset.open_positions}</td>
-                <td className="py-2 px-2 text-right">{asset.closed_trades}</td>
-                <td className="py-2 px-2 text-right">
+                <td className="px-1 py-2">{statusBadge(asset.data_status, asset.stale)}</td>
+                <td className="truncate px-1 py-2">{t(`home.session_${asset.session_status}`)}</td>
+                <td className="px-1 py-2 text-right">{asset.open_positions}</td>
+                <td className="px-1 py-2 text-right">{asset.closed_trades}</td>
+                <td className="px-1 py-2 text-right">
                   <PnLDisplay value={asset.realized_pnl} size="sm" />
                 </td>
-                <td className="py-2 px-2 text-right">
+                <td className="px-1 py-2 text-right">
                   <PnLDisplay value={asset.unrealized_pnl} size="sm" />
                 </td>
-                <td className="py-2 ps-2 text-right">
+                <td className="px-1 py-2 text-right">
                   <PnLDisplay value={asset.total_pnl} size="sm" />
                 </td>
+                <td className="truncate px-1 py-2 text-right font-mono">
+                  {formatCurrency(asset.open_exposure ?? 0)}
+                </td>
+                <td className="truncate px-1 py-2 text-right font-mono">
+                  {formatCurrency(asset.open_risk_usd ?? 0)}
+                </td>
+                <td className="truncate ps-1 py-2 text-right font-mono">{formatRiskPct(asset)}</td>
               </tr>
             ))}
           </tbody>

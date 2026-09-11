@@ -10,12 +10,17 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import func, select
 
 from quantara_engine.domain.types import Direction, Position
+from quantara_engine.models.enums import FillSide as OrmFillSide
 from quantara_engine.models.enums import PositionStatus as OrmPositionStatus
 from quantara_engine.models.instruments import Candle as OrmCandle
 from quantara_engine.models.instruments import Instrument as OrmInstrument
 from quantara_engine.models.portfolio import PortfolioSnapshot as OrmPortfolioSnapshot
+from quantara_engine.models.trading import Fill as OrmFill
+from quantara_engine.models.trading import Order as OrmOrder
+from quantara_engine.models.trading import OrderIntent as OrmOrderIntent
 from quantara_engine.models.trading import Position as OrmPosition
 from quantara_engine.models.trading import Trade as OrmTrade
+from quantara_engine.models.portfolio import Portfolio as OrmPortfolio
 
 if TYPE_CHECKING:
     from quantara_engine.persistence.store import TradingStore
@@ -38,6 +43,23 @@ class AssetBatchMetrics:
     closed_trades: int = 0
     realized_pnl: Decimal = Decimal("0")
     unrealized_pnl: Decimal = Decimal("0")
+
+
+@dataclass(frozen=True)
+class CompetitionExposureRiskSummary:
+    total_open_exposure: Decimal
+    total_open_risk_usd: Decimal
+    total_equity: Decimal
+    open_risk_pct: float
+
+
+@dataclass(frozen=True)
+class AssetExposureRiskMetrics:
+    open_exposure: Decimal
+    open_risk_usd: Decimal
+    asset_allocated_equity: Decimal
+    open_risk_pct: float
+    global_risk_cap_pct: float
 
 
 def batch_trade_metrics(store: TradingStore, portfolio_ids: list[str]) -> dict[str, TradeBatchMetrics]:
@@ -89,6 +111,145 @@ def batch_open_positions_by_portfolio(
     for pos in positions:
         grouped.setdefault(pos.portfolio_id, []).append(pos)
     return grouped
+
+
+def batch_entry_actual_risk_by_position(
+    store: TradingStore, position_ids: list[str]
+) -> dict[str, Decimal]:
+    """First entry-fill actual_risk_amount per open position — single query."""
+    if not position_ids:
+        return {}
+    pids = _uuids(position_ids)
+    rows = store.session.execute(
+        select(OrmFill.position_id, OrmOrderIntent.actual_risk_amount, OrmFill.filled_at)
+        .join(OrmOrder, OrmOrder.id == OrmFill.order_id)
+        .join(OrmOrderIntent, OrmOrderIntent.id == OrmOrder.intent_id)
+        .where(
+            OrmFill.position_id.in_(pids),
+            OrmFill.side == OrmFillSide.ENTRY,
+        )
+        .order_by(OrmFill.position_id, OrmFill.filled_at)
+    ).all()
+    out: dict[str, Decimal] = {}
+    for position_id, actual_risk, _filled_at in rows:
+        pid = str(position_id)
+        if pid not in out:
+            out[pid] = Decimal(str(actual_risk or 0))
+    return out
+
+
+def batch_portfolio_equity(
+    store: TradingStore, portfolio_ids: list[str]
+) -> dict[str, Decimal]:
+    if not portfolio_ids:
+        return {}
+    rows = store.session.execute(
+        select(OrmPortfolio.id, OrmPortfolio.equity).where(
+            OrmPortfolio.id.in_(_uuids(portfolio_ids))
+        )
+    ).all()
+    return {str(portfolio_id): Decimal(str(equity or 0)) for portfolio_id, equity in rows}
+
+
+def batch_competition_exposure_risk_summary(
+    store: TradingStore,
+    portfolio_ids: list[str],
+    *,
+    symbol_by_instrument_id: dict[str, str],
+) -> tuple[CompetitionExposureRiskSummary, dict[str, AssetExposureRiskMetrics]]:
+    """Batched open exposure + canonical SL risk for competition dashboards."""
+    from quantara_engine.competition.asset_equity import (
+        nominal_asset_allocated_equity,
+        portfolio_ids_for_symbol,
+    )
+    from quantara_engine.market_data.active_universe import ACTIVE_DB_SYMBOLS
+    from quantara_engine.risk.open_risk_guard import DEFAULT_OPEN_RISK_LIMITS
+
+    cap_pct = float(DEFAULT_OPEN_RISK_LIMITS.max_global_asset_open_risk_pct or 0)
+    empty_summary = CompetitionExposureRiskSummary(
+        total_open_exposure=Decimal("0"),
+        total_open_risk_usd=Decimal("0"),
+        total_equity=Decimal("0"),
+        open_risk_pct=0.0,
+    )
+    if not portfolio_ids:
+        return empty_summary, {}
+
+    equity_by_portfolio = batch_portfolio_equity(store, portfolio_ids)
+    asset_allocated_equity: dict[str, Decimal] = {}
+    for db_symbol in ACTIVE_DB_SYMBOLS:
+        allocated_ids = portfolio_ids_for_symbol(db_symbol)
+        total = sum(equity_by_portfolio.get(pid, Decimal("0")) for pid in allocated_ids)
+        asset_allocated_equity[db_symbol.upper()] = (
+            total if total > 0 else nominal_asset_allocated_equity(db_symbol)
+        )
+
+    total_equity = sum(equity_by_portfolio.values(), Decimal("0"))
+    if total_equity <= 0:
+        total_equity = sum(asset_allocated_equity.values(), Decimal("0"))
+
+    open_rows = store.session.execute(
+        select(
+            OrmPosition.id,
+            OrmPosition.instrument_id,
+            OrmPosition.quantity,
+            OrmPosition.current_price,
+        ).where(
+            OrmPosition.portfolio_id.in_(_uuids(portfolio_ids)),
+            OrmPosition.status == OrmPositionStatus.OPEN,
+        )
+    ).all()
+    if not open_rows:
+        summary = CompetitionExposureRiskSummary(
+            total_open_exposure=Decimal("0"),
+            total_open_risk_usd=Decimal("0"),
+            total_equity=total_equity,
+            open_risk_pct=0.0,
+        )
+        return summary, {}
+
+    position_ids = [str(row[0]) for row in open_rows]
+    risk_by_position = batch_entry_actual_risk_by_position(store, position_ids)
+
+    exposure_by_instrument: dict[str, Decimal] = {}
+    risk_by_instrument: dict[str, Decimal] = {}
+    for position_id, instrument_id, quantity, current_price in open_rows:
+        iid = str(instrument_id)
+        notional = Decimal(str(quantity or 0)) * Decimal(str(current_price or 0))
+        exposure_by_instrument[iid] = exposure_by_instrument.get(iid, Decimal("0")) + notional
+        pid = str(position_id)
+        risk_by_instrument[iid] = risk_by_instrument.get(iid, Decimal("0")) + risk_by_position.get(
+            pid, Decimal("0")
+        )
+
+    total_open_exposure = sum(exposure_by_instrument.values(), Decimal("0")).quantize(Decimal("0.01"))
+    total_open_risk_usd = sum(risk_by_instrument.values(), Decimal("0")).quantize(Decimal("0.01"))
+    open_risk_pct = (
+        float(total_open_risk_usd / total_equity * Decimal("100"))
+        if total_equity > 0
+        else 0.0
+    )
+    summary = CompetitionExposureRiskSummary(
+        total_open_exposure=total_open_exposure,
+        total_open_risk_usd=total_open_risk_usd,
+        total_equity=total_equity,
+        open_risk_pct=round(open_risk_pct, 2),
+    )
+
+    by_instrument: dict[str, AssetExposureRiskMetrics] = {}
+    for iid, exposure in exposure_by_instrument.items():
+        db_symbol = symbol_by_instrument_id.get(iid, "").upper()
+        allocated = asset_allocated_equity.get(db_symbol, Decimal("0"))
+        risk_usd = risk_by_instrument.get(iid, Decimal("0")).quantize(Decimal("0.01"))
+        risk_pct = float(risk_usd / allocated * Decimal("100")) if allocated > 0 else 0.0
+        by_instrument[iid] = AssetExposureRiskMetrics(
+            open_exposure=exposure.quantize(Decimal("0.01")),
+            open_risk_usd=risk_usd,
+            asset_allocated_equity=allocated,
+            open_risk_pct=round(risk_pct, 2),
+            global_risk_cap_pct=cap_pct,
+        )
+    return summary, by_instrument
 
 
 def batch_asset_metrics(

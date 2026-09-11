@@ -33,6 +33,19 @@ def test_analytics_assets_combines_robot_a_and_b(
             "total_pnl": 150.0,
         }
     }
+    from decimal import Decimal
+
+    from quantara_engine.persistence.batch_summary import CompetitionExposureRiskSummary
+
+    store.batch_competition_exposure_risk_summary.return_value = (
+        CompetitionExposureRiskSummary(
+            total_open_exposure=Decimal("0"),
+            total_open_risk_usd=Decimal("0"),
+            total_equity=Decimal("320000"),
+            open_risk_pct=0.0,
+        ),
+        {},
+    )
 
     store.get_instrument_by_symbol.side_effect = lambda sym: MagicMock(id=f"inst-{sym.lower()}")
     mock_candle_counts.return_value = {"inst-nvda": {"5m": 200, "15m": 200, "1h": 200}}
