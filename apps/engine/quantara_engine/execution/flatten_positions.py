@@ -143,9 +143,21 @@ def process_flatten_cycle(
                 awaiting.add(instrument.symbol)
                 continue
 
-            trade = state.close_position(
-                open_pos, fill, ExitReason.MANUAL, candle.timestamp, _context_for(instrument)
-            )
+            if broker_res is not None and broker_res.shadow_only:
+                from quantara_engine.broker.lifecycle import close_shadow_position
+
+                trade = close_shadow_position(
+                    state,
+                    open_pos,
+                    exit_reason=ExitReason.MANUAL,
+                    closed_at=candle.timestamp,
+                    currency=_context_for(instrument),
+                    exit_price=candle.open,
+                )
+            else:
+                trade = state.close_position(
+                    open_pos, fill, ExitReason.MANUAL, candle.timestamp, _context_for(instrument)
+                )
             decision = DecisionLogEntry(
                 id=new_id(),
                 strategy_instance_id=instance.id,

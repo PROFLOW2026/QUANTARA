@@ -6,6 +6,13 @@ import uuid
 from dataclasses import dataclass
 from decimal import Decimal
 
+
+@dataclass(frozen=True)
+class AllocationResult:
+    attributed_realized: Decimal
+    physical_opened_qty: Decimal
+    physical_closed_qty: Decimal
+
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -131,7 +138,7 @@ def allocate_fill_to_strategy_legs(
     closed_quantity: Decimal,
     fx_rates: dict[str, Decimal],
     opportunity_key: str | None = None,
-) -> Decimal:
+) -> AllocationResult:
     """
     Decompose fill into closed + opened portions with FIFO attribution.
 
@@ -209,7 +216,11 @@ def allocate_fill_to_strategy_legs(
                 f"duplicate attribution entry for fill {broker_fill_id}"
             ) from exc
 
-    return attributed_realized
+    return AllocationResult(
+        attributed_realized=attributed_realized,
+        physical_opened_qty=opened_qty,
+        physical_closed_qty=closed_qty,
+    )
 
 
 def link_strategy_position_to_fill(

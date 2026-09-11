@@ -253,6 +253,9 @@ class Position:
     target_risk_amount: Decimal = Decimal("0")
     actual_risk_amount: Decimal = Decimal("0")
     strategy_version_id: str = ""
+    # Shadow vs physical: shadow_quantity = strategy experiment qty; physical_attributed_qty = broker FIFO lot
+    shadow_quantity: Decimal | None = None
+    physical_attributed_qty: Decimal | None = None
 
 
 @dataclass

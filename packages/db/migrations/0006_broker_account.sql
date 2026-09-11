@@ -38,6 +38,8 @@ CREATE TABLE broker_accounts (
   balance NUMERIC(18, 2) NOT NULL DEFAULT 0,
   equity NUMERIC(18, 2) NOT NULL DEFAULT 0,
   realized_pnl NUMERIC(18, 2) NOT NULL DEFAULT 0,
+  gross_realized_pnl NUMERIC(18, 2) NOT NULL DEFAULT 0,
+  fees_paid NUMERIC(18, 2) NOT NULL DEFAULT 0,
   unrealized_pnl NUMERIC(18, 2) NOT NULL DEFAULT 0,
   gross_exposure NUMERIC(18, 2) NOT NULL DEFAULT 0,
   net_exposure NUMERIC(18, 2) NOT NULL DEFAULT 0,

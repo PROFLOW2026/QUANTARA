@@ -17,13 +17,27 @@ export function BrokerAccountSummaryCards({
     loading ? "…" : n != null ? `${n.toFixed(2)}×` : "—";
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
       <Card>
         <CardHeader>
           <CardTitle>Broker Equity</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="font-mono text-2xl">{v(account?.equity)}</p>
+          <p className="text-muted mt-1 text-xs">Balance {v(account?.balance)}</p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Net Realized P&L</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="font-mono text-2xl">{v(account?.net_realized_pnl ?? account?.realized_pnl)}</p>
+          {account?.gross_realized_pnl != null && account?.fees_paid != null && (
+            <p className="text-muted mt-1 text-xs">
+              Gross {v(account.gross_realized_pnl)} · Fees {v(account.fees_paid)}
+            </p>
+          )}
         </CardContent>
       </Card>
       <Card>

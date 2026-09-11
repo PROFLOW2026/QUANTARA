@@ -491,6 +491,18 @@ class CandleProcessor:
             },
         )
         self._broker_last_fill_id = result.broker_fill_id
+        self._last_broker_result = result
+        if result.shadow_only:
+            self._log(
+                candle,
+                DecisionType.RISK_APPROVED,
+                "BROKER_SHADOW_CLOSE: zero physical attribution — virtual strategy close only",
+                metadata={
+                    "layer": "broker_execution",
+                    "broker_decision": "shadow_close",
+                    "strategy_position_id": strategy_position_id,
+                },
+            )
         return True, order, fill
 
     def _execute_pending(self, candle: Candle) -> None:
@@ -567,7 +579,8 @@ class CandleProcessor:
                         idempotency_key=f"intent:{intent.id}",
                         strategy_position_id=position.id,
                     )
-                    if not accepted or fill is None:
+                    broker_result = getattr(self, "_last_broker_result", None)
+                    if not accepted or (fill is None and not (broker_result and broker_result.shadow_only)):
                         intent.status = IntentStatus.REJECTED
                         if self.store:
                             self.store.update_order_intent_status(
@@ -575,13 +588,24 @@ class CandleProcessor:
                             )
                             self._flush_store()
                         continue
-                    trade = self.state.close_position(
-                        position,
-                        fill,
-                        ExitReason.STRATEGY,
-                        candle.timestamp,
-                        self._currency_context(),
-                    )
+                    if broker_result and broker_result.shadow_only:
+                        from quantara_engine.broker.lifecycle import close_shadow_position
+
+                        trade = close_shadow_position(
+                            self.state,
+                            position,
+                            exit_reason=ExitReason.STRATEGY,
+                            closed_at=candle.timestamp,
+                            currency=self._currency_context(),
+                        )
+                    else:
+                        trade = self.state.close_position(
+                            position,
+                            fill,
+                            ExitReason.STRATEGY,
+                            candle.timestamp,
+                            self._currency_context(),
+                        )
                     intent.status = IntentStatus.EXECUTED
                     self._persist_execution(intent, order, fill, "exit", candle, position, trade)
             else:
@@ -598,14 +622,34 @@ class CandleProcessor:
                         )
                         self._flush_store()
                     continue
-                position = self.state.open_position_from_fill(
-                    intent,
-                    fill,
-                    order,
-                    self.instance.strategy_version_id,
-                    self.instrument.id,
-                    candle.timestamp,
+                broker_result = getattr(self, "_last_broker_result", None)
+                physical_opened = (
+                    broker_result.physical_opened_qty
+                    if broker_result is not None
+                    else intent.quantity
                 )
+                if broker_result is not None:
+                    from quantara_engine.broker.lifecycle import open_strategy_leg_from_broker_fill
+
+                    position = open_strategy_leg_from_broker_fill(
+                        self.state,
+                        intent=intent,
+                        fill=fill,
+                        order=order,
+                        strategy_version_id=self.instance.strategy_version_id,
+                        instrument_id=self.instrument.id,
+                        filled_at=candle.timestamp,
+                        physical_opened_qty=physical_opened,
+                    )
+                else:
+                    position = self.state.open_position_from_fill(
+                        intent,
+                        fill,
+                        order,
+                        self.instance.strategy_version_id,
+                        self.instrument.id,
+                        candle.timestamp,
+                    )
                 if self.store and getattr(self, "_broker_last_fill_id", None):
                     link_strategy_position_to_fill(
                         self.store,
@@ -614,6 +658,17 @@ class CandleProcessor:
                     )
                 intent.status = IntentStatus.EXECUTED
                 self._persist_execution(intent, order, fill, "entry", candle, position)
+            if self.store:
+                from quantara_engine.broker.lifecycle import reconcile_consumed_shadow_legs
+
+                reconcile_consumed_shadow_legs(
+                    self.store,
+                    self.state,
+                    symbol=self.instrument.symbol,
+                    instrument_id=self.instrument.id,
+                    closed_at=candle.timestamp,
+                    currency=self._currency_context(),
+                )
         self.pending_intents = [
             i for i in self.pending_intents if i.status == IntentStatus.PENDING_EXECUTION
         ]
@@ -669,12 +724,36 @@ class CandleProcessor:
                 order_override=order,
                 order_purpose="sl" if reason == ExitReason.SL else "tp",
             )
-            if not accepted or fill is None:
+            broker_result = getattr(self, "_last_broker_result", None)
+            if not accepted or (fill is None and not (broker_result and broker_result.shadow_only)):
                 continue
-            trade = self.state.close_position(
-                position, fill, reason, candle.timestamp, self._currency_context()
-            )
+            if broker_result and broker_result.shadow_only:
+                from quantara_engine.broker.lifecycle import close_shadow_position
+
+                trade = close_shadow_position(
+                    self.state,
+                    position,
+                    exit_reason=reason,
+                    closed_at=candle.timestamp,
+                    currency=self._currency_context(),
+                    exit_price=trigger_price,
+                )
+            else:
+                trade = self.state.close_position(
+                    position, fill, reason, candle.timestamp, self._currency_context()
+                )
             self._persist_execution(None, order, fill, "exit", candle, position, trade)
+            if self.store:
+                from quantara_engine.broker.lifecycle import reconcile_consumed_shadow_legs
+
+                reconcile_consumed_shadow_legs(
+                    self.store,
+                    self.state,
+                    symbol=self.instrument.symbol,
+                    instrument_id=self.instrument.id,
+                    closed_at=candle.timestamp,
+                    currency=self._currency_context(),
+                )
             if reason == ExitReason.SL:
                 self._log(candle, DecisionType.SL_TRIGGERED, f"SL hit at {trigger_price}")
             else:

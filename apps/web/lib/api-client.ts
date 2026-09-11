@@ -818,6 +818,9 @@ export interface BrokerAccountSummary {
   balance: number;
   equity: number;
   realized_pnl: number;
+  gross_realized_pnl?: number;
+  fees_paid?: number;
+  net_realized_pnl?: number;
   unrealized_pnl: number;
   available_margin: number;
   spot_crypto_cash?: number;

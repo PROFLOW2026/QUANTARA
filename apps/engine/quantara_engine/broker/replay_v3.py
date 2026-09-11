@@ -54,24 +54,40 @@ class ReplayV3State:
     balance: Decimal = Decimal("320000")
     cash: Decimal = Decimal("320000")
     spot_crypto_cash: Decimal = Decimal("320000")
-    realized_total: Decimal = Decimal("0")
+    gross_realized: Decimal = Decimal("0")
     fees_paid: Decimal = Decimal("0")
+    net_realized: Decimal = Decimal("0")
     attributed_realized: Decimal = Decimal("0")
     fill_attributed_total: Decimal = Decimal("0")
     lots: dict[str, deque[ReplayLot]] = field(default_factory=dict)
     accepted_entries: set[str] = field(default_factory=set)
+    max_gross_leverage: Decimal = Decimal("0")
+    max_margin_used: Decimal = Decimal("0")
+    historical_entries: int = 0
+    broker_accepted_entries: int = 0
+    broker_rejected_entries: int = 0
+    historical_exits: int = 0
+    valid_physical_exits: int = 0
 
 
 def _snapshot(state: ReplayV3State):
     return build_account_snapshot(
         cash=state.cash,
         balance=state.balance,
-        realized_pnl=state.realized_total,
+        realized_pnl=state.net_realized,
         positions=state.positions,
         fx_rates=state.fx_rates,
         profile=state.profile,
         spot_crypto_cash=state.spot_crypto_cash,
     )
+
+
+def _track_margin_peaks(state: ReplayV3State) -> None:
+    snap = _snapshot(state)
+    if snap.gross_leverage > state.max_gross_leverage:
+        state.max_gross_leverage = snap.gross_leverage
+    if snap.initial_margin_used > state.max_margin_used:
+        state.max_margin_used = snap.initial_margin_used
 
 
 def _attributed_remaining(state: ReplayV3State, symbol: str, portfolio_id: str) -> Decimal:
@@ -120,6 +136,8 @@ def _open_lot(
     quantity: Decimal,
     fill_price: Decimal,
 ) -> None:
+    if quantity <= 0:
+        return
     state.lots.setdefault(symbol, deque()).append(
         ReplayLot(
             portfolio_id=portfolio_id,
@@ -171,9 +189,12 @@ def _execute_fill(state: ReplayV3State, event: ReplayV3Event, *, is_close: bool)
         fx_rates=state.fx_rates,
     )
     fees = event.fees.quantize(Decimal("0.0001"))
-    state.balance += netting.realized_pnl - fees
-    state.realized_total += netting.realized_pnl
+    gross_pnl = netting.realized_pnl
+    net_pnl = gross_pnl - fees
+    state.balance += net_pnl
+    state.gross_realized += gross_pnl
     state.fees_paid += fees
+    state.net_realized += net_pnl
     _apply_crypto_cash(
         state,
         symbol=event.symbol,
@@ -186,7 +207,6 @@ def _execute_fill(state: ReplayV3State, event: ReplayV3Event, *, is_close: bool)
 
     closed_qty = netting.closed_quantity
     opened_qty = max(Decimal("0"), event.quantity - closed_qty)
-    fill_attributed = Decimal("0")
     if closed_qty > 0:
         fill_attributed = _fifo_close(
             state,
@@ -213,6 +233,7 @@ def _execute_fill(state: ReplayV3State, event: ReplayV3Event, *, is_close: bool)
             state.lots.pop(event.symbol, None)
     else:
         state.positions[event.symbol] = (netting.new_net_qty, netting.new_avg_price, event.price)
+    _track_margin_peaks(state)
 
 
 def replay_v3(events: list[ReplayV3Event], *, starting_cash: Decimal | None = None) -> dict:
@@ -231,10 +252,15 @@ def replay_v3(events: list[ReplayV3Event], *, starting_cash: Decimal | None = No
             if event.symbol in state.positions:
                 qty, avg, _ = state.positions[event.symbol]
                 state.positions[event.symbol] = (qty, avg, event.price)
+            _track_margin_peaks(state)
             continue
 
+        if event.kind == "entry":
+            state.historical_entries += 1
+        elif event.kind == "exit":
+            state.historical_exits += 1
+
         if event.kind == "exit":
-            physical_qty = abs(state.positions.get(event.symbol, (Decimal("0"), Decimal("0"), Decimal("0")))[0])
             if event.strategy_position_id:
                 cap_qty = sum(
                     (
@@ -247,7 +273,7 @@ def replay_v3(events: list[ReplayV3Event], *, starting_cash: Decimal | None = No
             else:
                 cap_qty = min(
                     event.quantity,
-                    _attributed_remaining(state, event.symbol, event.portfolio_id) or physical_qty,
+                    _attributed_remaining(state, event.symbol, event.portfolio_id),
                 )
             if cap_qty <= 0:
                 orphan_exits += 1
@@ -267,6 +293,7 @@ def replay_v3(events: list[ReplayV3Event], *, starting_cash: Decimal | None = No
                     market_open=event.market_open,
                     timestamp=event.timestamp,
                 )
+            state.valid_physical_exits += 1
 
         snap = _snapshot(state)
         is_close = event.kind == "exit"
@@ -283,10 +310,14 @@ def replay_v3(events: list[ReplayV3Event], *, starting_cash: Decimal | None = No
         decision = evaluate_broker_order(snap, profile, req, state.fx_rates)
         if not decision.accepted:
             rejected += 1
+            if event.kind == "entry":
+                state.broker_rejected_entries += 1
             continue
         accepted += 1
-        if event.kind == "entry" and event.strategy_position_id:
-            state.accepted_entries.add(event.strategy_position_id)
+        if event.kind == "entry":
+            state.broker_accepted_entries += 1
+            if event.strategy_position_id:
+                state.accepted_entries.add(event.strategy_position_id)
         _execute_fill(state, event, is_close=is_close)
 
     final = _snapshot(state)
@@ -295,28 +326,68 @@ def replay_v3(events: list[ReplayV3Event], *, starting_cash: Decimal | None = No
         Decimal("0"),
     )
     broker_qty = sum((abs(qty) for qty, _, _ in state.positions.values()), Decimal("0"))
-    expected_balance = start + state.realized_total - state.fees_paid
+    expected_balance = start + state.net_realized
+    margin_reconciliation = (final.equity - final.balance - final.unrealized_pnl).quantize(Decimal("0.01"))
 
     return {
         "events_total": len(events),
         "accepted": accepted,
         "rejected": rejected,
         "orphan_exits": orphan_exits,
+        "historical_entries": state.historical_entries,
+        "broker_accepted_entries": state.broker_accepted_entries,
+        "broker_rejected_entries": state.broker_rejected_entries,
+        "historical_exits": state.historical_exits,
+        "valid_physical_exits": state.valid_physical_exits,
         "starting_cash": float(start),
         "ending_balance": float(state.balance),
         "ending_equity": float(final.equity),
-        "realized_pnl": float(state.realized_total),
+        "gross_realized_pnl": float(state.gross_realized),
+        "net_realized_pnl": float(state.net_realized),
+        "realized_pnl": float(state.net_realized),
         "fees_paid": float(state.fees_paid),
         "attributed_realized": float(state.attributed_realized),
         "open_positions": len(state.positions),
+        "gross_exposure": float(final.gross_exposure),
+        "net_exposure": float(final.net_exposure),
+        "max_gross_leverage": float(state.max_gross_leverage),
+        "max_margin_used": float(state.max_margin_used),
         "financial_reconciliation": float((state.balance - expected_balance).quantize(Decimal("0.01"))),
-        "margin_reconciliation": 0.0,
+        "margin_reconciliation": float(margin_reconciliation),
         "attribution_reconciliation": float(
             (state.fill_attributed_total - state.attributed_realized).quantize(Decimal("0.01"))
         ),
         "physical_quantity_difference": float((open_lot_qty - broker_qty).quantize(Decimal("0.00000001"))),
         "account_state": final.account_state.value,
     }
+
+
+def _resolve_fx_rates(store: TradingStore) -> dict[str, Decimal]:
+    from quantara_engine.portfolio.currency import resolve_dashboard_fx_rates
+
+    try:
+        fx = resolve_dashboard_fx_rates(store, {"USD", "JPY"})
+        rates = dict(_DEFAULT_FX)
+        rates.update({k: v for k, v in fx.quote_per_usd.items()})
+        return rates
+    except Exception:
+        return dict(_DEFAULT_FX)
+
+
+def _market_open_for_row(store: TradingStore, symbol: str, asset_class: str, at: datetime) -> bool:
+    from quantara_engine.broker.market_gate import market_open_for_instrument
+    from quantara_engine.domain.types import Instrument
+
+    try:
+        instrument = store.get_instrument_by_symbol(symbol) or Instrument(
+            id="replay",
+            symbol=symbol,
+            name=symbol,
+            asset_class=asset_class,
+        )
+        return market_open_for_instrument(instrument, at)
+    except Exception:
+        return True
 
 
 def replay_historical_day(
@@ -328,6 +399,8 @@ def replay_historical_day(
 ) -> dict:
     """Read-only chronological replay from strategy positions/trades for one day."""
     from sqlalchemy import text
+
+    fx_rates = _resolve_fx_rates(store)
 
     entries = store.session.execute(
         text(
@@ -348,7 +421,7 @@ def replay_historical_day(
     exits = store.session.execute(
         text(
             """
-            SELECT t.quantity, t.exit_price, t.closed_at, t.realized_pnl,
+            SELECT t.quantity, t.exit_price, t.closed_at, t.realized_pnl, t.fees_total,
                    p.id::text AS position_id, p.direction, p.portfolio_id::text AS portfolio_id,
                    i.symbol, i.asset_class::text AS asset_class
             FROM trades t
@@ -365,6 +438,7 @@ def replay_historical_day(
     events: list[ReplayV3Event] = []
     for e in entries:
         direction = "long" if str(e["direction"]).lower() == "long" else "short"
+        ts = e["opened_at"]
         events.append(
             ReplayV3Event(
                 kind="entry",
@@ -375,12 +449,14 @@ def replay_historical_day(
                 price=Decimal(str(e["entry_price"])),
                 portfolio_id=str(e["portfolio_id"]),
                 strategy_position_id=str(e["position_id"]),
-                timestamp=e["opened_at"],
+                timestamp=ts,
+                market_open=_market_open_for_row(store, str(e["symbol"]), str(e["asset_class"]), ts),
             )
         )
     for x in exits:
         pos_dir = str(x["direction"]).lower()
         direction = "short" if pos_dir == "long" else "long"
+        ts = x["closed_at"]
         events.append(
             ReplayV3Event(
                 kind="exit",
@@ -391,16 +467,28 @@ def replay_historical_day(
                 price=Decimal(str(x["exit_price"])),
                 portfolio_id=str(x["portfolio_id"]),
                 strategy_position_id=str(x["position_id"]),
-                timestamp=x["closed_at"],
+                fees=Decimal(str(x.get("fees_total") or "0")),
+                timestamp=ts,
+                market_open=_market_open_for_row(store, str(x["symbol"]), str(x["asset_class"]), ts),
             )
         )
     events.sort(key=lambda ev: ev.timestamp or datetime.min)
 
+    profile = QUANTARA_STANDARD_PAPER
+    start = starting_cash if starting_cash is not None else profile.starting_cash
+    state = ReplayV3State(
+        profile=profile,
+        fx_rates=fx_rates,
+        balance=start,
+        cash=start,
+        spot_crypto_cash=start,
+    )
     result = replay_v3(events, starting_cash=starting_cash)
     result["entries_total"] = len(entries)
     result["exits_total"] = len(exits)
     result["day_start"] = day_start.isoformat()
     result["day_end"] = day_end.isoformat()
+    result["fx_rates_used"] = {k: float(v) for k, v in fx_rates.items()}
     return result
 
 
@@ -411,11 +499,26 @@ def write_replay_v3_audit_markdown(store: TradingStore, path: str, day_start: da
         f"# Broker Replay V3 — {day_start.date()}",
         "",
         "## Summary",
-        f"- Entries in DB: {result.get('entries_total', 0)}",
-        f"- Exits in DB: {result.get('exits_total', 0)}",
-        f"- Accepted broker events: {result.get('accepted', 0)}",
-        f"- Rejected broker events: {result.get('rejected', 0)}",
-        f"- Orphan exits skipped: {result.get('orphan_exits', 0)}",
+        f"- Historical entries in DB: {result.get('entries_total', 0)}",
+        f"- Historical exits in DB: {result.get('exits_total', 0)}",
+        f"- Broker accepted entries: {result.get('broker_accepted_entries', 0)}",
+        f"- Broker rejected entries: {result.get('broker_rejected_entries', 0)}",
+        f"- Valid physical exits: {result.get('valid_physical_exits', 0)}",
+        f"- Orphan/unexecuted exits skipped: {result.get('orphan_exits', 0)}",
+        f"- Total accepted broker events: {result.get('accepted', 0)}",
+        f"- Total rejected broker events: {result.get('rejected', 0)}",
+        "",
+        "## Ending state",
+        f"- Ending balance: ${result.get('ending_balance', 0):,.2f}",
+        f"- Ending equity: ${result.get('ending_equity', 0):,.2f}",
+        f"- Gross realized P&L: ${result.get('gross_realized_pnl', 0):,.2f}",
+        f"- Fees paid: ${result.get('fees_paid', 0):,.2f}",
+        f"- Net realized P&L: ${result.get('net_realized_pnl', 0):,.2f}",
+        f"- Open broker positions: {result.get('open_positions', 0)}",
+        f"- Gross exposure: ${result.get('gross_exposure', 0):,.2f}",
+        f"- Net exposure: ${result.get('net_exposure', 0):,.2f}",
+        f"- Max gross leverage: {result.get('max_gross_leverage', 0):.4f}",
+        f"- Max margin used: ${result.get('max_margin_used', 0):,.2f}",
         "",
         "## Reconciliation",
         f"- Financial: {result.get('financial_reconciliation', 0):.2f}",
@@ -423,10 +526,11 @@ def write_replay_v3_audit_markdown(store: TradingStore, path: str, day_start: da
         f"- Attribution: {result.get('attribution_reconciliation', 0):.2f}",
         f"- Physical quantity diff: {result.get('physical_quantity_difference', 0)}",
         "",
-        f"- Ending balance: {result.get('ending_balance', 0):.2f}",
-        f"- Realized P&L: {result.get('realized_pnl', 0):.2f}",
-        f"- Fees paid: {result.get('fees_paid', 0):.2f}",
+        "## FX rates used",
     ]
+    for cur, rate in sorted((result.get("fx_rates_used") or {}).items()):
+        lines.append(f"- {cur}: {rate}")
+    lines.append("")
     from pathlib import Path
 
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")

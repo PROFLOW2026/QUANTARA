@@ -68,8 +68,10 @@ def execute_through_broker(
         )
         if physical_qty <= 0:
             return BrokerExecutionResult(
-                accepted=False,
-                decision=None,
+                accepted=True,
+                shadow_only=True,
+                fill_quantity=Decimal("0"),
+                physical_opened_qty=Decimal("0"),
             )
         quantity = physical_qty
 

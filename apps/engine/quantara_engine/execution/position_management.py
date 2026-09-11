@@ -298,7 +298,19 @@ def process_position_management(
                 cursor_state[position.id] = candle.timestamp.isoformat()
                 continue
 
-            trade = state.close_position(open_position, fill, reason, candle.timestamp, ctx)
+            if broker_res is not None and broker_res.shadow_only:
+                from quantara_engine.broker.lifecycle import close_shadow_position
+
+                trade = close_shadow_position(
+                    state,
+                    open_position,
+                    exit_reason=reason,
+                    closed_at=candle.timestamp,
+                    currency=ctx,
+                    exit_price=trigger_price,
+                )
+            else:
+                trade = state.close_position(open_position, fill, reason, candle.timestamp, ctx)
             decision = DecisionLogEntry(
                 id=new_id(),
                 strategy_instance_id=instance.id,

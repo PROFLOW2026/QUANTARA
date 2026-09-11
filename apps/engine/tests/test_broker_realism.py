@@ -96,6 +96,20 @@ def test_invalid_qty_step():
     assert err is not None
 
 
+def test_invalid_qty_rejected_by_pre_trade_no_silent_normalize():
+    account = _empty_account()
+    req = BrokerOrderRequest(
+        symbol="NVDA",
+        asset_class="stock",
+        direction="long",
+        quantity=Decimal("1.5"),
+        mark_price=Decimal("170"),
+    )
+    decision = evaluate_broker_order(account, QUANTARA_STANDARD_PAPER, req, {"USD": Decimal("1")})
+    assert not decision.accepted
+    assert decision.rejection_reason == BrokerRejectionReason.INVALID_QUANTITY
+
+
 def test_valid_stock_order_accepted():
     account = _empty_account()
     req = BrokerOrderRequest(

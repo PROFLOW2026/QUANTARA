@@ -590,14 +590,23 @@ def broker_account_summary(store: StoreDep):
     """Canonical paper broker account (shared across 160 strategy portfolios)."""
     from quantara_engine.broker.state_builder import build_competition_broker_account
 
+    from quantara_engine.broker.execution_service import BrokerExecutionService
+
     account = build_competition_broker_account(store)
+    row = BrokerExecutionService(store).get_account_row() or {}
+    gross_realized = float(row.get("gross_realized_pnl") or account.realized_pnl)
+    fees_paid = float(row.get("fees_paid") or 0)
+    net_realized = float(account.realized_pnl)
     return {
         "profile": account.profile_slug,
         "account_state": account.account_state.value,
         "cash": float(account.cash),
         "balance": float(account.balance),
         "equity": float(account.equity),
-        "realized_pnl": float(account.realized_pnl),
+        "realized_pnl": net_realized,
+        "gross_realized_pnl": gross_realized,
+        "fees_paid": fees_paid,
+        "net_realized_pnl": net_realized,
         "unrealized_pnl": float(account.unrealized_pnl),
         "available_margin": float(account.available_margin),
         "spot_crypto_cash": float(account.spot_crypto_cash),

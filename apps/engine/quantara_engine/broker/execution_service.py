@@ -51,6 +51,11 @@ class BrokerExecutionResult:
     spread_cost: Decimal = Decimal("0")
     slippage: Decimal = Decimal("0")
     from_existing_fill: bool = False
+    shadow_only: bool = False
+    physical_opened_qty: Decimal = Decimal("0")
+    physical_closed_qty: Decimal = Decimal("0")
+    gross_realized_pnl: Decimal = Decimal("0")
+    net_realized_pnl: Decimal = Decimal("0")
 
 
 class BrokerExecutionService:
@@ -70,16 +75,34 @@ class BrokerExecutionService:
     def get_account_row(self) -> dict | None:
         if not self._tables_ready():
             return None
-        return self.store.session.execute(
-            text(
-                """
-                SELECT id::text, is_active, pending_owner_reset, account_state::text AS account_state,
-                       cash, balance, realized_pnl, spot_crypto_cash
-                FROM broker_accounts WHERE slug = :slug
-                """
-            ),
-            {"slug": PAPER_ACCOUNT_SLUG},
-        ).mappings().first()
+        try:
+            return self.store.session.execute(
+                text(
+                    """
+                    SELECT id::text, is_active, pending_owner_reset, account_state::text AS account_state,
+                           cash, balance, realized_pnl, gross_realized_pnl, fees_paid, spot_crypto_cash
+                    FROM broker_accounts WHERE slug = :slug
+                    """
+                ),
+                {"slug": PAPER_ACCOUNT_SLUG},
+            ).mappings().first()
+        except Exception:
+            row = self.store.session.execute(
+                text(
+                    """
+                    SELECT id::text, is_active, pending_owner_reset, account_state::text AS account_state,
+                           cash, balance, realized_pnl, spot_crypto_cash
+                    FROM broker_accounts WHERE slug = :slug
+                    """
+                ),
+                {"slug": PAPER_ACCOUNT_SLUG},
+            ).mappings().first()
+            if row:
+                d = dict(row)
+                d.setdefault("gross_realized_pnl", d.get("realized_pnl"))
+                d.setdefault("fees_paid", Decimal("0"))
+                return d
+            return None
 
     def get_account_id(self) -> str | None:
         row = self.get_account_row()
@@ -148,6 +171,7 @@ class BrokerExecutionService:
             profile=self.profile,
             spot_crypto_cash=Decimal(str(row["spot_crypto_cash"])),
         )
+        # row realized_pnl is NET; gross/fees available via get_account_row
         stored = str(row.get("account_state") or AccountState.PAUSED.value)
         if not row.get("is_active") or row.get("pending_owner_reset"):
             snap.account_state = AccountState.PAUSED
@@ -167,24 +191,41 @@ class BrokerExecutionService:
         balance: Decimal,
         realized_pnl: Decimal,
         spot_crypto_cash: Decimal,
+        gross_realized_pnl: Decimal | None = None,
+        fees_paid: Decimal | None = None,
     ) -> None:
-        self.store.session.execute(
-            text(
-                """
-                UPDATE broker_accounts SET
-                  cash = :cash, balance = :balance, realized_pnl = :realized,
-                  spot_crypto_cash = :spot, updated_at = NOW()
-                WHERE id = :id
-                """
-            ),
-            {
-                "id": account_id,
-                "cash": cash,
-                "balance": balance,
-                "realized": realized_pnl,
-                "spot": spot_crypto_cash,
-            },
-        )
+        params = {
+            "id": account_id,
+            "cash": cash,
+            "balance": balance,
+            "realized": realized_pnl,
+            "spot": spot_crypto_cash,
+        }
+        if gross_realized_pnl is not None and fees_paid is not None:
+            self.store.session.execute(
+                text(
+                    """
+                    UPDATE broker_accounts SET
+                      cash = :cash, balance = :balance, realized_pnl = :realized,
+                      gross_realized_pnl = :gross, fees_paid = :fees,
+                      spot_crypto_cash = :spot, updated_at = NOW()
+                    WHERE id = :id
+                    """
+                ),
+                {**params, "gross": gross_realized_pnl, "fees": fees_paid},
+            )
+        else:
+            self.store.session.execute(
+                text(
+                    """
+                    UPDATE broker_accounts SET
+                      cash = :cash, balance = :balance, realized_pnl = :realized,
+                      spot_crypto_cash = :spot, updated_at = NOW()
+                    WHERE id = :id
+                    """
+                ),
+                params,
+            )
 
     def _resolve_persisted_account_state(self, row: dict, calculated) -> str:
         if not row.get("is_active") or row.get("pending_owner_reset"):
@@ -205,21 +246,18 @@ class BrokerExecutionService:
             text(
                 """
                 UPDATE broker_accounts SET
-                  cash = :cash, balance = :balance, equity = :equity,
-                  realized_pnl = :realized, unrealized_pnl = :unrealized,
+                  equity = :equity,
+                  unrealized_pnl = :unrealized,
                   gross_exposure = :gross, net_exposure = :net,
                   initial_margin_used = :im, maintenance_margin_required = :mm,
-                  free_margin = :fm, available_margin = :am, spot_crypto_cash = :sc,
+                  free_margin = :fm, available_margin = :am,
                   account_state = :state, updated_at = NOW()
                 WHERE id = :id
                 """
             ),
             {
                 "id": account_id,
-                "cash": snapshot.cash,
-                "balance": snapshot.balance,
                 "equity": snapshot.equity,
-                "realized": snapshot.realized_pnl,
                 "unrealized": snapshot.unrealized_pnl,
                 "gross": snapshot.gross_exposure,
                 "net": snapshot.net_exposure,
@@ -227,7 +265,6 @@ class BrokerExecutionService:
                 "mm": snapshot.maintenance_margin_required,
                 "fm": snapshot.free_margin,
                 "am": snapshot.available_margin,
-                "sc": snapshot.spot_crypto_cash,
                 "state": state,
             },
         )
@@ -473,8 +510,15 @@ class BrokerExecutionService:
             mode=PositionMode.NETTING, spec=spec, fx_rates=fx_map,
         )
 
-        new_balance = snapshot.balance + netting.realized_pnl - fees
-        new_realized = snapshot.realized_pnl + netting.realized_pnl
+        gross_fill_pnl = netting.realized_pnl
+        row = self.get_account_row() or {}
+        prev_gross = Decimal(str(row.get("gross_realized_pnl") if row.get("gross_realized_pnl") is not None else "0"))
+        prev_fees = Decimal(str(row.get("fees_paid") if row.get("fees_paid") is not None else "0"))
+        new_gross = prev_gross + gross_fill_pnl
+        new_fees = prev_fees + fees
+        new_realized = new_gross - new_fees
+        new_balance = snapshot.balance + gross_fill_pnl - fees
+        net_fill_pnl = gross_fill_pnl - fees
         new_cash = snapshot.cash
         new_spot = snapshot.spot_crypto_cash
 
@@ -487,13 +531,19 @@ class BrokerExecutionService:
                 new_cash += notional - fees
                 new_spot += notional - fees
         else:
-            new_cash -= fees
+            new_cash += gross_fill_pnl - fees
 
         fill_id = str(uuid.uuid4())
         position_id = pos_row["id"] if pos_row else str(uuid.uuid4())
 
         if netting.new_net_qty == 0:
             if pos_row:
+                self.store.session.execute(
+                    text(
+                        "UPDATE broker_fills SET broker_position_id = NULL WHERE broker_position_id = :id"
+                    ),
+                    {"id": position_id},
+                )
                 self.store.session.execute(
                     text("DELETE FROM broker_positions WHERE id = :id"), {"id": position_id}
                 )
@@ -570,7 +620,7 @@ class BrokerExecutionService:
                 "pid": position_id,
                 "price": fill.fill_price,
                 "qty": quantity,
-                "pnl": netting.realized_pnl,
+                "pnl": gross_fill_pnl,
                 "fees": fees,
                 "slip": fill.slippage,
                 "spread": fill.spread_cost,
@@ -578,7 +628,7 @@ class BrokerExecutionService:
             },
         )
 
-        attributed_realized = allocate_fill_to_strategy_legs(
+        allocation = allocate_fill_to_strategy_legs(
             self.store,
             broker_account_id=account_id,
             broker_fill_id=fill_id,
@@ -594,7 +644,7 @@ class BrokerExecutionService:
         )
         self.store.session.execute(
             text("UPDATE broker_fills SET realized_pnl = :pnl WHERE id = :id"),
-            {"id": fill_id, "pnl": attributed_realized},
+            {"id": fill_id, "pnl": allocation.attributed_realized},
         )
 
         self._persist_ledger_balances(
@@ -603,6 +653,8 @@ class BrokerExecutionService:
             balance=new_balance,
             realized_pnl=new_realized,
             spot_crypto_cash=new_spot,
+            gross_realized_pnl=new_gross,
+            fees_paid=new_fees,
         )
         self._refresh_account_from_db(account_id)
         self.store.session.flush()
@@ -613,10 +665,14 @@ class BrokerExecutionService:
             broker_fill_id=fill_id,
             fill_price=fill.fill_price,
             fill_quantity=quantity,
-            realized_pnl=netting.realized_pnl,
+            realized_pnl=net_fill_pnl,
+            gross_realized_pnl=gross_fill_pnl,
+            net_realized_pnl=net_fill_pnl,
             fees=fees,
             spread_cost=fill.spread_cost,
             slippage=fill.slippage,
+            physical_opened_qty=allocation.physical_opened_qty,
+            physical_closed_qty=allocation.physical_closed_qty,
         )
 
     def _refresh_account_from_db(self, account_id: str) -> None:
@@ -642,7 +698,7 @@ class BrokerExecutionService:
             row = self.store.session.execute(
                 text(
                     """
-                    SELECT id::text, net_quantity, average_price
+                    SELECT bp.id::text AS id, bp.net_quantity, bp.average_price
                     FROM broker_positions bp
                     JOIN instruments i ON i.id = bp.instrument_id
                     WHERE bp.broker_account_id = :aid AND i.symbol = :sym

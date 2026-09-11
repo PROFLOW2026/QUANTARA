@@ -121,17 +121,17 @@ def evaluate_broker_order(
         quote_notional_usd(current_qty, request.mark_price, spec, fx_rates) if current_qty else Decimal("0")
     )
 
-    qty = normalize_quantity(request.quantity, spec)
-    if qty <= 0:
-        return _reject(
-            BrokerRejectionReason.INVALID_QUANTITY,
-            "quantity below minimum or invalid step after normalization",
-            account=account,
-        )
-
+    qty = request.quantity
     qty_err = validate_quantity(qty, spec)
     if qty_err:
         return _reject(BrokerRejectionReason.INVALID_QUANTITY, qty_err, account=account)
+    normalized = normalize_quantity(qty, spec)
+    if normalized != qty:
+        return _reject(
+            BrokerRejectionReason.INVALID_QUANTITY,
+            f"quantity {qty} requires exact step {spec.quantity_step} (no silent normalization)",
+            account=account,
+        )
 
     direction = request.direction.lower()
     order_signed = _signed_qty(direction, qty)
