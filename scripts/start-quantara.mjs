@@ -14,7 +14,9 @@ import {
   getEngineListenerPid,
   isWorkerRunning,
   getWorkerRunningPid,
-  recoverStaleWorkerLockIfNeeded,
+  getWorkerState,
+  recoverWorkerStateIfNeeded,
+  isWorkerSafeToStart,
   isTunnelRunning,
   quickTunnelService,
   startWindowsTerminal,
@@ -84,15 +86,26 @@ async function launchEngine() {
 }
 
 async function launchWorker() {
-  const recovery = recoverStaleWorkerLockIfNeeded();
-  if (recovery.removed) {
-    log(`[WORKER] Stale lock removed (${recovery.state.reason})`);
+  let state = getWorkerState();
+  if (state.running && state.pid) {
+    log(`[WORKER] Already running PID=${state.pid} — skipping duplicate start`);
+    return { ok: true, started: false, pid: state.pid };
+  }
+  if (state.broken) {
+    log(
+      `[WORKER] BLOCKED — singleton lock held (${state.detail || state.reason}). Run STOP_QUANTARA.bat first.`
+    );
+    return { ok: false, started: false, pid: null, blocked: true };
   }
 
-  const runningPid = getWorkerRunningPid();
-  if (isWorkerRunning() && runningPid) {
-    log(`[WORKER] Already running PID=${runningPid} — skipping duplicate start`);
-    return { ok: true, started: false, pid: runningPid };
+  const recovery = recoverWorkerStateIfNeeded();
+  if (recovery.recovered) {
+    log(`[WORKER] Stale worker artifacts removed (${recovery.before.reason})`);
+  }
+  state = recovery.after || getWorkerState();
+  if (!state.safeToStart) {
+    log(`[WORKER] BLOCKED — unsafe to start (state=${state.status}, ${state.reason})`);
+    return { ok: false, started: false, pid: null, blocked: true };
   }
 
   const service = workersService();
@@ -186,10 +199,15 @@ async function main() {
     engineUp,
     engineUp ? "http://127.0.0.1:8000/api/v1/health" : "health endpoint not responding"
   );
+  const workerState = getWorkerState();
   statusLine(
     "Worker + Scheduler",
     workerUp,
-    workerUp ? `quantara_workers.main PID=${workerPid ?? "?"}` : "no live worker process"
+    workerUp
+      ? `quantara_workers.main PID=${workerPid ?? "?"}`
+      : worker.blocked
+        ? `blocked (${workerState.detail || workerState.reason})`
+        : "no live worker process"
   );
   statusLine(
     "Quick Cloudflare Tunnel",

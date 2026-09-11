@@ -39,6 +39,7 @@ coverage.xml
 
 # Cloudflare tunnel (local credentials/config — never commit)
 .quantara-workers.lock
+.quantara-workers.meta.json
 .quantara-runtime/
 .cloudflared/
 scripts/cloudflare-tunnel.local.yml

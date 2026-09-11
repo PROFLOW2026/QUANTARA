@@ -8,15 +8,14 @@ import { getRepoRoot } from "./load-env.cjs";
 import {
   isEnginePortListening,
   isTunnelRunning,
-  workerLockPath,
+  stopWorkerProcessesCanonical,
+  getWorkerState,
 } from "./dev-common.mjs";
 import {
-  findQuantaraWorkerPids,
   getEngineListenerPids,
   getProcessCommandLine,
   isQuantaraEngineCommandLine,
   killProcessTree,
-  removeWorkerLockFile,
   waitForProcessExit,
 } from "./process-utils.mjs";
 
@@ -35,21 +34,25 @@ function killPid(pid, label) {
 }
 
 function stopWorkers() {
-  const pids = new Set(findQuantaraWorkerPids());
-  const lockPath = workerLockPath();
-  if (pids.size === 0) {
-    console.log("No live QUANTARA Worker process found.");
+  const before = getWorkerState();
+  console.log(
+    `Worker state before stop: status=${before.status} owner=${before.pid ?? "none"} scanned=[${(before.scannedPids || []).join(", ")}]`
+  );
+  const result = stopWorkerProcessesCanonical();
+  const terminated = result.terminated || [];
+  if (terminated.length) {
+    console.log(`Terminated Worker PIDs: ${terminated.join(", ")}`);
+  } else {
+    console.log("No live QUANTARA Worker process found to terminate.");
   }
-  for (const pid of pids) {
-    killPid(pid, "Worker");
-  }
-  for (const pid of pids) {
-    waitForProcessExit(pid, 5000);
-  }
-  if (removeWorkerLockFile(lockPath)) {
-    console.log("Worker lock file removed.");
-  } else if (findQuantaraWorkerPids().length === 0) {
-    console.log("Worker lock file already absent or still busy.");
+  const after = getWorkerState();
+  console.log(
+    `Worker state after stop: status=${after.status} lock_held=${after.lockHeld} safe_to_start=${after.safeToStart}`
+  );
+  if (after.running || after.lockHeld) {
+    console.log("WARNING: Worker may still be active — check Task Manager for quantara_workers.main");
+  } else {
+    console.log("Worker processes = 0, valid lock = 0");
   }
 }
 

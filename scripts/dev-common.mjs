@@ -6,18 +6,13 @@ import fs from "fs";
 import path from "path";
 import { loadRepoEnv, getRepoRoot } from "./load-env.cjs";
 import {
-  findQuantaraWorkerPids,
   getEngineListenerPids,
   getProcessCommandLine,
-  inspectWorkerState,
-  isProcessAlive,
   isQuantaraEngineCommandLine,
-  isQuantaraWorkerCommandLine,
   killProcessTree,
-  recoverStaleWorkerLock,
-  removeWorkerLockFile,
   waitForProcessExit,
 } from "./process-utils.mjs";
+import { mapWorkerStateToLauncher, runWorkerStateAction } from "./worker-state-client.mjs";
 
 const ROOT = getRepoRoot();
 const ENGINE = path.join(ROOT, "apps", "engine");
@@ -63,8 +58,29 @@ export function workerLockPath() {
   return path.join(ROOT, ".quantara-workers.lock");
 }
 
+export function getWorkerStateRaw() {
+  return runWorkerStateAction(ENGINE, "inspect");
+}
+
 export function getWorkerState() {
-  return inspectWorkerState(workerLockPath());
+  return mapWorkerStateToLauncher(getWorkerStateRaw());
+}
+
+export function recoverWorkerStateIfNeeded() {
+  const before = getWorkerState();
+  if (before.running || before.broken) {
+    return { recovered: false, before, after: before };
+  }
+  if (!before.stale && before.status === "MISSING") {
+    return { recovered: false, before, after: before };
+  }
+  const result = runWorkerStateAction(ENGINE, "recover");
+  const after = mapWorkerStateToLauncher(result.after || getWorkerStateRaw());
+  return { recovered: Boolean(result.recovered), before, after, result };
+}
+
+export function stopWorkerProcessesCanonical() {
+  return runWorkerStateAction(ENGINE, "stop");
 }
 
 export function isEnginePortListening() {
@@ -84,12 +100,12 @@ export function isEngineProcessRunning() {
   return isQuantaraEngineCommandLine(getProcessCommandLine(pid));
 }
 
-export function recoverStaleWorkerLockIfNeeded() {
-  return recoverStaleWorkerLock(workerLockPath());
-}
-
 export function isWorkerRunning() {
   return getWorkerState().running;
+}
+
+export function isWorkerSafeToStart() {
+  return getWorkerState().safeToStart;
 }
 
 export function getWorkerRunningPid() {
@@ -104,9 +120,23 @@ export function workersService() {
     );
     return null;
   }
-  const recovery = recoverStaleWorkerLockIfNeeded();
-  if (recovery.removed) {
-    console.log(`[WORKERS] Removed stale worker lock (${recovery.state.reason})`);
+  if (state.broken) {
+    console.error(
+      `[WORKERS] Singleton lock held but owner unclear (${state.detail || state.reason}).`
+    );
+    console.error("[WORKERS] Run STOP_QUANTARA.bat before starting a new worker.");
+    return null;
+  }
+  const recovery = recoverWorkerStateIfNeeded();
+  if (recovery.recovered) {
+    console.log(`[WORKERS] Removed stale worker artifacts (${recovery.before.reason})`);
+  }
+  const after = recovery.after || getWorkerState();
+  if (!after.safeToStart) {
+    console.error(
+      `[WORKERS] Cannot start worker — state=${after.status} reason=${after.reason}`
+    );
+    return null;
   }
   return {
     name: "workers",

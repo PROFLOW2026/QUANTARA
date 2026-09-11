@@ -40,7 +40,7 @@ def is_quantara_worker_process(pid: int) -> bool:
             check=False,
         )
         cmd = (result.stdout or "").lower()
-        return "quantara_workers.main" in cmd
+        return "quantara_workers.main" in cmd or "quantara_workers\\main" in cmd
     try:
         with open(f"/proc/{pid}/cmdline", "rb") as handle:
             cmd = handle.read().decode("utf-8", errors="ignore").lower()
@@ -58,13 +58,18 @@ class WorkerSingletonLock:
         return self._read_existing_pid()
 
     def _read_existing_pid(self) -> int | None:
-        if not self.lock_path.exists():
-            return None
-        try:
-            raw = self.lock_path.read_text(encoding="utf-8").strip()
-            return int(raw.splitlines()[0])
-        except (OSError, ValueError):
-            return None
+        from quantara_workers.worker_state import read_lock_file_pid, read_lock_metadata
+
+        meta = read_lock_metadata()
+        if meta:
+            try:
+                pid = int(meta.get("pid"))
+                if pid > 0:
+                    return pid
+            except (TypeError, ValueError):
+                pass
+        pid, _err = read_lock_file_pid()
+        return pid
 
     @staticmethod
     def pid_alive(pid: int) -> bool:
@@ -74,12 +79,18 @@ class WorkerSingletonLock:
             import subprocess
 
             result = subprocess.run(
-                ["tasklist", "/FI", f"PID eq {pid}"],
+                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
                 capture_output=True,
                 text=True,
                 check=False,
             )
-            return str(pid) in result.stdout
+            line = (result.stdout or "").strip()
+            if not line or "No tasks are running" in line:
+                return False
+            import re
+
+            match = re.match(r'^"[^"]+","(\d+)"', line)
+            return bool(match and int(match.group(1)) == pid)
         try:
             os.kill(pid, 0)
         except OSError:
@@ -87,28 +98,29 @@ class WorkerSingletonLock:
         return True
 
     def _remove_stale_lock_if_needed(self) -> None:
-        stale_pid = self._read_existing_pid()
-        if stale_pid is None and self.lock_path.exists():
-            try:
-                raw = self.lock_path.read_text(encoding="utf-8").strip()
-                if not raw:
-                    self.lock_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-            return
-        if not stale_pid:
-            return
-        stale = not self.pid_alive(stale_pid) or not is_quantara_worker_process(stale_pid)
-        if not stale:
-            return
-        reason = "dead pid" if not self.pid_alive(stale_pid) else "non-worker pid"
-        logger.warning("Removing stale worker lock for %s pid=%s", reason, stale_pid)
-        try:
-            self.lock_path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        from quantara_workers.worker_state import inspect_worker_state, recover_stale_worker_artifacts
+
+        state = inspect_worker_state()
+        if state["status"] == "STALE":
+            logger.warning("Removing stale worker artifacts (%s)", state.get("reason"))
+            recover_stale_worker_artifacts()
 
     def acquire(self) -> None:
+        from quantara_workers.worker_state import (
+            inspect_worker_state,
+            write_lock_metadata,
+            WORKER_IDENTITY,
+        )
+
+        pre = inspect_worker_state()
+        if pre["status"] == "RUNNING" and pre.get("owner_pid"):
+            owner = pre["owner_pid"]
+            if owner != os.getpid():
+                raise WorkerAlreadyRunningError(
+                    f"Worker scheduler already running (pid={owner}). "
+                    "Stop the other worker process before starting a new one."
+                )
+
         self.lock_path.parent.mkdir(parents=True, exist_ok=True)
         self._remove_stale_lock_if_needed()
 
@@ -123,19 +135,33 @@ class WorkerSingletonLock:
 
                 fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
-            existing = self._read_existing_pid()
+            post = inspect_worker_state()
+            owner = post.get("owner_pid") or post.get("meta_pid") or post.get("lock_pid")
+            detail = post.get("detail") or post.get("lock_probe_detail") or post.get("reason")
+            if owner:
+                msg = f"Worker scheduler already running (pid={owner})."
+            elif post.get("status") == "BROKEN":
+                msg = (
+                    "Worker singleton lock is held but owner could not be verified "
+                    f"({detail}). Run STOP_QUANTARA.bat to release the lock."
+                )
+            else:
+                msg = f"Worker scheduler lock unavailable ({detail or 'unknown'})."
             raise WorkerAlreadyRunningError(
-                f"Worker scheduler already running (pid={existing or 'unknown'}). "
-                "Stop the other worker process before starting a new one."
+                f"{msg} Stop the other worker process before starting a new one."
             ) from exc
 
         os.ftruncate(self._fd, 0)
-        os.write(self._fd, f"{os.getpid()}\n".encode())
+        payload = f"{os.getpid()}\n".encode()
+        os.write(self._fd, payload)
         os.fsync(self._fd)
+        write_lock_metadata(pid=os.getpid(), identity=WORKER_IDENTITY)
         atexit.register(self.release)
         logger.info("Worker singleton lock acquired pid=%s path=%s", os.getpid(), self.lock_path)
 
     def release(self) -> None:
+        from quantara_workers.worker_state import clear_lock_metadata
+
         if self._fd is None:
             return
         try:
@@ -154,6 +180,7 @@ class WorkerSingletonLock:
         except OSError:
             pass
         self._fd = None
+        clear_lock_metadata()
         try:
             self.lock_path.unlink(missing_ok=True)
         except OSError:
@@ -161,21 +188,20 @@ class WorkerSingletonLock:
 
 
 def inspect_worker_lock() -> dict[str, object]:
-    lock = WorkerSingletonLock()
-    pid = lock.read_existing_pid()
-    if pid and lock.pid_alive(pid) and is_quantara_worker_process(pid):
-        return {"running": True, "pid": pid, "stale": False, "reason": "lock_pid_worker_alive"}
-    if pid and (not lock.pid_alive(pid) or not is_quantara_worker_process(pid)):
-        return {
-            "running": False,
-            "pid": pid,
-            "stale": True,
-            "reason": "lock_pid_dead" if not lock.pid_alive(pid) else "lock_pid_not_worker",
-        }
-    if lock.lock_path.exists():
-        return {"running": False, "pid": pid, "stale": True, "reason": "orphan_lock"}
-    return {"running": False, "pid": None, "stale": False, "reason": "absent"}
+    from quantara_workers.worker_state import inspect_worker_state
+
+    state = inspect_worker_state()
+    return {
+        "running": state.get("running", False),
+        "pid": state.get("owner_pid"),
+        "stale": state.get("status") == "STALE",
+        "status": state.get("status"),
+        "safe_to_start": state.get("safe_to_start"),
+        "reason": state.get("reason"),
+    }
 
 
 def is_worker_running() -> bool:
-    return bool(inspect_worker_lock().get("running"))
+    from quantara_workers.worker_state import inspect_worker_state
+
+    return bool(inspect_worker_state().get("running"))

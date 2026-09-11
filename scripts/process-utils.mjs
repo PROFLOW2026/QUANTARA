@@ -149,7 +149,13 @@ export function classifyWorkerLockState({
     };
   }
   if (lockBusy) {
-    return { running: false, stale: true, pid: null, reason: "lock_busy_no_worker" };
+    return {
+      running: true,
+      stale: false,
+      broken: true,
+      pid: scannedWorkerPids[0] ?? null,
+      reason: "lock_busy_no_worker",
+    };
   }
   if (!lockPid && scannedWorkerPids.length > 0) {
     return {

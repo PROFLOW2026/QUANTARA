@@ -90,6 +90,35 @@ test("lock busy + scanned worker -> running", () => {
   assert.equal(state.pid, 5555);
 });
 
+test("lock busy + no scanned worker -> blocked not safe-to-start", () => {
+  const state = classifyWorkerLockState({
+    lockExists: true,
+    lockPid: null,
+    lockBusy: true,
+    lockPidAlive: false,
+    lockPidIsWorker: false,
+    scannedWorkerPids: [],
+  });
+  assert.equal(state.running, true);
+  assert.equal(state.broken, true);
+  assert.equal(state.reason, "lock_busy_no_worker");
+});
+
+test("mapWorkerStateToLauncher marks BROKEN unsafe", async () => {
+  const { mapWorkerStateToLauncher } = await import("./worker-state-client.mjs");
+  const mapped = mapWorkerStateToLauncher({
+    status: "BROKEN",
+    running: true,
+    safe_to_start: false,
+    owner_pid: null,
+    lock_probe_detail: "byte_lock_held",
+    reason: "lock_held_no_owner",
+  });
+  assert.equal(mapped.broken, true);
+  assert.equal(mapped.safeToStart, false);
+  assert.equal(mapped.running, true);
+});
+
 test("commandLineMatches is case-insensitive", () => {
   assert.equal(
     commandLineMatches("PYTHON -M QUANTARA_WORKERS.MAIN", ["quantara_workers.main"]),
