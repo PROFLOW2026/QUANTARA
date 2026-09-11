@@ -1,0 +1,156 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  api,
+  isEngineConnectionError,
+  type AssetAnalyticsResponse,
+  type Decision,
+  type MarketProviderStatus,
+  type TodayActivity,
+  type WorkerStatus,
+} from "@/lib/api-client";
+import { loadCompetitionView } from "@/lib/competition-client";
+import { t } from "@/lib/i18n";
+
+const POLL_INTERVAL_MS = 60_000;
+
+async function settle<T>(
+  promise: Promise<T>
+): Promise<{ ok: true; value: T } | { ok: false; error: unknown }> {
+  try {
+    return { ok: true, value: await promise };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
+export function useHomeDashboardPoll() {
+  const [assetDecisions, setAssetDecisions] = useState<Decision[]>([]);
+  const [today, setToday] = useState<TodayActivity | null>(null);
+  const [workers, setWorkers] = useState<WorkerStatus | null>(null);
+  const [competition, setCompetition] = useState<Awaited<
+    ReturnType<typeof loadCompetitionView>
+  > | null>(null);
+  const [assetAnalytics, setAssetAnalytics] = useState<AssetAnalyticsResponse | null>(
+    null
+  );
+  const [marketStatus, setMarketStatus] = useState<MarketProviderStatus | null>(null);
+  const [engineHealthy, setEngineHealthy] = useState<boolean | null>(null);
+  const [engineConnectionError, setEngineConnectionError] = useState(false);
+  const [competitionUnavailable, setCompetitionUnavailable] = useState(false);
+  const [todayError, setTodayError] = useState<string | null>(null);
+  const [dataRefreshError, setDataRefreshError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const inFlightRef = useRef(false);
+  const hadCompetitionRef = useRef(false);
+
+  const fetchAll = useCallback(async (showLoading = false) => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+
+    if (showLoading) setLoading(true);
+
+    let partialFailure = false;
+    let healthDown = false;
+
+    try {
+      const healthResult = await settle(api.getEngineHealth());
+      if (healthResult.ok) {
+        setEngineHealthy(healthResult.value.status === "ok");
+        setEngineConnectionError(false);
+      } else {
+        healthDown = isEngineConnectionError(healthResult.error);
+        setEngineHealthy((prev) => (prev === null ? false : prev));
+        setEngineConnectionError(healthDown);
+        partialFailure = true;
+      }
+
+      const workersResult = await settle(api.getWorkersStatus());
+      if (workersResult.ok) {
+        setWorkers(workersResult.value);
+      } else {
+        partialFailure = true;
+      }
+
+      const analyticsResult = await settle(api.getAssetAnalytics());
+      if (analyticsResult.ok) {
+        setAssetAnalytics(analyticsResult.value);
+      } else {
+        partialFailure = true;
+      }
+
+      const marketResult = await settle(api.getMarketStatus());
+      if (marketResult.ok) {
+        setMarketStatus(marketResult.value);
+      } else {
+        partialFailure = true;
+      }
+
+      if (showLoading) setLoading(false);
+
+      const decisionsResult = await settle(api.getDecisionsByAsset("5m"));
+      if (decisionsResult.ok) {
+        setAssetDecisions(decisionsResult.value.decisions ?? []);
+      } else {
+        partialFailure = true;
+      }
+
+      const todayResult = await settle(api.getAnalyticsToday());
+      if (todayResult.ok) {
+        setToday(todayResult.value);
+        setTodayError(null);
+      } else {
+        partialFailure = true;
+        setTodayError((prev) => prev ?? t("common.section_unavailable"));
+      }
+
+      const competitionResult = await settle(loadCompetitionView());
+      if (competitionResult.ok) {
+        hadCompetitionRef.current = true;
+        setCompetition(competitionResult.value);
+        setCompetitionUnavailable(false);
+      } else {
+        partialFailure = true;
+        setCompetitionUnavailable(!hadCompetitionRef.current);
+      }
+
+      setDataRefreshError(
+        partialFailure && !healthDown ? t("home.data_refresh_stale") : null
+      );
+    } catch (e) {
+      const down = isEngineConnectionError(e);
+      setEngineConnectionError(down);
+      setEngineHealthy((prev) => (prev === null ? false : prev));
+      setDataRefreshError(down ? null : t("home.data_refresh_stale"));
+    } finally {
+      inFlightRef.current = false;
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchAll(true);
+    const id = window.setInterval(() => {
+      void fetchAll(false);
+    }, POLL_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [fetchAll]);
+
+  return {
+    assetDecisions,
+    today,
+    workers,
+    competition,
+    assetAnalytics,
+    marketStatus,
+    engineHealthy,
+    engineConnectionError,
+    competitionUnavailable,
+    todayError,
+    dataRefreshError,
+    loading,
+    refresh: () => fetchAll(true),
+  };
+}

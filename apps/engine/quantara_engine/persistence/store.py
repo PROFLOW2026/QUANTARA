@@ -825,6 +825,41 @@ class TradingStore:
         )
         return self._decision_to_domain(row) if row else None
 
+    def _batch_latest_decisions_for_instances(
+        self,
+        instance_ids: list[str],
+        instrument_ids: list[str],
+    ) -> list[DecisionLogEntry]:
+        if not instance_ids or not instrument_ids:
+            return []
+        from sqlalchemy import desc
+
+        inst_uuids = [_uuid(i) for i in instance_ids]
+        instrument_uuids = [_uuid(i) for i in instrument_ids]
+        dialect = self.session.get_bind().dialect.name
+        if dialect == "postgresql":
+            rows = self.session.scalars(
+                select(OrmDecision)
+                .distinct(OrmDecision.instrument_id)
+                .where(
+                    OrmDecision.strategy_instance_id.in_(inst_uuids),
+                    OrmDecision.instrument_id.in_(instrument_uuids),
+                )
+                .order_by(
+                    OrmDecision.instrument_id,
+                    desc(OrmDecision.candle_timestamp),
+                    desc(OrmDecision.created_at),
+                )
+            ).all()
+            return [self._decision_to_domain(row) for row in rows if row]
+
+        results: list[DecisionLogEntry] = []
+        for instrument_id in instrument_ids:
+            decision = self._latest_decision_for_instances(instance_ids, instrument_id)
+            if decision:
+                results.append(decision)
+        return results
+
     def list_latest_decisions_by_asset_timeframe(
         self,
         timeframe: str,
@@ -840,13 +875,14 @@ class TradingStore:
         ]
         if entries_a:
             instance_ids_a = [e["instance"].id for e in entries_a]
+            instrument_ids_a: list[str] = []
             for symbol in list_robot_a_tradable_db_symbols():
                 instrument = self.get_instrument_by_symbol(symbol)
-                if not instrument:
-                    continue
-                decision = self._latest_decision_for_instances(instance_ids_a, instrument.id)
-                if decision:
-                    results.append(decision)
+                if instrument:
+                    instrument_ids_a.append(instrument.id)
+            results.extend(
+                self._batch_latest_decisions_for_instances(instance_ids_a, instrument_ids_a)
+            )
 
         if self.is_orb_competition_enabled():
             entries_b = [
@@ -856,13 +892,14 @@ class TradingStore:
             ]
             if entries_b:
                 instance_ids_b = [e["instance"].id for e in entries_b]
+                instrument_ids_b: list[str] = []
                 for symbol in ORB_ASSETS:
                     instrument = self.get_instrument_by_symbol(symbol)
-                    if not instrument:
-                        continue
-                    decision = self._latest_decision_for_instances(instance_ids_b, instrument.id)
-                    if decision:
-                        results.append(decision)
+                    if instrument:
+                        instrument_ids_b.append(instrument.id)
+                results.extend(
+                    self._batch_latest_decisions_for_instances(instance_ids_b, instrument_ids_b)
+                )
 
         return results
 

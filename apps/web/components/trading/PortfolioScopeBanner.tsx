@@ -1,4 +1,6 @@
-import Link from "next/link";
+"use client";
+
+import { ModalLink } from "@/components/layout/ModalLink";
 import { t } from "@/lib/i18n";
 
 interface PortfolioScopeBannerProps {
@@ -36,12 +38,12 @@ export function PortfolioScopeBanner({
         )}
       </span>
       <div className="flex gap-3">
-        <Link href="/portfolio-comparison" className="text-accent hover:underline">
+        <ModalLink href="/portfolio-comparison" className="text-accent hover:underline">
           {t("home.competition_view")} →
-        </Link>
-        <Link href="/portfolios" className="text-muted hover:text-accent hover:underline">
+        </ModalLink>
+        <ModalLink href="/portfolios" className="text-muted hover:text-accent hover:underline">
           {t("portfolio.switch")}
-        </Link>
+        </ModalLink>
       </div>
     </div>
   );

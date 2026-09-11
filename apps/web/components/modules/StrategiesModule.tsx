@@ -1,0 +1,91 @@
+"use client";
+
+import { ErrorBanner, StatusBadge } from "@/components/layout/PageHeader";
+import { ModalLink } from "@/components/layout/ModalLink";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow, EmptyState,
+} from "@/components/ui/table";
+import { useModuleData } from "@/hooks/useModuleData";
+import { api } from "@/lib/api-client";
+import { translateTimeframe } from "@/lib/display-text";
+import type { ModuleProps } from "@/lib/modal-workspace/types";
+import { t } from "@/lib/i18n";
+import { ModuleFrame } from "./ModuleFrame";
+
+const ROBOT_LABELS: Record<string, string> = {
+  "gold-trend-pullback": "Robot A",
+  "opening-range-breakout": "Robot B",
+};
+
+export default function StrategiesModule({ embedded }: ModuleProps) {
+  const { data: strategies, error, loading } = useModuleData(
+    () => api.getStrategies(),
+    []
+  );
+
+  if (loading) {
+    return <p className="text-sm text-muted">{t("common.loading")}</p>;
+  }
+
+  return (
+    <ModuleFrame embedded={embedded} titleKey="strategies.title">
+      {error ? (
+        <div className="mb-4"><ErrorBanner message={error} /></div>
+      ) : null}
+
+      <Card>
+        <CardHeader><CardTitle>{t("strategies.title")}</CardTitle></CardHeader>
+        <CardContent>
+          {!strategies?.length ? (
+            <EmptyState message={t("strategies.empty")} />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("common.name")}</TableHead>
+                  <TableHead>{t("strategies.robot")}</TableHead>
+                  <TableHead>{t("strategies.slug")}</TableHead>
+                  <TableHead>{t("common.status")}</TableHead>
+                  <TableHead>{t("strategies.versions")}</TableHead>
+                  <TableHead>{t("strategies.instruments")}</TableHead>
+                  <TableHead>{t("strategies.timeframes")}</TableHead>
+                  <TableHead>{t("strategies.active_instances")}</TableHead>
+                  <TableHead>{t("common.actions")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {strategies.map((s) => (
+                  <TableRow key={s.id}>
+                    <TableCell className="font-medium">
+                      <ModalLink href={`/strategies/${s.slug}`} className="hover:underline">
+                        {s.name}
+                      </ModalLink>
+                    </TableCell>
+                    <TableCell>{s.robot_label ?? ROBOT_LABELS[s.slug] ?? "—"}</TableCell>
+                    <TableCell className="font-mono text-xs">{s.slug}</TableCell>
+                    <TableCell><StatusBadge status={s.status} /></TableCell>
+                    <TableCell>{s.versions_count}</TableCell>
+                    <TableCell>{s.instruments?.join(", ") ?? "—"}</TableCell>
+                    <TableCell>
+                      {s.timeframes?.map((tf) => translateTimeframe(tf)).join(", ") ?? "—"}
+                    </TableCell>
+                    <TableCell>{s.active_instances}</TableCell>
+                    <TableCell>
+                      <ModalLink
+                        href={`/strategies/${s.slug}/versions`}
+                        className="text-sm text-accent hover:underline"
+                      >
+                        {t("strategies.view_versions")}
+                      </ModalLink>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </ModuleFrame>
+  );
+}

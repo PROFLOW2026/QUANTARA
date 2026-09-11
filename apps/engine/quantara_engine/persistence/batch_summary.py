@@ -225,31 +225,44 @@ def batch_latest_candle_closes(
     instrument_ids: list[str],
     timeframe: str = "5m",
 ) -> dict[str, Decimal]:
-    """Latest close per instrument (window row_number)."""
+    """Latest close per instrument."""
     if not instrument_ids:
         return {}
     from sqlalchemy import desc
 
-    subq = (
-        select(
-            OrmCandle.instrument_id,
-            OrmCandle.close,
-            func.row_number()
-            .over(
-                partition_by=OrmCandle.instrument_id,
-                order_by=desc(OrmCandle.timestamp),
+    ids = _uuids(instrument_ids)
+    dialect = store.session.get_bind().dialect.name
+    if dialect == "postgresql":
+        rows = store.session.execute(
+            select(OrmCandle.instrument_id, OrmCandle.close)
+            .distinct(OrmCandle.instrument_id)
+            .where(
+                OrmCandle.instrument_id.in_(ids),
+                OrmCandle.timeframe == timeframe,
             )
-            .label("rn"),
+            .order_by(OrmCandle.instrument_id, desc(OrmCandle.timestamp))
+        ).all()
+    else:
+        subq = (
+            select(
+                OrmCandle.instrument_id,
+                OrmCandle.close,
+                func.row_number()
+                .over(
+                    partition_by=OrmCandle.instrument_id,
+                    order_by=desc(OrmCandle.timestamp),
+                )
+                .label("rn"),
+            )
+            .where(
+                OrmCandle.instrument_id.in_(ids),
+                OrmCandle.timeframe == timeframe,
+            )
+            .subquery()
         )
-        .where(
-            OrmCandle.instrument_id.in_(_uuids(instrument_ids)),
-            OrmCandle.timeframe == timeframe,
-        )
-        .subquery()
-    )
-    rows = store.session.execute(
-        select(subq.c.instrument_id, subq.c.close).where(subq.c.rn == 1)
-    ).all()
+        rows = store.session.execute(
+            select(subq.c.instrument_id, subq.c.close).where(subq.c.rn == 1)
+        ).all()
     return {str(instrument_id): Decimal(str(close)) for instrument_id, close in rows}
 
 

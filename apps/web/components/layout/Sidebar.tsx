@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { t } from "@/lib/i18n";
+import { ModalLink } from "./ModalLink";
+import { useModalWorkspace } from "./ModalWorkspaceProvider";
 
 const navItems = [
   { href: "/", labelKey: "nav.home", icon: "🏠" },
@@ -20,14 +20,21 @@ const navItems = [
   { href: "/settings", labelKey: "nav.settings", icon: "⚙️" },
 ];
 
+function useNavActive(href: string): boolean {
+  const { activeModule, isOpen } = useModalWorkspace();
+  if (href === "/") return !isOpen;
+  if (!isOpen || !activeModule) return false;
+  if (activeModule.path === href) return true;
+  return activeModule.path.startsWith(`${href}/`);
+}
+
 function NavLink({ href, label, icon }: { href: string; label: string; icon: string }) {
-  const pathname = usePathname();
-  const active =
-    href === "/" ? pathname === "/" : pathname.startsWith(href);
+  const active = useNavActive(href);
 
   return (
-    <Link
+    <ModalLink
       href={href}
+      scroll={false}
       className={cn(
         "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
         active
@@ -37,7 +44,7 @@ function NavLink({ href, label, icon }: { href: string; label: string; icon: str
     >
       <span className="text-base">{icon}</span>
       <span>{label}</span>
-    </Link>
+    </ModalLink>
   );
 }
 
@@ -64,31 +71,46 @@ export function Sidebar() {
   );
 }
 
+function MobileNavItem({
+  href,
+  labelKey,
+  icon,
+}: {
+  href: string;
+  labelKey: string;
+  icon: string;
+}) {
+  const active = useNavActive(href);
+  return (
+    <ModalLink
+      href={href}
+      scroll={false}
+      className={cn(
+        "flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px]",
+        active ? "text-accent" : "text-muted"
+      )}
+    >
+      <span className="text-lg">{icon}</span>
+      <span className="truncate px-1">{t(labelKey)}</span>
+    </ModalLink>
+  );
+}
+
 export function MobileBottomNav() {
-  const pathname = usePathname();
   const mobileItems = navItems.filter((item) =>
     ["/", "/portfolio-comparison", "/positions", "/decisions", "/analytics", "/settings"].includes(item.href)
   );
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-border bg-surface lg:hidden">
-      {mobileItems.map((item) => {
-        const active =
-          item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={cn(
-              "flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px]",
-              active ? "text-accent" : "text-muted"
-            )}
-          >
-            <span className="text-lg">{item.icon}</span>
-            <span className="truncate px-1">{t(item.labelKey)}</span>
-          </Link>
-        );
-      })}
+      {mobileItems.map((item) => (
+        <MobileNavItem
+          key={item.href}
+          href={item.href}
+          labelKey={item.labelKey}
+          icon={item.icon}
+        />
+      ))}
     </nav>
   );
 }

@@ -947,12 +947,19 @@ def strategy_freshness_summary(store: TradingStore, now: datetime | None = None)
         except ValueError:
             pass
 
+    from quantara_engine.persistence.batch_summary import batch_latest_candle_timestamps
+
+    robot_symbols = _robot_a_symbols()
+    symbol_to_inst = {
+        sym: store.get_instrument_by_symbol(sym) for sym in robot_symbols
+    }
+    inst_ids = [inst.id for inst in symbol_to_inst.values() if inst]
+    latest_by_inst = batch_latest_candle_timestamps(store, inst_ids, "5m")
     market_ages: dict[str, float | None] = {}
-    for sym in _robot_a_symbols():
-        inst = store.get_instrument_by_symbol(sym)
+    for sym, inst in symbol_to_inst.items():
         if not inst:
             continue
-        ts = store.latest_candle_timestamp(inst.id, "5m")
+        ts = latest_by_inst.get(inst.id)
         market_ages[sym] = round((now - ts).total_seconds() / 60, 1) if ts else None
 
     backlog = int(runner.get("jobs_pending") or 0)

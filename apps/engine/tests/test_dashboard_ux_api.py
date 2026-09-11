@@ -5,12 +5,15 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from quantara_workers.jobs.run_strategy import strategy_freshness_summary
 
+INST_ID = "00000000-0000-4000-8000-000000000001"
 
-def test_strategy_freshness_splits_live_and_historical_backlog():
+
+@patch("quantara_engine.persistence.batch_summary.batch_latest_candle_timestamps")
+def test_strategy_freshness_splits_live_and_historical_backlog(mock_batch_ts):
     now = datetime(2026, 9, 9, 14, 0, tzinfo=timezone.utc)
     store = MagicMock()
     store.get_settings_dict.return_value = {
@@ -27,8 +30,8 @@ def test_strategy_freshness_splits_live_and_historical_backlog():
         },
         "worker_status:data_fetcher": {"status": "healthy"},
     }
-    store.get_instrument_by_symbol.return_value = MagicMock(id="xau")
-    store.latest_candle_timestamp.return_value = now - timedelta(minutes=5)
+    store.get_instrument_by_symbol.return_value = MagicMock(id=INST_ID)
+    mock_batch_ts.return_value = {INST_ID: now - timedelta(minutes=5)}
 
     summary = strategy_freshness_summary(store, now)
 
@@ -38,7 +41,8 @@ def test_strategy_freshness_splits_live_and_historical_backlog():
     assert summary["healthy"] is True
 
 
-def test_decisions_by_asset_exposes_entry_signal_and_position_open():
+@patch("quantara_engine.persistence.batch_summary.batch_latest_candle_timestamps")
+def test_decisions_by_asset_exposes_entry_signal_and_position_open(mock_batch_ts):
     from quantara_engine.api.routes import decisions_by_asset
 
     store = MagicMock()
@@ -69,8 +73,10 @@ def test_decisions_by_asset_exposes_entry_signal_and_position_open():
         "worker_status:strategy_runner": {"status": "healthy", "jobs_pending": 0},
         "worker_status:data_fetcher": {"status": "healthy"},
     }
-    store.get_instrument_by_symbol.return_value = MagicMock(id="xau")
-    store.latest_candle_timestamp.return_value = datetime(2026, 9, 9, 13, 55, tzinfo=timezone.utc)
+    store.get_instrument_by_symbol.return_value = MagicMock(id=INST_ID)
+    mock_batch_ts.return_value = {
+        INST_ID: datetime(2026, 9, 9, 13, 55, tzinfo=timezone.utc)
+    }
 
     payload = decisions_by_asset(store, timeframe="5m")
     row = payload["decisions"][0]
@@ -81,7 +87,8 @@ def test_decisions_by_asset_exposes_entry_signal_and_position_open():
     assert row["robot_label"] == "Robot A"
 
 
-def test_decisions_by_asset_position_open_false_without_positions():
+@patch("quantara_engine.persistence.batch_summary.batch_latest_candle_timestamps")
+def test_decisions_by_asset_position_open_false_without_positions(mock_batch_ts):
     from quantara_engine.api.routes import decisions_by_asset
 
     store = MagicMock()
@@ -109,8 +116,10 @@ def test_decisions_by_asset_position_open_false_without_positions():
         "worker_status:strategy_runner": {"status": "healthy", "jobs_pending": 0},
         "worker_status:data_fetcher": {"status": "healthy"},
     }
-    store.get_instrument_by_symbol.return_value = MagicMock(id="xau")
-    store.latest_candle_timestamp.return_value = datetime(2026, 9, 9, 13, 55, tzinfo=timezone.utc)
+    store.get_instrument_by_symbol.return_value = MagicMock(id=INST_ID)
+    mock_batch_ts.return_value = {
+        INST_ID: datetime(2026, 9, 9, 13, 55, tzinfo=timezone.utc)
+    }
 
     payload = decisions_by_asset(store, timeframe="5m")
     row = payload["decisions"][0]

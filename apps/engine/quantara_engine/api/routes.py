@@ -282,25 +282,34 @@ def market_data_status(store: StoreDep):
     from quantara_engine.market_data.provider_budgets import all_provider_status
     from quantara_engine.market_data.registry import list_target_assets
     from quantara_engine.market_data.sessions import session_allows_entries
+    from quantara_engine.api.dashboard_cache import dashboard_candle_bundle
 
     worker_raw = store.get_settings_dict().get("worker_status:data_fetcher") or {}
     now = datetime.now(timezone.utc)
     asset_rows: list[dict] = []
     healthy = True
-    for asset in list_target_assets():
-        inst = store.get_instrument_by_symbol(asset.db_symbol)
-        counts: dict[str, int] = {}
+    assets = list(list_target_assets())
+    instrument_by_symbol = {
+        asset.db_symbol: store.get_instrument_by_symbol(asset.db_symbol) for asset in assets
+    }
+    instrument_ids = [inst.id for inst in instrument_by_symbol.values() if inst]
+    candle_bundle = dashboard_candle_bundle(store, instrument_ids)
+    candle_counts = candle_bundle["counts"]
+    last_candles = candle_bundle["last_candles"]
+    latest_closes = candle_bundle["latest_closes"]
+
+    for asset in assets:
+        inst = instrument_by_symbol.get(asset.db_symbol)
+        counts: dict[str, int] = {"5m": 0, "15m": 0, "1h": 0}
         last_candle = None
         latest_price = None
         stale = True
         session_status = "unknown"
         if inst:
-            for tf in ("5m", "15m", "1h"):
-                counts[tf] = store.count_candles(inst.id, tf)
-            last_candle = store.latest_candle_timestamp(inst.id, "5m")
-            recent = store.list_recent_candles(inst.id, "5m", limit=1)
-            if recent:
-                latest_price = float(recent[-1].close)
+            counts = candle_counts.get(inst.id, counts)
+            last_candle = last_candles.get(inst.id)
+            if inst.id in latest_closes:
+                latest_price = float(latest_closes[inst.id])
             if last_candle:
                 age_min = (now - last_candle).total_seconds() / 60
                 stale = age_min > 30
@@ -364,11 +373,7 @@ def analytics_assets(store: StoreDep):
     from quantara_engine.market_data.polling import STRATEGY_MIN_CANDLES
     from quantara_engine.market_data.registry import list_target_assets
     from quantara_engine.market_data.sessions import session_allows_entries
-    from quantara_engine.persistence.batch_summary import (
-        batch_candle_counts,
-        batch_latest_candle_closes,
-        batch_latest_candle_timestamps,
-    )
+    from quantara_engine.api.dashboard_cache import dashboard_candle_bundle
 
     robot_a, robot_b, combined = store.list_all_competition_entries()
     if not robot_a and not robot_b:
@@ -385,9 +390,10 @@ def analytics_assets(store: StoreDep):
         asset.db_symbol: store.get_instrument_by_symbol(asset.db_symbol) for asset in assets
     }
     instrument_ids = [inst.id for inst in instrument_by_symbol.values() if inst]
-    candle_counts = batch_candle_counts(store, instrument_ids)
-    last_candles = batch_latest_candle_timestamps(store, instrument_ids, "5m")
-    latest_closes = batch_latest_candle_closes(store, instrument_ids, "5m")
+    candle_bundle = dashboard_candle_bundle(store, instrument_ids)
+    candle_counts = candle_bundle["counts"]
+    last_candles = candle_bundle["last_candles"]
+    latest_closes = candle_bundle["latest_closes"]
 
     for asset in assets:
         inst = instrument_by_symbol.get(asset.db_symbol)
@@ -738,9 +744,11 @@ def decisions_latest(store: StoreDep):
 
 
 @router.get("/decisions/by-asset")
-def decisions_by_asset(store: StoreDep, timeframe: str = "5m"):
-    from quantara_workers.jobs.run_strategy import strategy_freshness_summary
-
+def decisions_by_asset(
+    store: StoreDep,
+    timeframe: str = "5m",
+    include_freshness: bool = True,
+):
     symbol_map = store.resolve_instrument_display_symbols()
     identity_map = store.build_instance_strategy_identity_map()
     items = store.list_latest_decisions_by_asset_timeframe(timeframe)
@@ -766,11 +774,15 @@ def decisions_by_asset(store: StoreDep, timeframe: str = "5m"):
         payload["position_open"] = d.instrument_id in open_instruments
         rows.append(payload)
     rows.sort(key=lambda row: (row.get("robot_label") or "", row.get("instrument") or ""))
-    return {
+    payload: dict = {
         "timeframe": timeframe,
         "decisions": rows,
-        "strategy_freshness": strategy_freshness_summary(store, now),
     }
+    if include_freshness:
+        from quantara_workers.jobs.run_strategy import strategy_freshness_summary
+
+        payload["strategy_freshness"] = strategy_freshness_summary(store, now)
+    return payload
 
 
 ROBOT_LABELS: dict[str, str] = {
@@ -1178,9 +1190,7 @@ def analytics_today(store: StoreDep, portfolio_id: str = "competition"):
                 "title_he": TIMEFRAME_GROUP_TITLE_HE.get(best_tf[0], best_tf[0]),
                 "average_return_pct": round(sum(best_tf[1]) / len(best_tf[1]), 2),
             }
-        open_positions_total = sum(
-            len(store.list_positions(e["portfolio"].id, open_only=True)) for e in entries
-        )
+        open_positions_total = store.count_open_competition_positions()
         return {
             "scope": "competition",
             "portfolio_count": len(entries),

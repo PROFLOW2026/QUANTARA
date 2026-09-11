@@ -21,10 +21,18 @@ export class ApiError extends Error {
 export function isEngineConnectionError(err: unknown): boolean {
   if (err instanceof DOMException && err.name === "AbortError") return true;
   if (err instanceof ApiError) {
-    return [408, 502, 503, 504, 499].includes(err.status) || err.status >= 500;
+    return (
+      [408, 502, 503, 504, 530, 499].includes(err.status) || err.status >= 500
+    );
   }
   return false;
 }
+
+export type EngineHealthResponse = {
+  status: string;
+  service: string;
+  api_version?: string;
+};
 
 function buildFetchUrl(path: string): string {
   const enginePath = path.startsWith("/") ? path : `/${path}`;
@@ -798,9 +806,9 @@ export const api = {
     return apiFetch<Decision[]>(`/decisions${qs}`);
   },
   getLatestDecision: () => apiFetch<Decision>("/decisions/latest"),
-  getDecisionsByAsset: (timeframe = "5m") =>
-    apiFetch<{ timeframe: string; decisions: Decision[] }>(
-      `/decisions/by-asset?timeframe=${encodeURIComponent(timeframe)}`
+  getDecisionsByAsset: (timeframe = "5m", includeFreshness = false) =>
+    apiFetch<{ timeframe: string; decisions: Decision[]; strategy_freshness?: StrategyFreshness }>(
+      `/decisions/by-asset?timeframe=${encodeURIComponent(timeframe)}&include_freshness=${includeFreshness ? "true" : "false"}`
     ),
   getStrategies: () => apiFetch<Strategy[]>("/strategies"),
   getStrategyVersions: (slug: string) =>
@@ -851,6 +859,7 @@ export const api = {
     apiFetch<MarketProviderStatus>("/market-data/status"),
   getAssetAnalytics: () =>
     apiFetch<AssetAnalyticsResponse>("/analytics/assets"),
+  getEngineHealth: () => apiFetch<EngineHealthResponse>("/health"),
   getWorkersStatus: () => apiFetch<WorkerStatus>("/workers/status"),
   getSettings: () => apiFetch<Settings>("/settings"),
   updateSettings: (data: Partial<Settings>) =>
