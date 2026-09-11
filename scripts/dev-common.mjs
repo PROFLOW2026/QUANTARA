@@ -6,8 +6,10 @@ import fs from "fs";
 import path from "path";
 import { loadRepoEnv, getRepoRoot } from "./load-env.cjs";
 import {
+  findQuantaraEnginePids,
   getEngineListenerPids,
   getProcessCommandLine,
+  isProcessAlive,
   isQuantaraEngineCommandLine,
   killProcessTree,
   waitForProcessExit,
@@ -30,13 +32,15 @@ export function prepareDevEnv() {
 }
 
 export function engineService() {
+  const host = (process.env.ENGINE_HOST || "127.0.0.1").trim();
+  const port = (process.env.ENGINE_PORT || "8000").trim();
   return {
     name: "engine",
     label: "ENGINE",
     color: "\x1b[34m",
     cwd: ENGINE,
     command: python,
-    args: ["main.py"],
+    args: ["-m", "uvicorn", "main:app", "--host", host, "--port", port],
   };
 }
 
@@ -90,8 +94,12 @@ export function isEnginePortListening() {
 
 export function getEngineListenerPid() {
   const port = (process.env.ENGINE_PORT || "8000").trim();
-  const pids = getEngineListenerPids(port);
+  const pids = getVerifiedEnginePids(port);
   return pids.length ? pids[0] : null;
+}
+
+export function getVerifiedEnginePids(port = (process.env.ENGINE_PORT || "8000").trim()) {
+  return findQuantaraEnginePids(port).filter((pid) => isProcessAlive(pid));
 }
 
 export function isEngineProcessRunning() {

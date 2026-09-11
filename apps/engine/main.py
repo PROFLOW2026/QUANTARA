@@ -50,11 +50,15 @@ app.include_router(router)
 
 
 if __name__ == "__main__":
+    import os
+
     import uvicorn
 
+    # Hot reload is dev-only. START_QUANTARA uses uvicorn CLI without --reload.
+    reload = os.environ.get("QUANTARA_DEV_RELOAD", "").strip().lower() in ("1", "true", "yes")
     uvicorn.run(
         "main:app",
         host=settings.engine_host,
         port=settings.engine_port,
-        reload=True,
+        reload=reload,
     )

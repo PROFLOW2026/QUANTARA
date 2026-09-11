@@ -10,7 +10,9 @@ from uuid import UUID
 import pytest
 
 from quantara_engine.api.routes import analytics_assets
+from quantara_engine.domain.types import Instrument
 from quantara_engine.models.enums import Direction as OrmDirection
+from quantara_engine.portfolio.currency import FxRateTable
 from quantara_engine.persistence.batch_summary import (
     AssetExposureRiskMetrics,
     CompetitionExposureRiskSummary,
@@ -22,6 +24,22 @@ from quantara_engine.persistence.batch_summary import (
 
 def _uuid(n: int) -> str:
     return f"00000000-0000-4000-8000-{n:012d}"
+
+
+def _usd_inst(inst_id: str, symbol: str = "BTCUSD") -> Instrument:
+    return Instrument(
+        id=inst_id,
+        symbol=symbol,
+        name=symbol,
+        asset_class="crypto",
+        base_currency="BTC",
+        quote_currency="USD",
+        pip_size=Decimal("0.01"),
+        contract_size=Decimal("1"),
+        price_tick_size=Decimal("0.01"),
+        quantity_step=Decimal("0.0001"),
+        min_quantity=Decimal("0.0001"),
+    )
 
 
 class TestBatchEntryActualRisk:
@@ -87,7 +105,10 @@ class TestBatchCompetitionExposureRiskSummary:
             return_value={pos_id: Decimal("14.50")},
         ), patch(
             "quantara_engine.persistence.batch_summary._batch_instruments_by_id",
-            return_value={},
+            return_value={inst_id: _usd_inst(inst_id)},
+        ), patch(
+            "quantara_engine.portfolio.currency.resolve_dashboard_fx_rates",
+            return_value=FxRateTable.usd_only(),
         ), patch(
             "quantara_engine.competition.asset_equity.portfolio_ids_for_symbol",
             return_value=[_uuid(1), _uuid(2)],
@@ -140,7 +161,10 @@ class TestBatchCompetitionExposureRiskSummary:
             return_value={_uuid(600 + i): Decimal("10") for i in range(25)},
         ), patch(
             "quantara_engine.persistence.batch_summary._batch_instruments_by_id",
-            return_value={},
+            return_value={inst_id: _usd_inst(inst_id)},
+        ), patch(
+            "quantara_engine.portfolio.currency.resolve_dashboard_fx_rates",
+            return_value=FxRateTable.usd_only(),
         ), patch(
             "quantara_engine.competition.asset_equity.portfolio_ids_for_symbol",
             return_value=[_uuid(1)],
@@ -185,7 +209,10 @@ class TestBatchCompetitionExposureRiskSummary:
             return_value={pos_id: Decimal("5")},
         ), patch(
             "quantara_engine.persistence.batch_summary._batch_instruments_by_id",
-            return_value={},
+            return_value={inst_id: _usd_inst(inst_id, "NVDA")},
+        ), patch(
+            "quantara_engine.portfolio.currency.resolve_dashboard_fx_rates",
+            return_value=FxRateTable.usd_only(),
         ), patch(
             "quantara_engine.competition.asset_equity.portfolio_ids_for_symbol",
             return_value=[_uuid(1)],
@@ -229,7 +256,10 @@ class TestBatchCompetitionExposureRiskSummary:
             return_value={},
         ), patch(
             "quantara_engine.persistence.batch_summary._batch_instruments_by_id",
-            return_value={},
+            return_value={inst_id: _usd_inst(inst_id, "NVDA")},
+        ), patch(
+            "quantara_engine.portfolio.currency.resolve_dashboard_fx_rates",
+            return_value=FxRateTable.usd_only(),
         ), patch(
             "quantara_engine.competition.asset_equity.portfolio_ids_for_symbol",
             return_value=[_uuid(1)],
@@ -268,7 +298,13 @@ class TestBatchCompetitionExposureRiskSummary:
             return_value={_uuid(901): Decimal("3"), _uuid(902): Decimal("4")},
         ), patch(
             "quantara_engine.persistence.batch_summary._batch_instruments_by_id",
-            return_value={},
+            return_value={
+                inst_a: _usd_inst(inst_a, "BTCUSD"),
+                inst_b: _usd_inst(inst_b, "NVDA"),
+            },
+        ), patch(
+            "quantara_engine.portfolio.currency.resolve_dashboard_fx_rates",
+            return_value=FxRateTable.usd_only(),
         ), patch(
             "quantara_engine.competition.asset_equity.portfolio_ids_for_symbol",
             side_effect=lambda sym: [_uuid(1)],

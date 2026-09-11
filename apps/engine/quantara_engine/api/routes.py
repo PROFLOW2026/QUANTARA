@@ -442,7 +442,11 @@ def analytics_assets(store: StoreDep):
 
         risk_metrics = exposure_by_instrument.get(inst.id if inst else "", None)
         if open_positions > 0 and risk_metrics is not None:
-            open_exposure = float(risk_metrics.open_exposure)
+            open_exposure = (
+                float(risk_metrics.open_exposure)
+                if risk_metrics.open_exposure is not None
+                else None
+            )
             open_risk_usd = (
                 float(risk_metrics.open_risk_usd)
                 if risk_metrics.open_risk_usd is not None
@@ -454,7 +458,11 @@ def analytics_assets(store: StoreDep):
             open_risk_usd = None
             open_risk_pct = None
         else:
-            open_exposure = float(risk_metrics.open_exposure) if risk_metrics else 0.0
+            open_exposure = (
+                float(risk_metrics.open_exposure)
+                if risk_metrics and risk_metrics.open_exposure is not None
+                else 0.0
+            )
             open_risk_usd = (
                 float(risk_metrics.open_risk_usd)
                 if risk_metrics and risk_metrics.open_risk_usd is not None
@@ -496,8 +504,14 @@ def analytics_assets(store: StoreDep):
             }
         )
 
-    summary_payload: dict[str, float | int | None] = {
-        "open_exposure": float(exposure_summary.total_open_exposure),
+    open_exposure_usd = (
+        float(exposure_summary.total_open_exposure)
+        if exposure_summary.total_open_exposure is not None
+        else None
+    )
+    summary_payload: dict[str, float | int | bool | None] = {
+        "open_exposure": open_exposure_usd,
+        "open_exposure_usd": open_exposure_usd,
         "open_risk_usd": (
             float(exposure_summary.total_open_risk_usd)
             if exposure_summary.total_open_risk_usd is not None
@@ -509,6 +523,7 @@ def analytics_assets(store: StoreDep):
         "risk_found_count": exposure_summary.risk_found_count,
         "risk_missing_count": exposure_summary.risk_missing_count,
         "risk_zero_valid_count": exposure_summary.risk_zero_valid_count,
+        "exposure_missing_count": exposure_summary.exposure_missing_count,
         "exposure_available": exposure_summary.exposure_available,
     }
     return {

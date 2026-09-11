@@ -4,8 +4,10 @@ import {
   classifyWorkerLockState,
   commandLineMatches,
   isQuantaraEngineCommandLine,
+  isQuantaraEngineReloadSupervisor,
   isQuantaraWorkerCommandLine,
 } from "./process-utils.mjs";
+import { engineService } from "./dev-common.mjs";
 
 test("no lock -> worker not running", () => {
   const state = classifyWorkerLockState({
@@ -122,6 +124,28 @@ test("mapWorkerStateToLauncher marks BROKEN unsafe", async () => {
 test("commandLineMatches is case-insensitive", () => {
   assert.equal(
     commandLineMatches("PYTHON -M QUANTARA_WORKERS.MAIN", ["quantara_workers.main"]),
+    true
+  );
+});
+
+test("engine service uses uvicorn without reload", () => {
+  const svc = engineService();
+  assert.deepEqual(svc.args, ["-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000"]);
+  assert.equal(svc.args.includes("--reload"), false);
+});
+
+test("reload supervisor detection", () => {
+  assert.equal(isQuantaraEngineReloadSupervisor("python apps/engine/main.py"), true);
+  assert.equal(isQuantaraEngineReloadSupervisor("python main.py --reload"), true);
+  assert.equal(
+    isQuantaraEngineReloadSupervisor("python -m uvicorn main:app --host 127.0.0.1 --port 8000"),
+    false
+  );
+});
+
+test("legacy main.py launcher is still recognized as engine", () => {
+  assert.equal(
+    isQuantaraEngineCommandLine("python apps/engine/main.py"),
     true
   );
 });

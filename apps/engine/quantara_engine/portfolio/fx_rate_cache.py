@@ -287,6 +287,26 @@ def get_canonical_jpy_per_usd(store: TradingStore) -> Decimal:
             _release_advisory_lock(store)
 
 
+def build_dashboard_fx_rates(store: TradingStore, quote_currencies: set[str]) -> "FxRateTable":
+    """Read-only FX for dashboard analytics — persisted cache + DB candles only."""
+    from quantara_engine.portfolio.currency import ACCOUNT_CURRENCY, FxRateTable
+
+    rates: dict[str, Decimal] = {ACCOUNT_CURRENCY: Decimal("1")}
+    needed = {c.upper() for c in quote_currencies if c.upper() != ACCOUNT_CURRENCY}
+    if "JPY" in needed:
+        cached = _load_persisted_cache(store)
+        jpy_rate = cached.rate if cached is not None and cached.rate > 0 else None
+        if jpy_rate is None:
+            try:
+                jpy_rate = _fetch_rate_from_db_candles(store)
+            except Exception as exc:
+                logger.debug("Dashboard FX DB candle lookup failed: %s", exc)
+                jpy_rate = None
+        if jpy_rate is not None and jpy_rate > 0:
+            rates["JPY"] = jpy_rate
+    return FxRateTable(quote_per_usd=rates)
+
+
 def _bootstrap_without_provider(store: TradingStore) -> CachedFxRate:
     """Seed cache from DB candles or default — never calls external provider."""
     now = datetime.now(timezone.utc)

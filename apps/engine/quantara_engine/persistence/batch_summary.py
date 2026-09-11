@@ -47,7 +47,7 @@ class AssetBatchMetrics:
 
 @dataclass(frozen=True)
 class CompetitionExposureRiskSummary:
-    total_open_exposure: Decimal
+    total_open_exposure: Decimal | None
     total_open_risk_usd: Decimal | None
     total_equity: Decimal
     open_risk_pct: float | None
@@ -55,12 +55,13 @@ class CompetitionExposureRiskSummary:
     risk_found_count: int = 0
     risk_missing_count: int = 0
     risk_zero_valid_count: int = 0
+    exposure_missing_count: int = 0
     exposure_available: bool = True
 
 
 @dataclass(frozen=True)
 class AssetExposureRiskMetrics:
-    open_exposure: Decimal
+    open_exposure: Decimal | None
     open_risk_usd: Decimal | None
     asset_allocated_equity: Decimal
     open_risk_pct: float | None
@@ -163,6 +164,28 @@ def _position_mark_price(current_price: Decimal | None, entry_price: Decimal | N
     return Decimal(str(entry_price or 0))
 
 
+def _position_exposure_usd(
+    *,
+    quantity: Decimal,
+    mark: Decimal,
+    instrument: Instrument | None,
+    fx_rates: Any,
+) -> Decimal | None:
+    """Account-currency (USD) notional for one open position."""
+    if instrument is None or mark <= 0:
+        return None
+    from quantara_engine.portfolio.currency import normalize_quote_currency
+
+    qty = abs(Decimal(str(quantity or 0)))
+    if qty <= 0:
+        return None
+    quote = normalize_quote_currency(instrument.quote_currency)
+    try:
+        return fx_rates.quote_notional_to_account(qty, mark, quote)
+    except ValueError:
+        return None
+
+
 def _derive_position_open_risk(
     *,
     quantity: Decimal,
@@ -170,6 +193,7 @@ def _derive_position_open_risk(
     entry_price: Decimal,
     stop_loss: Decimal,
     instrument: Instrument | None,
+    fx_rates: Any,
 ) -> Decimal | None:
     """Canonical SL risk using the same sizing helper as live trading."""
     if instrument is None or entry_price <= 0 or stop_loss <= 0:
@@ -177,7 +201,6 @@ def _derive_position_open_risk(
     qty = abs(Decimal(str(quantity or 0)))
     if qty <= 0:
         return None
-    from quantara_engine.portfolio.currency import FxRateTable
     from quantara_engine.risk.sizing import _expected_risk_at_quantity
 
     dir_value = direction.value if hasattr(direction, "value") else str(direction)
@@ -188,7 +211,7 @@ def _derive_position_open_risk(
             entry_reference=entry_price,
             stop_loss=stop_loss,
             instrument=instrument,
-            fx_rates=FxRateTable.usd_only(),
+            fx_rates=fx_rates,
             execution_assumptions=None,
         )
     except (ValueError, ZeroDivisionError, TypeError):
@@ -204,6 +227,7 @@ def _resolve_position_open_risk(
     stop_loss: Decimal,
     instrument: Instrument | None,
     intent_risk: Decimal | None,
+    fx_rates: Any,
 ) -> tuple[Decimal | None, str]:
     if intent_risk is not None:
         return intent_risk, "intent"
@@ -213,6 +237,7 @@ def _resolve_position_open_risk(
         entry_price=entry_price,
         stop_loss=stop_loss,
         instrument=instrument,
+        fx_rates=fx_rates,
     )
     if derived is not None:
         return derived, "derived"
@@ -298,13 +323,20 @@ def batch_competition_exposure_risk_summary(
     intent_risk_by_position = batch_entry_actual_risk_by_position(store, position_ids)
     instrument_ids = list({str(row[1]) for row in open_rows})
     instruments_by_id = _batch_instruments_by_id(store, instrument_ids)
+    from quantara_engine.portfolio.currency import quote_currencies_for_instruments, resolve_dashboard_fx_rates
+
+    fx_rates = resolve_dashboard_fx_rates(
+        store, quote_currencies_for_instruments(instruments_by_id.values())
+    )
 
     exposure_by_instrument: dict[str, Decimal] = {}
+    exposure_missing_by_instrument: dict[str, int] = {}
     risk_known_by_instrument: dict[str, Decimal] = {}
     risk_missing_by_instrument: dict[str, int] = {}
     risk_found_count = 0
     risk_missing_count = 0
     risk_zero_valid_count = 0
+    exposure_missing_count = 0
 
     for (
         position_id,
@@ -317,19 +349,31 @@ def batch_competition_exposure_risk_summary(
     ) in open_rows:
         iid = str(instrument_id)
         pid = str(position_id)
+        inst = instruments_by_id.get(iid)
         mark = _position_mark_price(current_price, entry_price)
-        notional = abs(Decimal(str(quantity or 0))) * mark
-        exposure_by_instrument[iid] = exposure_by_instrument.get(iid, Decimal("0")) + notional
+        qty = Decimal(str(quantity or 0))
+        usd_exposure = _position_exposure_usd(
+            quantity=qty,
+            mark=mark,
+            instrument=inst,
+            fx_rates=fx_rates,
+        )
+        if usd_exposure is None:
+            exposure_missing_count += 1
+            exposure_missing_by_instrument[iid] = exposure_missing_by_instrument.get(iid, 0) + 1
+        else:
+            exposure_by_instrument[iid] = exposure_by_instrument.get(iid, Decimal("0")) + usd_exposure
 
         intent_risk = intent_risk_by_position.get(pid)
         resolved_risk, source = _resolve_position_open_risk(
             position_id=pid,
-            quantity=Decimal(str(quantity or 0)),
+            quantity=qty,
             direction=direction,
             entry_price=Decimal(str(entry_price or 0)),
             stop_loss=Decimal(str(stop_loss or 0)),
-            instrument=instruments_by_id.get(iid),
+            instrument=inst,
             intent_risk=intent_risk,
+            fx_rates=fx_rates,
         )
         if source == "missing" or resolved_risk is None:
             risk_missing_count += 1
@@ -341,7 +385,13 @@ def batch_competition_exposure_risk_summary(
             risk_found_count += 1
         risk_known_by_instrument[iid] = risk_known_by_instrument.get(iid, Decimal("0")) + resolved_risk
 
-    total_open_exposure = sum(exposure_by_instrument.values(), Decimal("0")).quantize(Decimal("0.01"))
+    total_open_exposure: Decimal | None
+    if exposure_missing_count > 0:
+        total_open_exposure = None
+    else:
+        total_open_exposure = sum(exposure_by_instrument.values(), Decimal("0")).quantize(
+            Decimal("0.01")
+        )
     total_open_risk_usd: Decimal | None
     open_risk_pct: float | None
     if risk_missing_count > 0:
@@ -367,16 +417,23 @@ def batch_competition_exposure_risk_summary(
         risk_found_count=risk_found_count,
         risk_missing_count=risk_missing_count,
         risk_zero_valid_count=risk_zero_valid_count,
-        exposure_available=True,
+        exposure_missing_count=exposure_missing_count,
+        exposure_available=exposure_missing_count == 0,
     )
 
+    instrument_ids_with_positions = {str(row[1]) for row in open_rows}
     by_instrument: dict[str, AssetExposureRiskMetrics] = {}
-    for iid, exposure in exposure_by_instrument.items():
+    for iid in instrument_ids_with_positions:
         db_symbol = symbol_by_instrument_id.get(iid, "").upper()
         allocated = asset_allocated_equity.get(db_symbol, Decimal("0"))
-        missing = risk_missing_by_instrument.get(iid, 0)
+        risk_missing = risk_missing_by_instrument.get(iid, 0)
+        exposure_missing = exposure_missing_by_instrument.get(iid, 0)
         known_risk = risk_known_by_instrument.get(iid, Decimal("0")).quantize(Decimal("0.01"))
-        if missing > 0:
+        if exposure_missing > 0:
+            exposure_val: Decimal | None = None
+        else:
+            exposure_val = exposure_by_instrument.get(iid, Decimal("0")).quantize(Decimal("0.01"))
+        if risk_missing > 0:
             risk_usd: Decimal | None = None
             risk_pct: float | None = None
         else:
@@ -384,12 +441,12 @@ def batch_competition_exposure_risk_summary(
             risk_pct = float(known_risk / allocated * Decimal("100")) if allocated > 0 else 0.0
             risk_pct = round(risk_pct, 2)
         by_instrument[iid] = AssetExposureRiskMetrics(
-            open_exposure=exposure.quantize(Decimal("0.01")),
+            open_exposure=exposure_val,
             open_risk_usd=risk_usd,
             asset_allocated_equity=allocated,
             open_risk_pct=risk_pct,
             global_risk_cap_pct=cap_pct,
-            open_risk_missing_count=missing,
+            open_risk_missing_count=risk_missing,
         )
     return summary, by_instrument
 

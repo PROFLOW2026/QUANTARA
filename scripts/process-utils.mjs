@@ -5,7 +5,14 @@ import fs from "fs";
 import { spawnSync } from "child_process";
 
 export const WORKER_CMD_MARKERS = ["quantara_workers.main", "-m quantara_workers.main"];
-export const ENGINE_CMD_MARKERS = ["apps\\engine\\main.py", "apps/engine/main.py", "uvicorn main:app"];
+export const ENGINE_CMD_MARKERS = [
+  "apps\\engine\\main.py",
+  "apps/engine/main.py",
+  "uvicorn main:app",
+  "-m uvicorn main:app",
+  "quantara_engine",
+];
+export const ENGINE_RELOAD_MARKERS = ["--reload", "watchfiles", "reload=True"];
 
 export function isProcessAlive(pid) {
   if (!Number.isFinite(pid) || pid <= 0) return false;
@@ -54,7 +61,110 @@ export function isQuantaraWorkerCommandLine(commandLine) {
 }
 
 export function isQuantaraEngineCommandLine(commandLine) {
-  return commandLineMatches(commandLine, ENGINE_CMD_MARKERS);
+  if (commandLineMatches(commandLine, ENGINE_CMD_MARKERS)) return true;
+  const hay = String(commandLine || "").toLowerCase();
+  // Legacy/cwd launch from apps/engine: `python main.py`
+  return /\bmain\.py\b/.test(hay) && !hay.includes("quantara_workers") && !hay.includes("-m uvicorn");
+}
+
+export function isQuantaraEngineReloadSupervisor(commandLine) {
+  const hay = String(commandLine || "").toLowerCase();
+  if (!isQuantaraEngineCommandLine(commandLine)) return false;
+  if (ENGINE_RELOAD_MARKERS.some((marker) => hay.includes(String(marker).toLowerCase()))) {
+    return true;
+  }
+  // Legacy launcher used `python main.py` with embedded uvicorn reload (no CLI flag).
+  return /\bmain\.py\b/.test(hay) && !hay.includes("-m uvicorn");
+}
+
+export function getProcessParentPid(pid) {
+  if (!Number.isFinite(pid) || pid <= 0) return null;
+  if (process.platform === "win32") {
+    const result = spawnSync(
+      "powershell",
+      [
+        "-NoProfile",
+        "-Command",
+        `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty ParentProcessId)`,
+      ],
+      { encoding: "utf8", shell: true }
+    );
+    const parent = parseInt(String(result.stdout || "").trim(), 10);
+    return Number.isFinite(parent) && parent > 0 ? parent : null;
+  }
+  const result = spawnSync("ps", ["-p", String(pid), "-o", "ppid="], { encoding: "utf8" });
+  const parent = parseInt(String(result.stdout || "").trim(), 10);
+  return Number.isFinite(parent) && parent > 0 ? parent : null;
+}
+
+export function findQuantaraEnginePidsByCommandLine() {
+  if (process.platform === "win32") {
+    const result = spawnSync(
+      "powershell",
+      [
+        "-NoProfile",
+        "-Command",
+        "Get-CimInstance Win32_Process -Filter \"name='python.exe'\" | Where-Object { $_.CommandLine -like '*main:app*' -or $_.CommandLine -like '*apps\\\\engine\\\\main.py*' -or $_.CommandLine -like '*apps/engine/main.py*' } | ForEach-Object { $_.ProcessId }",
+      ],
+      { encoding: "utf8", shell: true }
+    );
+    return String(result.stdout || "")
+      .split(/\r?\n/)
+      .map((line) => parseInt(line.trim(), 10))
+      .filter((pid) => Number.isFinite(pid) && pid > 0);
+  }
+  const result = spawnSync("pgrep", ["-f", "uvicorn main:app|apps/engine/main.py"], {
+    encoding: "utf8",
+  });
+  return String(result.stdout || "")
+    .split(/\r?\n/)
+    .map((line) => parseInt(line.trim(), 10))
+    .filter((pid) => Number.isFinite(pid) && pid > 0);
+}
+
+/**
+ * Collect QUANTARA Engine PIDs: port listeners, command-line matches, reload supervisors.
+ */
+export function findQuantaraEnginePids(port = "8000") {
+  const candidates = new Set();
+  for (const pid of getEngineListenerPids(port)) {
+    candidates.add(pid);
+    const parent = getProcessParentPid(pid);
+    if (parent && isQuantaraEngineCommandLine(getProcessCommandLine(parent))) {
+      candidates.add(parent);
+    }
+  }
+  for (const pid of findQuantaraEnginePidsByCommandLine()) {
+    candidates.add(pid);
+  }
+  const roots = new Set();
+  for (const pid of candidates) {
+    if (!isProcessAlive(pid)) continue;
+    const cmd = getProcessCommandLine(pid);
+    if (!isQuantaraEngineCommandLine(cmd)) continue;
+    if (isQuantaraEngineReloadSupervisor(cmd)) {
+      roots.add(pid);
+      continue;
+    }
+    const parent = getProcessParentPid(pid);
+    const parentCmd = parent ? getProcessCommandLine(parent) : "";
+    if (parent && isQuantaraEngineReloadSupervisor(parentCmd)) {
+      roots.add(parent);
+    } else {
+      roots.add(pid);
+    }
+  }
+  return [...roots].sort((a, b) => a - b);
+}
+
+export function killQuantaraEngineProcesses(port = "8000") {
+  const pids = findQuantaraEnginePids(port);
+  const terminated = [];
+  for (const pid of pids) {
+    killProcessTree(pid);
+    terminated.push(pid);
+  }
+  return terminated;
 }
 
 export function findQuantaraWorkerPids() {

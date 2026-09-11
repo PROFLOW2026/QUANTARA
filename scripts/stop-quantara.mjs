@@ -4,22 +4,29 @@
  * Does not modify trading state or database data.
  */
 import { spawnSync } from "child_process";
-import { getRepoRoot } from "./load-env.cjs";
+import path from "path";
+import { getRepoRoot, loadRepoEnv } from "./load-env.cjs";
 import {
   isEnginePortListening,
+  isEngineRunning,
   isTunnelRunning,
   stopWorkerProcessesCanonical,
   getWorkerState,
 } from "./dev-common.mjs";
 import {
+  findQuantaraEnginePids,
   getEngineListenerPids,
   getProcessCommandLine,
+  isProcessAlive,
   isQuantaraEngineCommandLine,
+  killQuantaraEngineProcesses,
   killProcessTree,
   waitForProcessExit,
 } from "./process-utils.mjs";
 
 const ROOT = getRepoRoot();
+loadRepoEnv(path.join(ROOT, ".env"));
+const ENGINE_PORT = (process.env.ENGINE_PORT || "8000").trim();
 
 function killPid(pid, label) {
   if (!Number.isFinite(pid) || pid <= 0) return false;
@@ -56,18 +63,53 @@ function stopWorkers() {
   }
 }
 
-function stopEngine() {
-  const port = (process.env.ENGINE_PORT || "8000").trim();
-  const pids = getEngineListenerPids(port);
-  if (!pids.length) {
-    console.log("No Engine listener on port 8000.");
-    return;
+async function stopEngineAuthoritative() {
+  const beforePids = findQuantaraEnginePids(ENGINE_PORT);
+  if (beforePids.length) {
+    console.log(`Engine candidates before stop: ${beforePids.join(", ")}`);
+    for (const pid of beforePids) {
+      const cmd = getProcessCommandLine(pid);
+      console.log(`  PID ${pid}: ${cmd || "(no command line)"}`);
+    }
+  } else if (isEnginePortListening()) {
+    const listeners = getEngineListenerPids(ENGINE_PORT);
+    console.log(
+      `Port ${ENGINE_PORT} listeners without QUANTARA command match: ${listeners.join(", ")}`
+    );
+    for (const pid of listeners) {
+      killPid(pid, "Port listener");
+    }
+  } else {
+    console.log(`No QUANTARA Engine process detected on port ${ENGINE_PORT}.`);
   }
-  for (const pid of pids) {
-    const cmd = getProcessCommandLine(pid);
-    const label = isQuantaraEngineCommandLine(cmd) ? "Engine" : "Port 8000 listener";
-    killPid(pid, label);
+
+  const terminated = killQuantaraEngineProcesses(ENGINE_PORT);
+  if (terminated.length) {
+    console.log(`Engine PIDs terminated = [${terminated.join(", ")}]`);
+  } else {
+    console.log("Engine PIDs terminated = []");
   }
+
+  for (const pid of terminated) {
+    waitForProcessExit(pid, 15000);
+  }
+
+  const remaining = findQuantaraEnginePids(ENGINE_PORT).filter((pid) => isProcessAlive(pid));
+  const portListeners = getEngineListenerPids(ENGINE_PORT);
+  const healthUp = await isEngineRunning();
+
+  console.log(`Engine processes remaining = ${remaining.length}${remaining.length ? ` [${remaining.join(", ")}]` : ""}`);
+  console.log(`Port ${ENGINE_PORT} listener = ${portListeners.length}${portListeners.length ? ` [${portListeners.join(", ")}]` : ""}`);
+  console.log(`Engine health responding = ${healthUp ? "YES" : "NO"}`);
+
+  const stopped =
+    remaining.length === 0 && portListeners.length === 0 && !healthUp;
+  if (stopped) {
+    console.log("Engine stopped.");
+  } else {
+    console.log("Engine stop INCOMPLETE — manual cleanup may be required.");
+  }
+  return stopped;
 }
 
 function stopTunnel() {
@@ -98,7 +140,7 @@ function stopTunnel() {
   }
 }
 
-function main() {
+async function main() {
   if (process.platform !== "win32") {
     console.error("STOP_QUANTARA is intended for Windows.");
     process.exit(1);
@@ -111,11 +153,9 @@ function main() {
   console.log("");
 
   stopWorkers();
-  if (isEnginePortListening()) {
-    stopEngine();
-  } else {
-    console.log("Engine port 8000 is not listening.");
-  }
+  console.log("");
+  await stopEngineAuthoritative();
+  console.log("");
   stopTunnel();
 
   console.log("");
@@ -123,4 +163,7 @@ function main() {
   console.log("");
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

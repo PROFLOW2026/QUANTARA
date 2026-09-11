@@ -112,6 +112,13 @@ def quote_currencies_for_instruments(instruments: Iterable[Instrument]) -> set[s
     return quotes
 
 
+def resolve_dashboard_fx_rates(store: TradingStore, quote_currencies: set[str]) -> FxRateTable:
+    """Dashboard read path — cached / DB FX only, no external provider refresh."""
+    from quantara_engine.portfolio.fx_rate_cache import build_dashboard_fx_rates
+
+    return build_dashboard_fx_rates(store, quote_currencies)
+
+
 def resolve_fx_rates(store: TradingStore, quote_currencies: set[str]) -> FxRateTable:
     """Resolve live quote→USD rates from DB candles (USDJPY) with provider fallback."""
     rates: dict[str, Decimal] = {ACCOUNT_CURRENCY: Decimal("1")}

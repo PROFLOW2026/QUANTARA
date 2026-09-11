@@ -12,6 +12,7 @@ import {
   isEngineRunning,
   isEnginePortListening,
   getEngineListenerPid,
+  getVerifiedEnginePids,
   isWorkerRunning,
   getWorkerRunningPid,
   getWorkerState,
@@ -72,8 +73,13 @@ async function clearStaleEngineListeners() {
 
 async function launchEngine() {
   if (await isEngineRunning()) {
-    const pid = getEngineListenerPid();
-    log(`[ENGINE] Already running${pid ? ` PID=${pid}` : ""} — health OK`);
+    const pids = getVerifiedEnginePids();
+    const pid = pids[0] ?? null;
+    if (!pid) {
+      log("[ENGINE] Health OK but no verifiable Engine PID — reporting inconsistency");
+      return { ok: true, started: false, pid: null, pidWarning: true };
+    }
+    log(`[ENGINE] Already running PID=${pid} — health OK`);
     return { ok: true, started: false, pid };
   }
   await clearStaleEngineListeners();
@@ -82,7 +88,11 @@ async function launchEngine() {
   startWindowsTerminal(service);
   log("[ENGINE] Starting in new window...");
   const up = await waitForEngine();
-  return { ok: up, started: true, pid: getEngineListenerPid() };
+  const pid = getVerifiedEnginePids()[0] ?? null;
+  if (up && !pid) {
+    log("[ENGINE] Started but PID could not be verified — check QUANTARA ENGINE window");
+  }
+  return { ok: up, started: true, pid };
 }
 
 async function launchWorker() {

@@ -40,7 +40,9 @@ export function ExposureRiskSummaryCards({
     <div className="grid gap-4 sm:grid-cols-3">
       <Card>
         <CardHeader>
-          <CardTitle>{t("home.open_exposure_title")}</CardTitle>
+          <CardTitle title={t("home.open_exposure_usd_hint")}>
+            {t("home.open_exposure_title")}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
