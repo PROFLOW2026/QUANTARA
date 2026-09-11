@@ -83,7 +83,7 @@ def is_provider_eligible(
         return True
 
     if provider == ProviderName.TIINGO:
-        if purpose == "candles" and store is not None and not can_request(store, "tiingo"):
+        if store is not None and not can_request(store, "tiingo", purpose=purpose):
             return False
         return True
 

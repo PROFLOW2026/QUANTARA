@@ -80,14 +80,28 @@ class TiingoMarketDataProvider:
             "Content-Type": "application/json",
         }
 
-    def _request(self, url: str, symbol: str) -> list[dict[str, Any]] | dict[str, Any]:
-        if not can_request(self._store, self.source):
+    def _request(
+        self,
+        url: str,
+        symbol: str,
+        *,
+        purpose: str = "candles",
+        count: int = 1,
+    ) -> list[dict[str, Any]] | dict[str, Any]:
+        if not can_request(self._store, self.source, count=count, purpose=purpose):
             raise TiingoError(f"Tiingo budget blocked request for {symbol}")
         req = urllib.request.Request(url, headers=self._headers())
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 payload = json.loads(resp.read().decode())
-            record_request(self._store, self.source, symbol=symbol, caller=self._caller, success=True)
+            record_request(
+                self._store,
+                self.source,
+                symbol=symbol,
+                caller=self._caller,
+                count=count,
+                success=True,
+            )
             return payload
         except urllib.error.HTTPError as exc:
             body = exc.read().decode(errors="replace")[:200]
@@ -96,6 +110,7 @@ class TiingoMarketDataProvider:
                 self.source,
                 symbol=symbol,
                 caller=self._caller,
+                count=count,
                 success=False,
                 error=f"HTTP {exc.code}: {body}",
             )
@@ -106,6 +121,7 @@ class TiingoMarketDataProvider:
                 self.source,
                 symbol=symbol,
                 caller=self._caller,
+                count=count,
                 success=False,
                 error=str(exc.reason),
             )
@@ -142,7 +158,7 @@ class TiingoMarketDataProvider:
             }
             url = f"https://api.tiingo.com/iex/{symbol}/prices?" + urllib.parse.urlencode(params)
 
-        payload = self._request(url, symbol)
+        payload = self._request(url, symbol, purpose="candles")
         if isinstance(payload, list):
             if self._asset and self._asset.asset_class == AssetClass.CRYPTO:
                 rows: list[dict[str, Any]] = []
@@ -162,7 +178,7 @@ class TiingoMarketDataProvider:
         """Latest FX bid/ask/mid from Tiingo /tiingo/fx/top (one request, cached by caller)."""
         symbol = (ticker or self._provider_ticker()).lower()
         url = f"https://api.tiingo.com/tiingo/fx/top?tickers={urllib.parse.quote(symbol)}"
-        payload = self._request(url, symbol)
+        payload = self._request(url, symbol, purpose="fx_rate")
         rows = payload if isinstance(payload, list) else []
         if not rows:
             return None
@@ -183,13 +199,72 @@ class TiingoMarketDataProvider:
             "resampleFreq": "5min",
         }
         url = f"https://api.tiingo.com/tiingo/fx/{ticker.lower()}/prices?" + urllib.parse.urlencode(params)
-        rows = self._request(url, ticker)
+        rows = self._request(url, ticker, purpose="fx_rate")
         if not isinstance(rows, list) or not rows:
             return None
         try:
             return Decimal(str(rows[-1]["close"]))
         except (KeyError, InvalidOperation, TypeError, ValueError):
             return None
+
+    def fetch_latest_crypto_batch(
+        self,
+        items: list[tuple[AssetDefinition, str, datetime | None]],
+        timeframe: str,
+    ) -> dict[str, list[Candle]]:
+        """Fetch multiple crypto tickers in one Tiingo request when possible."""
+        if timeframe != PROVIDER_TIMEFRAME:
+            raise TiingoError(f"Tiingo fetch blocked for {timeframe}; use {PROVIDER_TIMEFRAME}")
+        if not items:
+            return {}
+
+        tickers: list[str] = []
+        ticker_to_instrument: dict[str, str] = {}
+        since_map: dict[str, datetime | None] = {}
+        for asset, instrument_id, since in items:
+            ticker = provider_symbol(asset, ProviderName.TIINGO)
+            tickers.append(ticker)
+            ticker_to_instrument[ticker.lower()] = instrument_id
+            since_map[ticker.lower()] = since
+
+        earliest = datetime.now(timezone.utc) - timedelta(days=5)
+        for since in since_map.values():
+            if since is not None:
+                candidate = since - timedelta(days=1)
+                if candidate.tzinfo is None:
+                    candidate = candidate.replace(tzinfo=timezone.utc)
+                earliest = min(earliest, candidate)
+
+        params = {
+            "tickers": ",".join(tickers),
+            "startDate": earliest.strftime("%Y-%m-%d"),
+            "resampleFreq": RESAMPLE_MAP[timeframe],
+        }
+        url = "https://api.tiingo.com/tiingo/crypto/prices?" + urllib.parse.urlencode(params)
+        batch_label = ",".join(tickers)
+        payload = self._request(url, batch_label, purpose="candles", count=1)
+        if not isinstance(payload, list):
+            return {}
+
+        out: dict[str, list[Candle]] = {}
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            ticker = str(item.get("ticker") or "").lower()
+            instrument_id = ticker_to_instrument.get(ticker)
+            if not instrument_id:
+                continue
+            nested = item.get("priceData")
+            rows = nested if isinstance(nested, list) else []
+            candles = self._to_candles(
+                [r for r in rows if isinstance(r, dict)],
+                instrument_id,
+                timeframe,
+                since=since_map.get(ticker),
+            )
+            if candles:
+                out[instrument_id] = candles
+        return out
 
     def _parse_row(self, row: dict[str, Any], instrument_id: str, timeframe: str) -> Candle | None:
         try:

@@ -70,6 +70,8 @@
       "pending": "ממתין",
       "draft": "טיוטה",
       "healthy": "תקין",
+      "conservation": "חיסכון בתקציב",
+      "exhausted": "תקציב מוצה",
       "halted": "מושהה"
     },
     "decision": {
@@ -248,6 +250,9 @@
     "provider_last_update": "עדכון אחרון",
     "provider_hourly": "בקשות/שעה",
     "provider_credits": "קרדיטים",
+    "provider_fallback_mode": "מצב גיבוי",
+    "provider_candle_remaining": "נותרו לנרות",
+    "provider_usable_budget": "תקציב שמיש",
     "asset_status_healthy": "תקין",
     "asset_status_fresh": "רענן",
     "asset_status_stale": "נתונים ישנים",

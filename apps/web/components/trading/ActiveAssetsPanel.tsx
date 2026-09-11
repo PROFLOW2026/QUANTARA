@@ -23,9 +23,11 @@ function statusBadge(status: string, stale?: boolean) {
       ? "success"
       : key === "deferred"
         ? "muted"
-        : key === "blocked" || key === "error"
+        : key === "blocked" || key === "error" || key === "exhausted"
           ? "danger"
-          : "warning";
+          : key === "conservation"
+            ? "warning"
+            : "warning";
   return <Badge variant={variant}>{translateDataStatus(status, stale)}</Badge>;
 }
 
@@ -101,6 +103,17 @@ function ProviderHealthCard({
         <p className="text-xs text-muted">
           {t("home.provider_hourly")}: {health.used_hour ?? 0}/{health.hourly_limit ?? "—"}
         </p>
+      ) : null}
+      {health && health.usable_budget != null ? (
+        <p className="text-xs text-muted">
+          {t("home.provider_usable_budget")}: {health.used_hour ?? 0}/{health.usable_budget}
+          {health.candle_remaining != null
+            ? ` · ${t("home.provider_candle_remaining")}: ${health.candle_remaining}`
+            : ""}
+        </p>
+      ) : null}
+      {health && health.fallback_mode ? (
+        <p className="text-xs text-warning">{t("home.provider_fallback_mode")}</p>
       ) : null}
       {health && health.last_error ? (
         <p className="mt-1 truncate text-xs text-warning" title={health.last_error}>

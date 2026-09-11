@@ -18,6 +18,11 @@ LIMITS: dict[str, dict[str, int]] = {
     "alpaca": {"minute": 200, "daily": 100000},
 }
 
+TIINGO_HOURLY_HARD_LIMIT = int(LIMITS["tiingo"]["hourly"])
+TIINGO_USABLE_CANDLE_BUDGET = 42
+TIINGO_FX_RESERVE = 8
+TIINGO_SAFETY_HEADROOM = TIINGO_HOURLY_HARD_LIMIT - TIINGO_USABLE_CANDLE_BUDGET
+
 
 class FetchPriority(IntEnum):
     OPEN_POSITION = 1
@@ -74,7 +79,71 @@ def _save(store: TradingStore | None, provider: str, state: dict[str, Any]) -> N
     store.update_settings(_settings_key(provider), state, description=f"{provider} request budget")
 
 
-def can_request(store: TradingStore | None, provider: str, count: int = 1) -> bool:
+def tiingo_used_hour(store: TradingStore | None) -> int:
+    return int(_load(store, "tiingo").get("used_hour", 0))
+
+
+def tiingo_hard_remaining(store: TradingStore | None) -> int:
+    return max(0, TIINGO_HOURLY_HARD_LIMIT - tiingo_used_hour(store))
+
+
+def tiingo_candle_remaining(store: TradingStore | None) -> int:
+    return max(0, min(TIINGO_USABLE_CANDLE_BUDGET - tiingo_used_hour(store), tiingo_hard_remaining(store)))
+
+
+def tiingo_fx_remaining(store: TradingStore | None) -> int:
+    return tiingo_hard_remaining(store)
+
+
+def tiingo_budget_mode(store: TradingStore | None) -> str:
+    used = tiingo_used_hour(store)
+    if used >= TIINGO_HOURLY_HARD_LIMIT:
+        return "exhausted"
+    if used >= TIINGO_USABLE_CANDLE_BUDGET - TIINGO_FX_RESERVE:
+        return "conservation"
+    return "healthy"
+
+
+def tiingo_budget_snapshot(store: TradingStore | None) -> dict[str, Any]:
+    used = tiingo_used_hour(store)
+    hard_remaining = tiingo_hard_remaining(store)
+    candle_remaining = tiingo_candle_remaining(store)
+    return {
+        "used_hour": used,
+        "hourly_hard_limit": TIINGO_HOURLY_HARD_LIMIT,
+        "usable_candle_budget": TIINGO_USABLE_CANDLE_BUDGET,
+        "fx_reserve": TIINGO_FX_RESERVE,
+        "hard_remaining": hard_remaining,
+        "candle_remaining": candle_remaining,
+        "fx_remaining": tiingo_fx_remaining(store),
+        "mode": tiingo_budget_mode(store),
+    }
+
+
+def can_request_tiingo_candle(store: TradingStore | None, count: int = 1) -> bool:
+    if store is None:
+        return True
+    return tiingo_candle_remaining(store) >= count and tiingo_hard_remaining(store) >= count
+
+
+def can_request_tiingo_fx(store: TradingStore | None, count: int = 1) -> bool:
+    if store is None:
+        return True
+    return tiingo_fx_remaining(store) >= count
+
+
+def can_request(
+    store: TradingStore | None,
+    provider: str,
+    count: int = 1,
+    *,
+    purpose: str = "candles",
+) -> bool:
+    if provider == "tiingo":
+        if purpose == "fx_rate":
+            return can_request_tiingo_fx(store, count)
+        return can_request_tiingo_candle(store, count)
+
     limits = LIMITS.get(provider, {})
     state = _load(store, provider)
     if limits.get("hourly") and state["used_hour"] + count > limits["hourly"]:
@@ -151,6 +220,20 @@ def all_provider_status(store: TradingStore | None) -> dict[str, dict[str, Any]]
     td = twelve_status(store)
     alpaca = status_payload(store, "alpaca")
     tiingo = status_payload(store, "tiingo")
+    tiingo_snap = tiingo_budget_snapshot(store)
+    tiingo.update(
+        {
+            "usable_budget": tiingo_snap["usable_candle_budget"],
+            "candle_remaining": tiingo_snap["candle_remaining"],
+            "fx_reserve": tiingo_snap["fx_reserve"],
+            "budget_mode": tiingo_snap["mode"],
+            "fallback_mode": tiingo_snap["mode"] != "healthy",
+        }
+    )
+    if tiingo_snap["mode"] == "exhausted":
+        tiingo["status"] = "exhausted"
+    elif tiingo_snap["mode"] == "conservation" and tiingo.get("status") == "healthy":
+        tiingo["status"] = "conservation"
 
     # Infer from worker payload when budget tracker has not recorded yet.
     if alpaca.get("status") == "unknown" and worker_raw.get("last_run"):

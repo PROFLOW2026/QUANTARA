@@ -553,6 +553,11 @@ export interface ProviderHealthStatus {
   used_today?: number;
   guard_limit?: number;
   remaining?: number;
+  usable_budget?: number;
+  candle_remaining?: number;
+  fx_reserve?: number;
+  budget_mode?: string;
+  fallback_mode?: boolean;
 }
 
 export interface AssetAnalyticsRow {

@@ -9,6 +9,8 @@ const STATUS_KEYS: Record<string, string> = {
   pending: "display.status.pending",
   draft: "display.status.draft",
   healthy: "display.status.healthy",
+  conservation: "display.status.conservation",
+  exhausted: "display.status.exhausted",
   halted: "display.status.halted",
   error: "display.status.failed",
 };
