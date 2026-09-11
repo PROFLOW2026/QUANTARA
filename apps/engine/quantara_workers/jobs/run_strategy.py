@@ -997,6 +997,7 @@ def strategy_freshness_summary(store: TradingStore, now: datetime | None = None)
         "healthy": healthy,
         "stalled": stalled,
         "status": runner.get("status"),
+        "error": runner.get("error"),
         "mode": runner.get("mode"),
         "last_evaluation_at": last_eval,
         "evaluation_age_minutes": eval_age_min,

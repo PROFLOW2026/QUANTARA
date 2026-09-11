@@ -383,6 +383,7 @@ export interface StrategyFreshness {
   healthy: boolean;
   stalled: boolean;
   status?: string;
+  error?: string | null;
   mode?: string;
   last_evaluation_at?: string | null;
   evaluation_age_minutes?: number | null;

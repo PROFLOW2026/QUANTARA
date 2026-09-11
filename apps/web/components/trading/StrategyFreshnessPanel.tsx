@@ -7,8 +7,14 @@ import { formatRelativeTime } from "@/lib/utils";
 import type { StrategyFreshness } from "@/lib/api-client";
 
 function statusBadge(freshness: StrategyFreshness) {
+  if (freshness.status === "error" || freshness.error) {
+    return <Badge variant="danger">{t("home.strategy_error")}</Badge>;
+  }
   if (freshness.stalled) {
     return <Badge variant="warning">{t("home.strategy_stalled")}</Badge>;
+  }
+  if (freshness.status === "paused") {
+    return <Badge variant="warning">{t("home.strategy_degraded")}</Badge>;
   }
   if (freshness.healthy) {
     const historical = freshness.historical_backlog ?? freshness.backlog ?? 0;
@@ -18,7 +24,7 @@ function statusBadge(freshness: StrategyFreshness) {
     }
     return <Badge variant="success">{t("home.strategy_healthy")}</Badge>;
   }
-  return <Badge variant="warning">{t("home.strategy_degraded")}</Badge>;
+  return <Badge variant="warning">{t("home.strategy_unhealthy")}</Badge>;
 }
 
 export function StrategyFreshnessPanel({

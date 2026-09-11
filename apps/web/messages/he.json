@@ -194,6 +194,8 @@
     "strategy_healthy": "תקין",
     "strategy_stalled": "אסטרטגיה תקועה",
     "strategy_degraded": "אסטרטגיה מושהית",
+    "strategy_error": "שגיאה באסטרטגיה",
+    "strategy_unhealthy": "אסטרטגיה לא פעילה",
     "strategy_catching_up": "תקין — עיבוד היסטורי פעיל",
     "quick_actions": "פעולות מהירות",
     "pause_trading": "השהה מסחר",

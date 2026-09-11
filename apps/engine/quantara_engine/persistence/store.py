@@ -563,8 +563,23 @@ class TradingStore:
         strategy = (
             self.session.get(OrmStrategy, version.strategy_id) if version else None
         )
-        slug = strategy.slug if strategy else "gold-trend-pullback"
-        return self._strategy_instance_to_domain(row, slug)
+        slug = self.resolve_strategy_slug(row)
+        return self._strategy_instance_to_domain(row, slug or "gold-trend-pullback")
+
+    def resolve_strategy_slug(
+        self, instance: OrmStrategyInstance | str
+    ) -> str | None:
+        """Canonical strategy slug via StrategyInstance → StrategyVersion → Strategy."""
+        row = instance
+        if isinstance(instance, str):
+            row = self.session.get(OrmStrategyInstance, _uuid(instance))
+        if not row:
+            return None
+        version = self.session.get(OrmStrategyVersion, row.strategy_version_id)
+        if not version:
+            return None
+        strategy = self.session.get(OrmStrategy, version.strategy_id)
+        return strategy.slug if strategy else None
 
     def get_risk_profile_by_slug(self, slug: str) -> RiskProfile | None:
         try:
@@ -1362,11 +1377,14 @@ class TradingStore:
             if hasattr(instance.timeframe, "value")
             else str(instance.timeframe)
         )
+        strategy_slug = self.resolve_strategy_slug(instance)
+        if not strategy_slug:
+            return None
         return opportunity_key_from_signal(
             signal,
             symbol=instrument_row.symbol,
             timeframe=timeframe,
-            strategy_slug=instance.strategy_slug,
+            strategy_slug=strategy_slug,
             setup_candle_timestamp=intent.signal_candle_timestamp,
         )
 
@@ -1376,13 +1394,15 @@ class TradingStore:
         if intent.is_close or intent.take_profit is None:
             return False
         from quantara_engine.competition.leverage import is_paper_competition_portfolio
+        from quantara_engine.competition.orb_constants import ORB_STRATEGY_SLUG
 
         if not is_paper_competition_portfolio(intent.portfolio_id):
             return False
         instance = self.session.get(OrmStrategyInstance, _uuid(intent.strategy_instance_id))
         if not instance:
             return False
-        return instance.strategy_slug in ("opening-range-breakout", "gold-trend-pullback")
+        slug = self.resolve_strategy_slug(instance)
+        return slug in (ORB_STRATEGY_SLUG, "gold-trend-pullback")
 
     def save_order_intent(
         self, intent: OrderIntent, *, opportunity_key: str | None = None
