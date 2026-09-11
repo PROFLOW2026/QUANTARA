@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
-require("../../scripts/load-env.cjs").loadRepoEnv();
+try {
+  require("../../scripts/load-env.cjs").loadRepoEnv();
+} catch {
+  // Full monorepo checkout only — Vercel uses project env vars directly.
+}
 
 const nextConfig = {
   reactStrictMode: true,

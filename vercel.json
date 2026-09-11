@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build --workspace=@quantara/web",
+  "devCommand": "npm run dev --workspace=@quantara/web",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "outputDirectory": "apps/web/.next"
+}
