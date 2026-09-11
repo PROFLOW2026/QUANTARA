@@ -76,7 +76,26 @@ export function useHomeDashboardPoll() {
 
       const analyticsResult = await settle(api.getAssetAnalytics());
       if (analyticsResult.ok) {
-        setAssetAnalytics(analyticsResult.value);
+        setAssetAnalytics((prev) => {
+          const next = analyticsResult.value;
+          if (!next.summary) {
+            return prev?.summary ? { ...next, summary: prev.summary } : next;
+          }
+          if (!prev?.summary) {
+            return next;
+          }
+          const mergedSummary = { ...prev.summary, ...next.summary };
+          if (next.summary.open_exposure == null && prev.summary.open_exposure != null) {
+            mergedSummary.open_exposure = prev.summary.open_exposure;
+          }
+          if (next.summary.open_risk_usd == null && prev.summary.open_risk_usd != null) {
+            mergedSummary.open_risk_usd = prev.summary.open_risk_usd;
+          }
+          if (next.summary.open_risk_pct == null && prev.summary.open_risk_pct != null) {
+            mergedSummary.open_risk_pct = prev.summary.open_risk_pct;
+          }
+          return { ...next, summary: mergedSummary };
+        });
       } else {
         partialFailure = true;
       }

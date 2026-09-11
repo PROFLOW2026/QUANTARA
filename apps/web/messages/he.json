@@ -26,6 +26,7 @@
     "yes": "כן",
     "no": "לא",
     "section_unavailable": "אין נתונים זמינים כרגע",
+    "metric_unavailable": "לא זמין",
     "refresh": "רענון",
     "close_module": "סגור",
     "view_all": "הצג הכל",
@@ -123,6 +124,8 @@
     "orb_opening_range_building": "טווח הפתיחה עדיין נבנה",
     "orb_opening_range_incomplete": "טווח הפתיחה עדיין לא הושלם",
     "orb_trade_already_taken_today": "כבר בוצעה עסקת ORB בנכס היום",
+    "orb_breakout_already_consumed": "הפריצה הזו כבר נוצלה להזדמנות קודמת",
+    "internal_reason_unavailable": "סיבת החלטה פנימית — לא זמינה לתצוגה",
     "orb_entry_cutoff_passed": "חלף זמן הכניסה המותר להיום",
     "orb_market_closed": "השוק סגור",
     "risk_approved_summary": "אושר ע״י ניהול סיכונים — כמות {qty}, סיכון יעד ${target}"

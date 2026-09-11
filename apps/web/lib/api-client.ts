@@ -572,17 +572,22 @@ export interface AssetAnalyticsRow {
   realized_pnl: number;
   unrealized_pnl: number;
   total_pnl: number;
-  open_exposure?: number;
-  open_risk_usd?: number;
-  open_risk_pct?: number;
+  open_exposure?: number | null;
+  open_risk_usd?: number | null;
+  open_risk_pct?: number | null;
   global_risk_cap_pct?: number;
 }
 
 export interface AssetAnalyticsSummary {
-  open_exposure: number;
-  open_risk_usd: number;
-  open_risk_pct: number;
+  open_exposure: number | null;
+  open_risk_usd: number | null;
+  open_risk_pct: number | null;
   total_equity: number;
+  open_position_count?: number;
+  risk_found_count?: number;
+  risk_missing_count?: number;
+  risk_zero_valid_count?: number;
+  exposure_available?: boolean;
 }
 
 export interface AssetAnalyticsResponse {

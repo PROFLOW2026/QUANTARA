@@ -8,7 +8,11 @@ import {
   type MarketProviderStatus,
   type ProviderHealthStatus,
 } from "@/lib/api-client";
-import { translateDataStatus } from "@/lib/display-text";
+import {
+  formatCurrencyOrUnavailable,
+  formatPercentOrUnavailable,
+  translateDataStatus,
+} from "@/lib/display-text";
 import { t } from "@/lib/i18n";
 import { formatCurrency, formatPercent, formatRelativeTime } from "@/lib/utils";
 
@@ -32,12 +36,37 @@ function providerLabel(name: string) {
   return name;
 }
 
+function formatAssetExposure(asset: AssetAnalyticsRow) {
+  if (asset.open_exposure != null) {
+    return formatCurrencyOrUnavailable(asset.open_exposure);
+  }
+  if ((asset.open_positions ?? 0) === 0) {
+    return formatCurrencyOrUnavailable(0);
+  }
+  return formatCurrencyOrUnavailable(null);
+}
+
+function formatAssetRisk(asset: AssetAnalyticsRow) {
+  if (asset.open_risk_usd != null) {
+    return formatCurrencyOrUnavailable(asset.open_risk_usd);
+  }
+  if ((asset.open_positions ?? 0) === 0) {
+    return formatCurrencyOrUnavailable(0);
+  }
+  return formatCurrencyOrUnavailable(null);
+}
+
 function formatRiskPct(asset: AssetAnalyticsRow) {
-  const pct = asset.open_risk_pct ?? 0;
   const cap = asset.global_risk_cap_pct ?? 2;
+  const pctLabel =
+    asset.open_risk_pct != null
+      ? formatPercentOrUnavailable(asset.open_risk_pct)
+      : (asset.open_positions ?? 0) === 0
+        ? formatPercentOrUnavailable(0)
+        : formatPercentOrUnavailable(null);
   return (
     <span title={t("home.asset_risk_cap_hint", { cap: formatPercent(cap) })}>
-      {formatPercent(pct)} / {formatPercent(cap)}
+      {pctLabel} / {formatPercent(cap)}
     </span>
   );
 }
@@ -153,10 +182,10 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
                   {t("home.total_pnl")}: <PnLDisplay value={asset.total_pnl} size="sm" />
                 </p>
                 <p>
-                  {t("home.asset_exposure_short")}: {formatCurrency(asset.open_exposure ?? 0)}
+                  {t("home.asset_exposure_short")}: {formatAssetExposure(asset)}
                 </p>
                 <p>
-                  {t("home.asset_risk_short")}: {formatCurrency(asset.open_risk_usd ?? 0)}
+                  {t("home.asset_risk_short")}: {formatAssetRisk(asset)}
                 </p>
                 <p className="col-span-2">
                   {t("home.asset_risk_pct_short")}: {formatRiskPct(asset)}
@@ -220,10 +249,10 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
                   <PnLDisplay value={asset.total_pnl} size="sm" />
                 </td>
                 <td className="truncate px-1 py-2 text-right font-mono">
-                  {formatCurrency(asset.open_exposure ?? 0)}
+                  {formatAssetExposure(asset)}
                 </td>
                 <td className="truncate px-1 py-2 text-right font-mono">
-                  {formatCurrency(asset.open_risk_usd ?? 0)}
+                  {formatAssetRisk(asset)}
                 </td>
                 <td className="truncate ps-1 py-2 text-right font-mono">{formatRiskPct(asset)}</td>
               </tr>

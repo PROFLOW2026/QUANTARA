@@ -1,4 +1,5 @@
 import { t } from "@/lib/i18n";
+import { formatCurrency, formatPercent } from "@/lib/utils";
 
 const STATUS_KEYS: Record<string, string> = {
   active: "display.status.active",
@@ -113,6 +114,7 @@ const ORB_REASON_KEYS: Record<string, string> = {
   trade_already_taken_today: "signals.orb_trade_already_taken_today",
   entry_cutoff_passed: "signals.orb_entry_cutoff_passed",
   market_closed: "signals.orb_market_closed",
+  breakout_already_consumed: "signals.orb_breakout_already_consumed",
 };
 
 const DATA_STATUS_KEYS: Record<string, string> = {
@@ -210,6 +212,10 @@ export function translateSignalReason(reason: string | null | undefined): string
     return t("signals.rsi_out_of_range_generic");
   }
 
+  if (/^[a-z][a-z0-9_]+$/.test(text)) {
+    return t("signals.internal_reason_unavailable");
+  }
+
   return text;
 }
 
@@ -260,6 +266,20 @@ export function shortenHash(hash: string | null | undefined, visible = 8): strin
 
 export function insufficientMetric(value: number | null | undefined, minTrades = 3): boolean {
   return value == null || Number.isNaN(value);
+}
+
+export function formatCurrencyOrUnavailable(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) {
+    return t("common.metric_unavailable");
+  }
+  return formatCurrency(value);
+}
+
+export function formatPercentOrUnavailable(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) {
+    return t("common.metric_unavailable");
+  }
+  return formatPercent(value);
 }
 
 export function formatMetricOrInsufficient(

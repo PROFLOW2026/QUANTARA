@@ -2,8 +2,32 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AssetAnalyticsSummary } from "@/lib/api-client";
+import {
+  formatCurrencyOrUnavailable,
+  formatPercentOrUnavailable,
+} from "@/lib/display-text";
 import { t } from "@/lib/i18n";
-import { formatCurrency, formatPercent } from "@/lib/utils";
+
+function formatExposureMetric(
+  summary: AssetAnalyticsSummary | null | undefined,
+  field: "open_exposure" | "open_risk_usd" | "open_risk_pct"
+) {
+  if (!summary) {
+    return t("common.metric_unavailable");
+  }
+  const value = summary[field];
+  if (value != null) {
+    return field === "open_risk_pct"
+      ? formatPercentOrUnavailable(value)
+      : formatCurrencyOrUnavailable(value);
+  }
+  if ((summary.open_position_count ?? 0) === 0) {
+    return field === "open_risk_pct"
+      ? formatPercentOrUnavailable(0)
+      : formatCurrencyOrUnavailable(0);
+  }
+  return t("common.metric_unavailable");
+}
 
 export function ExposureRiskSummaryCards({
   summary,
@@ -22,9 +46,7 @@ export function ExposureRiskSummaryCards({
           {loading ? (
             <span className="text-muted">{t("common.loading")}</span>
           ) : (
-            <p className="font-mono text-2xl">
-              {formatCurrency(summary?.open_exposure ?? 0)}
-            </p>
+            <p className="font-mono text-2xl">{formatExposureMetric(summary, "open_exposure")}</p>
           )}
         </CardContent>
       </Card>
@@ -36,9 +58,7 @@ export function ExposureRiskSummaryCards({
           {loading ? (
             <span className="text-muted">{t("common.loading")}</span>
           ) : (
-            <p className="font-mono text-2xl">
-              {formatCurrency(summary?.open_risk_usd ?? 0)}
-            </p>
+            <p className="font-mono text-2xl">{formatExposureMetric(summary, "open_risk_usd")}</p>
           )}
         </CardContent>
       </Card>
@@ -50,9 +70,7 @@ export function ExposureRiskSummaryCards({
           {loading ? (
             <span className="text-muted">{t("common.loading")}</span>
           ) : (
-            <p className="font-mono text-2xl">
-              {formatPercent(summary?.open_risk_pct ?? 0)}
-            </p>
+            <p className="font-mono text-2xl">{formatExposureMetric(summary, "open_risk_pct")}</p>
           )}
         </CardContent>
       </Card>

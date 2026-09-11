@@ -441,9 +441,26 @@ def analytics_assets(store: StoreDep):
             unrealized_pnl = float(metrics.get("unrealized_pnl", 0.0))
 
         risk_metrics = exposure_by_instrument.get(inst.id if inst else "", None)
-        open_exposure = float(risk_metrics.open_exposure) if risk_metrics else 0.0
-        open_risk_usd = float(risk_metrics.open_risk_usd) if risk_metrics else 0.0
-        open_risk_pct = risk_metrics.open_risk_pct if risk_metrics else 0.0
+        if open_positions > 0 and risk_metrics is not None:
+            open_exposure = float(risk_metrics.open_exposure)
+            open_risk_usd = (
+                float(risk_metrics.open_risk_usd)
+                if risk_metrics.open_risk_usd is not None
+                else None
+            )
+            open_risk_pct = risk_metrics.open_risk_pct
+        elif open_positions > 0:
+            open_exposure = None
+            open_risk_usd = None
+            open_risk_pct = None
+        else:
+            open_exposure = float(risk_metrics.open_exposure) if risk_metrics else 0.0
+            open_risk_usd = (
+                float(risk_metrics.open_risk_usd)
+                if risk_metrics and risk_metrics.open_risk_usd is not None
+                else 0.0
+            )
+            open_risk_pct = risk_metrics.open_risk_pct if risk_metrics else 0.0
         global_risk_cap_pct = risk_metrics.global_risk_cap_pct if risk_metrics else 2.0
 
         asset_health = (worker_raw.get("assets") or {}).get(asset.db_symbol, {})
@@ -472,21 +489,31 @@ def analytics_assets(store: StoreDep):
                 "realized_pnl": round(realized_pnl, 2),
                 "unrealized_pnl": round(unrealized_pnl, 2),
                 "total_pnl": round(realized_pnl + unrealized_pnl, 2),
-                "open_exposure": round(open_exposure, 2),
-                "open_risk_usd": round(open_risk_usd, 2),
-                "open_risk_pct": round(open_risk_pct, 2),
+                "open_exposure": round(open_exposure, 2) if open_exposure is not None else None,
+                "open_risk_usd": round(open_risk_usd, 2) if open_risk_usd is not None else None,
+                "open_risk_pct": round(open_risk_pct, 2) if open_risk_pct is not None else None,
                 "global_risk_cap_pct": global_risk_cap_pct,
             }
         )
 
+    summary_payload: dict[str, float | int | None] = {
+        "open_exposure": float(exposure_summary.total_open_exposure),
+        "open_risk_usd": (
+            float(exposure_summary.total_open_risk_usd)
+            if exposure_summary.total_open_risk_usd is not None
+            else None
+        ),
+        "open_risk_pct": exposure_summary.open_risk_pct,
+        "total_equity": float(exposure_summary.total_equity),
+        "open_position_count": exposure_summary.open_position_count,
+        "risk_found_count": exposure_summary.risk_found_count,
+        "risk_missing_count": exposure_summary.risk_missing_count,
+        "risk_zero_valid_count": exposure_summary.risk_zero_valid_count,
+        "exposure_available": exposure_summary.exposure_available,
+    }
     return {
         "assets_active": len(list_target_assets()),
-        "summary": {
-            "open_exposure": float(exposure_summary.total_open_exposure),
-            "open_risk_usd": float(exposure_summary.total_open_risk_usd),
-            "open_risk_pct": exposure_summary.open_risk_pct,
-            "total_equity": float(exposure_summary.total_equity),
-        },
+        "summary": summary_payload,
         "assets": rows,
     }
 
