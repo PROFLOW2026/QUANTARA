@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
@@ -11,7 +12,10 @@ import {
 import {
   formatCurrencyOrUnavailable,
   formatPercentOrUnavailable,
+  formatProviderUsageLine,
+  providerHasTechnicalDetails,
   translateDataStatus,
+  translateProviderStatus,
 } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
 import { formatCurrency, formatPercent, formatRelativeTime } from "@/lib/utils";
@@ -73,6 +77,18 @@ function formatRiskPct(asset: AssetAnalyticsRow) {
   );
 }
 
+function providerStatusBadge(status: string) {
+  const variant =
+    status === "healthy"
+      ? "success"
+      : status === "blocked" || status === "exhausted"
+        ? "danger"
+        : status === "conservation" || status === "error"
+          ? "warning"
+          : "muted";
+  return <Badge variant={variant}>{translateProviderStatus(status)}</Badge>;
+}
+
 function ProviderHealthCard({
   name,
   health,
@@ -80,45 +96,42 @@ function ProviderHealthCard({
   name: string;
   health?: ProviderHealthStatus;
 }) {
+  const [showDetails, setShowDetails] = useState(false);
   const status = health?.status ?? "unknown";
-
+  const usageLine = health ? formatProviderUsageLine(name, health) : null;
+  const hasTechnicalDetails = providerHasTechnicalDetails(health);
   return (
     <div className="rounded-md bg-surface-elevated p-3 text-sm">
       <div className="mb-2 flex items-center justify-between gap-2">
         <p className="font-medium">{providerLabel(name)}</p>
-        {statusBadge(status)}
+        {providerStatusBadge(status)}
       </div>
-      {health && health.last_success ? (
+      {health?.last_success ? (
         <p className="text-xs text-muted">
           {t("home.provider_last_update")}: {formatRelativeTime(health.last_success)}
         </p>
       ) : null}
-      {health && health.remaining != null ? (
-        <p className="text-xs text-muted">
-          {t("home.provider_credits")}: {health.used_today ?? 0}/
-          {health.guard_limit ?? health.daily_limit ?? "—"}
-        </p>
+      {usageLine ? <p className="text-xs text-muted">{usageLine}</p> : null}
+      {name === "tiingo" && health?.fallback_mode ? (
+        <p className="text-xs text-muted">{t("home.provider_fallback_active")}</p>
       ) : null}
-      {health && health.remaining_hour != null ? (
-        <p className="text-xs text-muted">
-          {t("home.provider_hourly")}: {health.used_hour ?? 0}/{health.hourly_limit ?? "—"}
-        </p>
-      ) : null}
-      {health && health.usable_budget != null ? (
-        <p className="text-xs text-muted">
-          {t("home.provider_usable_budget")}: {health.used_hour ?? 0}/{health.usable_budget}
-          {health.candle_remaining != null
-            ? ` · ${t("home.provider_candle_remaining")}: ${health.candle_remaining}`
-            : ""}
-        </p>
-      ) : null}
-      {health && health.fallback_mode ? (
-        <p className="text-xs text-warning">{t("home.provider_fallback_mode")}</p>
-      ) : null}
-      {health && health.last_error ? (
-        <p className="mt-1 truncate text-xs text-warning" title={health.last_error}>
-          {health.last_error}
-        </p>
+      {hasTechnicalDetails ? (
+        <div className="mt-2">
+          <button
+            type="button"
+            className="text-xs text-accent underline-offset-2 hover:underline"
+            onClick={() => setShowDetails((open) => !open)}
+            aria-expanded={showDetails}
+          >
+            {showDetails ? t("home.provider_details_hide") : t("home.provider_details")}
+          </button>
+          {showDetails ? (
+            <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded border border-border/60 bg-background/50 p-2 text-[10px] leading-snug text-muted">
+              {t("home.provider_details_technical")}:{"\n"}
+              {health?.last_error?.trim()}
+            </pre>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

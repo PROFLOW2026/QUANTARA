@@ -129,6 +129,104 @@ const DATA_STATUS_KEYS: Record<string, string> = {
   unknown: "home.asset_status_unknown",
 };
 
+const PROVIDER_STATUS_KEYS: Record<string, string> = {
+  healthy: "home.provider_status_healthy",
+  error: "home.provider_status_temp_error",
+  blocked: "home.provider_status_quota_blocked",
+  conservation: "home.provider_status_conservation",
+  exhausted: "home.provider_status_exhausted",
+  unknown: "home.provider_status_unknown",
+};
+
+export function translateProviderStatus(status: string | null | undefined): string {
+  const key = PROVIDER_STATUS_KEYS[(status ?? "unknown").toLowerCase()];
+  return key ? t(key) : t("home.provider_status_unknown");
+}
+
+export function translateProviderError(
+  lastError: string | null | undefined,
+  provider: string,
+  status?: string | null
+): string {
+  const normalizedStatus = (status ?? "").toLowerCase();
+  if (normalizedStatus === "conservation") {
+    return t("home.provider_status_conservation");
+  }
+  if (normalizedStatus === "exhausted") {
+    return t("home.provider_status_exhausted");
+  }
+  if (!lastError) {
+    return t("home.provider_error_unavailable");
+  }
+
+  const lower = lastError.toLowerCase();
+  if (
+    provider === "alpaca" &&
+    (lower.includes("504") || lower.includes("timeout") || lower.includes("backend request timeout"))
+  ) {
+    return t("home.provider_error_temp");
+  }
+  if (
+    provider === "twelvedata" &&
+    (lower.includes("429") ||
+      lower.includes("quota") ||
+      lower.includes("credits") ||
+      lower.includes("pricing") ||
+      lower.includes("twelvedata.com"))
+  ) {
+    return t("home.provider_error_quota");
+  }
+  if (lower.includes("timeout") || lower.includes("504")) {
+    return t("home.provider_error_temp");
+  }
+  if (lower.includes("429") || lower.includes("quota") || lower.includes("run out of api credits")) {
+    return t("home.provider_error_quota");
+  }
+  return t("home.provider_error_unavailable");
+}
+
+export function formatProviderUsageLine(
+  provider: string,
+  health: {
+    used_hour?: number;
+    hourly_limit?: number | null;
+    used_today?: number;
+    guard_limit?: number;
+    daily_limit?: number | null;
+    used_day?: number;
+  }
+): string | null {
+  if (provider === "tiingo") {
+    const used = health.used_hour ?? 0;
+    const limit = health.hourly_limit ?? 50;
+    return t("home.provider_usage_hourly", { used, limit });
+  }
+  if (provider === "twelvedata") {
+    const used = health.used_today ?? health.used_day ?? 0;
+    const limit = health.guard_limit ?? health.daily_limit ?? 800;
+    return t("home.provider_usage_daily", { used, limit });
+  }
+  if (provider === "alpaca") {
+    const usedDay = health.used_day ?? 0;
+    const dayLimit = health.daily_limit;
+    if (dayLimit != null) {
+      return t("home.provider_usage_daily", { used: usedDay, limit: dayLimit });
+    }
+    const usedHour = health.used_hour ?? 0;
+    if (usedHour > 0) {
+      return t("home.provider_usage_hourly", { used: usedHour, limit: health.hourly_limit ?? "—" });
+    }
+  }
+  return null;
+}
+
+export function providerHasTechnicalDetails(
+  health: { last_error?: string | null; status?: string | null } | undefined
+): boolean {
+  if (!health) return false;
+  return Boolean(health.last_error?.trim());
+}
+
 export function translateDataStatus(status: string | null | undefined, stale?: boolean): string {
   if (stale && status !== "error" && status !== "blocked") {
     return t("home.asset_status_stale");
