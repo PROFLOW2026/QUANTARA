@@ -525,6 +525,16 @@ def analytics_assets(store: StoreDep):
         "risk_zero_valid_count": exposure_summary.risk_zero_valid_count,
         "exposure_missing_count": exposure_summary.exposure_missing_count,
         "exposure_available": exposure_summary.exposure_available,
+        "remaining_sl_risk_usd": (
+            float(exposure_summary.total_remaining_sl_risk_usd)
+            if exposure_summary.total_remaining_sl_risk_usd is not None
+            else None
+        ),
+        "projected_equity_at_stops": (
+            float(exposure_summary.projected_equity_at_stops)
+            if exposure_summary.projected_equity_at_stops is not None
+            else None
+        ),
     }
     return {
         "assets_active": len(list_target_assets()),

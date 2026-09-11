@@ -989,6 +989,11 @@ def fetch_live_job(store: TradingStore | None = None) -> None:
             if error and not str(error).startswith("deferred"):
                 errors.append(error)
 
+        with session_scope() as broker_session:
+            from quantara_engine.broker.integration import refresh_broker_marks_from_latest_closes
+
+            refresh_broker_marks_from_latest_closes(TradingStore(broker_session))
+
         with session_scope() as status_session:
             status_store = TradingStore(status_session)
             _finalize_worker_run(

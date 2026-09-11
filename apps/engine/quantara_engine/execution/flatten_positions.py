@@ -121,6 +121,28 @@ def process_flatten_cycle(
                 state.portfolio.id,
                 gap_exit=True,
             )
+            from quantara_engine.broker.execution_bridge import execute_through_broker
+            from quantara_engine.domain.types import Direction
+
+            close_dir = Direction.SHORT if open_pos.direction.value == "long" else Direction.LONG
+            broker_res = execute_through_broker(
+                store,
+                portfolio_id=state.portfolio.id,
+                instrument=instrument,
+                direction=close_dir,
+                quantity=open_pos.quantity,
+                fill=fill,
+                execution_at=candle.timestamp,
+                timeframe=instance.timeframe,
+                idempotency_key=f"flatten:{open_pos.id}:{candle.timestamp.isoformat()}",
+                is_close=True,
+                strategy_position_id=open_pos.id,
+                order_purpose="flatten",
+            )
+            if broker_res is not None and not broker_res.accepted:
+                awaiting.add(instrument.symbol)
+                continue
+
             trade = state.close_position(
                 open_pos, fill, ExitReason.MANUAL, candle.timestamp, _context_for(instrument)
             )

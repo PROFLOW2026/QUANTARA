@@ -226,6 +226,30 @@ def test_fair_rotation_cursor_advances():
     assert cursor2 != cursor1 or not plan1.allowed_symbols
 
 
+def test_no_asset_starved_beyond_20m_when_budget_available():
+    """Stale assets must be scheduled within ~4 cycles (20m) when Tiingo quota remains."""
+    store = FakeStore()
+    _block_primaries(store)
+    _set_tiingo_used(store, 10)
+    now = datetime(2026, 9, 11, 16, 0, tzinfo=timezone.utc)
+    symbols = [a.db_symbol for a in list_target_assets()]
+    for sym in symbols:
+        store._settings[f"last_candle:{sym}"] = (now - timedelta(minutes=25)).isoformat()
+        store._settings[f"stored:{sym}"] = 500
+
+    seen: set[str] = set()
+    with patch(
+        "quantara_engine.market_data.tiingo_fallback_scheduler._open_positions_by_symbol",
+        return_value={},
+    ):
+        for cycle in range(4):
+            cycle_now = now + timedelta(minutes=5 * cycle)
+            plan = build_tiingo_fallback_plan(store, cycle_now)
+            seen.update(plan.allowed_symbols)
+
+    assert len(seen) >= min(3, len(symbols))
+
+
 def test_primary_healthy_skips_fallback_plan():
     store = FakeStore()
     now = datetime(2026, 9, 11, 16, 40, tzinfo=timezone.utc)

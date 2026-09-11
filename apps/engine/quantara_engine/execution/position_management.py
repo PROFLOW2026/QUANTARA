@@ -273,6 +273,31 @@ def process_position_management(
                 state.portfolio.id,
                 gap_exit=gap_exit,
             )
+            from quantara_engine.broker.execution_bridge import execute_through_broker
+            from quantara_engine.domain.types import Direction
+
+            close_dir = (
+                Direction.SHORT if open_position.direction.value == "long" else Direction.LONG
+            )
+            purpose = "sl" if reason.value == "sl" else "tp"
+            broker_res = execute_through_broker(
+                store,
+                portfolio_id=state.portfolio.id,
+                instrument=instrument,
+                direction=close_dir,
+                quantity=open_position.quantity,
+                fill=fill,
+                execution_at=candle.timestamp,
+                timeframe=instance.timeframe,
+                idempotency_key=f"pm:{purpose}:{open_position.id}:{candle.timestamp.isoformat()}",
+                is_close=True,
+                strategy_position_id=open_position.id,
+                order_purpose=purpose,
+            )
+            if broker_res is not None and not broker_res.accepted:
+                cursor_state[position.id] = candle.timestamp.isoformat()
+                continue
+
             trade = state.close_position(open_position, fill, reason, candle.timestamp, ctx)
             decision = DecisionLogEntry(
                 id=new_id(),
@@ -573,6 +598,19 @@ def manage_all_open_positions(
         raise
 
     report.timing_ms["persist"] = round((time.perf_counter() - t0) * 1000, 1)
+
+    # Broker mark-to-market (margin call / liquidation react to price, not only fills)
+    broker_marks: dict[str, Decimal] = {}
+    sym_by_pos = {p.id: inst.symbol for p, _, inst in work if inst}
+    for pos_id, (mark, _) in mark_updates.items():
+        sym = sym_by_pos.get(pos_id)
+        if sym:
+            broker_marks[sym.upper()] = mark
+    if broker_marks:
+        from quantara_engine.broker.execution_service import BrokerExecutionService
+
+        BrokerExecutionService(store).mark_to_market(broker_marks, at=now)
+
     report.timing_ms["total"] = round((time.perf_counter() - t_total) * 1000, 1)
 
     return report.to_dict()

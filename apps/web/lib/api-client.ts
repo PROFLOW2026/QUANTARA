@@ -593,6 +593,8 @@ export interface AssetAnalyticsSummary {
   risk_missing_count?: number;
   risk_zero_valid_count?: number;
   exposure_available?: boolean;
+  remaining_sl_risk_usd?: number | null;
+  projected_equity_at_stops?: number | null;
 }
 
 export interface AssetAnalyticsResponse {

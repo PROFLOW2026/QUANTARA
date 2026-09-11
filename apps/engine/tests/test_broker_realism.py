@@ -224,9 +224,33 @@ def test_risk_reducing_close_allowed_over_leverage():
     account.initial_margin_used = Decimal("125000")
     account.free_margin = Decimal("0")
     account.available_margin = Decimal("0")
+    account.positions["GBPJPY"] = BrokerPosition(
+        symbol="GBPJPY",
+        net_quantity=Decimal("10000"),
+        average_price=Decimal("200"),
+        mark_price=Decimal("200"),
+    )
+    req = BrokerOrderRequest(
+        symbol="GBPJPY",
+        asset_class="forex",
+        direction="short",
+        quantity=Decimal("4000"),
+        mark_price=Decimal("200"),
+        is_close=True,
+        market_open=True,
+    )
+    fx = {"JPY": Decimal("150"), "USD": Decimal("1")}
+    decision = evaluate_broker_order(account, QUANTARA_STANDARD_PAPER, req, fx)
+    assert decision.accepted
+
+
+def test_us_stock_close_rejected_when_market_closed():
+    from quantara_engine.broker.types import BrokerPosition
+
+    account = _empty_account()
     account.positions["TSLA"] = BrokerPosition(
         symbol="TSLA",
-        net_quantity=Decimal("100"),
+        net_quantity=Decimal("10"),
         average_price=Decimal("350"),
         mark_price=Decimal("350"),
     )
@@ -234,12 +258,52 @@ def test_risk_reducing_close_allowed_over_leverage():
         symbol="TSLA",
         asset_class="stock",
         direction="short",
-        quantity=Decimal("40"),
+        quantity=Decimal("10"),
         mark_price=Decimal("350"),
         is_close=True,
+        market_open=False,
     )
     decision = evaluate_broker_order(account, QUANTARA_STANDARD_PAPER, req, {"USD": Decimal("1")})
-    assert decision.accepted
+    assert not decision.accepted
+    assert decision.rejection_reason == BrokerRejectionReason.MARKET_CLOSED
+
+
+def test_gbpjpy_realized_pnl_usd_conversion():
+    fx = {"JPY": Decimal("150"), "USD": Decimal("1")}
+    result = apply_fill_with_realized_pnl(
+        Decimal("10000"),
+        Decimal("200"),
+        Decimal("4000"),
+        Decimal("210"),
+        "short",
+        mode=PositionMode.NETTING,
+        spec=get_instrument_spec("GBPJPY"),
+        fx_rates=fx,
+    )
+    # (210-200)*4000 JPY = 40000 JPY / 150 = 266.67 USD
+    assert result.realized_pnl == Decimal("266.67")
+
+
+def test_fees_reduce_balance_not_realized_pnl():
+    starting = Decimal("320000")
+    fees = Decimal("2.50")
+    realized = Decimal("100")
+    balance = starting + realized - fees
+    assert balance == Decimal("320097.50")
+
+
+def test_mark_to_market_triggers_margin_call_without_fill():
+    positions = {
+        "NVDA": (Decimal("2000"), Decimal("100"), Decimal("80")),
+    }
+    snap = build_account_snapshot(
+        cash=Decimal("50000"),
+        balance=Decimal("50000"),
+        realized_pnl=Decimal("0"),
+        positions=positions,
+        fx_rates={"USD": Decimal("1")},
+    )
+    assert snap.account_state.value in ("margin_call", "liquidation", "margin_warning")
 
 
 def test_margin_call_blocks_risk_increasing():

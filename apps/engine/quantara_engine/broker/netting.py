@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from quantara_engine.broker.types import PositionMode
+from quantara_engine.broker.instruments import get_instrument_spec
+from quantara_engine.broker.pnl import realized_pnl_usd
+from quantara_engine.broker.types import InstrumentSpec, PositionMode
 
 
 @dataclass(frozen=True)
@@ -24,10 +26,12 @@ def apply_fill_to_net_position(
     direction: str,
     *,
     mode: PositionMode,
+    spec: InstrumentSpec | None = None,
+    fx_rates: dict[str, Decimal] | None = None,
 ) -> tuple[Decimal, Decimal]:
-    """Legacy wrapper — returns (new_net_qty, new_avg_price) only."""
     result = apply_fill_with_realized_pnl(
-        current_qty, current_avg, fill_qty, fill_price, direction, mode=mode
+        current_qty, current_avg, fill_qty, fill_price, direction,
+        mode=mode, spec=spec, fx_rates=fx_rates,
     )
     return result.new_net_qty, result.new_avg_price
 
@@ -40,18 +44,13 @@ def apply_fill_with_realized_pnl(
     direction: str,
     *,
     mode: PositionMode,
+    spec: InstrumentSpec | None = None,
+    fx_rates: dict[str, Decimal] | None = None,
 ) -> NettingFillResult:
-    """
-    Apply a fill to broker net position with realized P&L on reductions.
-
-    fill_qty is always positive; direction is long|short for the order side.
-    """
     if mode != PositionMode.NETTING:
         raise NotImplementedError("Only NETTING mode is implemented at runtime")
 
     signed_fill = fill_qty if direction.lower() == "long" else -fill_qty
-    realized = Decimal("0")
-    closed_qty = Decimal("0")
 
     if current_qty == 0:
         return NettingFillResult(
@@ -62,7 +61,6 @@ def apply_fill_with_realized_pnl(
         )
 
     new_qty = current_qty + signed_fill
-
     same_direction = (current_qty > 0 and signed_fill > 0) or (current_qty < 0 and signed_fill < 0)
 
     if same_direction:
@@ -75,12 +73,15 @@ def apply_fill_with_realized_pnl(
             closed_quantity=Decimal("0"),
         )
 
-    # Opposite direction — close partially, fully, or flip
     closed_qty = min(abs(signed_fill), abs(current_qty))
-    if current_qty > 0:
-        realized = ((fill_price - current_avg) * closed_qty).quantize(Decimal("0.01"))
+    is_long_close = current_qty > 0
+    if spec and fx_rates:
+        realized = realized_pnl_usd(closed_qty, current_avg, fill_price, is_long_close, spec, fx_rates)
     else:
-        realized = ((current_avg - fill_price) * closed_qty).quantize(Decimal("0.01"))
+        if is_long_close:
+            realized = ((fill_price - current_avg) * closed_qty).quantize(Decimal("0.01"))
+        else:
+            realized = ((current_avg - fill_price) * closed_qty).quantize(Decimal("0.01"))
 
     if abs(signed_fill) <= abs(current_qty):
         return NettingFillResult(
@@ -90,7 +91,6 @@ def apply_fill_with_realized_pnl(
             closed_quantity=closed_qty,
         )
 
-    # Flip through zero — remainder opens at fill price
     return NettingFillResult(
         new_net_qty=new_qty,
         new_avg_price=fill_price if new_qty != 0 else Decimal("0"),

@@ -1,5 +1,6 @@
 -- Canonical Paper Broker layer (NETTING mode only at runtime).
 -- Strategy legs are attribution-only; broker tables are execution truth.
+-- NO active account seeded — Owner must run approved reset before live paper.
 
 BEGIN;
 
@@ -32,9 +33,9 @@ CREATE TABLE broker_accounts (
   position_mode position_mode NOT NULL DEFAULT 'netting',
   account_currency VARCHAR(10) NOT NULL DEFAULT 'USD',
   starting_cash NUMERIC(18, 2) NOT NULL,
-  cash NUMERIC(18, 2) NOT NULL,
-  balance NUMERIC(18, 2) NOT NULL,
-  equity NUMERIC(18, 2) NOT NULL,
+  cash NUMERIC(18, 2) NOT NULL DEFAULT 0,
+  balance NUMERIC(18, 2) NOT NULL DEFAULT 0,
+  equity NUMERIC(18, 2) NOT NULL DEFAULT 0,
   realized_pnl NUMERIC(18, 2) NOT NULL DEFAULT 0,
   unrealized_pnl NUMERIC(18, 2) NOT NULL DEFAULT 0,
   gross_exposure NUMERIC(18, 2) NOT NULL DEFAULT 0,
@@ -44,7 +45,9 @@ CREATE TABLE broker_accounts (
   free_margin NUMERIC(18, 2) NOT NULL DEFAULT 0,
   available_margin NUMERIC(18, 2) NOT NULL DEFAULT 0,
   spot_crypto_cash NUMERIC(18, 2) NOT NULL DEFAULT 0,
-  account_state broker_account_state NOT NULL DEFAULT 'active',
+  account_state broker_account_state NOT NULL DEFAULT 'paused',
+  is_active BOOLEAN NOT NULL DEFAULT FALSE,
+  pending_owner_reset BOOLEAN NOT NULL DEFAULT TRUE,
   is_legacy_simulation BOOLEAN NOT NULL DEFAULT FALSE,
   metadata JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -52,11 +55,6 @@ CREATE TABLE broker_accounts (
   CONSTRAINT broker_accounts_cash_nonneg CHECK (cash >= 0),
   CONSTRAINT broker_accounts_balance_nonneg CHECK (balance >= 0)
 );
-
-COMMENT ON COLUMN broker_accounts.available_margin IS
-  'Equity minus initial margin reserved — margin products buying capacity';
-COMMENT ON COLUMN broker_accounts.spot_crypto_cash IS
-  'Unallocated cash for spot crypto purchases (100% margin assets)';
 
 CREATE TABLE broker_positions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -89,6 +87,7 @@ CREATE TABLE broker_orders (
   rejection_reason VARCHAR(64),
   rejection_detail TEXT,
   idempotency_key VARCHAR(256),
+  order_purpose VARCHAR(32) DEFAULT 'entry',
   submitted_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -100,7 +99,6 @@ CREATE UNIQUE INDEX broker_orders_idempotency_uq
 
 CREATE INDEX broker_orders_account_created_idx ON broker_orders (broker_account_id, created_at DESC);
 CREATE INDEX broker_orders_status_idx ON broker_orders (status);
-CREATE INDEX broker_orders_intent_idx ON broker_orders (strategy_intent_id);
 
 CREATE TABLE broker_fills (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -118,8 +116,22 @@ CREATE TABLE broker_fills (
   CONSTRAINT broker_fills_order_sequence_uq UNIQUE (broker_order_id, fill_sequence)
 );
 
-CREATE INDEX broker_fills_order_idx ON broker_fills (broker_order_id);
-CREATE INDEX broker_fills_filled_at_idx ON broker_fills (filled_at DESC);
+CREATE TABLE broker_attribution_lots (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  broker_account_id UUID NOT NULL REFERENCES broker_accounts(id) ON DELETE CASCADE,
+  broker_fill_id UUID NOT NULL REFERENCES broker_fills(id) ON DELETE CASCADE,
+  strategy_position_id UUID,
+  strategy_portfolio_id UUID NOT NULL,
+  symbol VARCHAR(20) NOT NULL,
+  direction direction NOT NULL,
+  remaining_qty NUMERIC(18, 8) NOT NULL CHECK (remaining_qty >= 0),
+  entry_price NUMERIC(18, 8) NOT NULL,
+  opportunity_key VARCHAR(512),
+  opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX broker_attribution_lots_account_symbol_idx
+  ON broker_attribution_lots (broker_account_id, symbol, opened_at);
 
 CREATE TABLE broker_attribution_ledger (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -136,9 +148,6 @@ CREATE TABLE broker_attribution_ledger (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX broker_attribution_fill_idx ON broker_attribution_ledger (broker_fill_id);
-CREATE INDEX broker_attribution_portfolio_idx ON broker_attribution_ledger (strategy_portfolio_id);
-
 CREATE TABLE broker_order_rejections (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   broker_account_id UUID REFERENCES broker_accounts(id),
@@ -154,16 +163,16 @@ CREATE TABLE broker_order_rejections (
 
 CREATE INDEX broker_rejections_created_idx ON broker_order_rejections (created_at DESC);
 
--- Seed canonical paper broker (inactive until owner reset — legacy run stays separate)
+-- Placeholder row: inactive until Owner-approved reset (NOT a live $320k account)
 INSERT INTO broker_accounts (
   slug, profile_slug, position_mode, starting_cash, cash, balance, equity,
-  available_margin, free_margin, spot_crypto_cash
+  is_active, pending_owner_reset, account_state
 ) VALUES (
   'quantara_paper_competition',
   'quantara_standard_paper',
   'netting',
-  320000, 320000, 320000, 320000,
-  320000, 320000, 320000
+  320000, 0, 0, 0,
+  FALSE, TRUE, 'paused'
 ) ON CONFLICT (slug) DO NOTHING;
 
 COMMIT;

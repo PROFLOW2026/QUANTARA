@@ -50,3 +50,50 @@ def advisory_broker_check(
 
 def should_use_broker_realism(portfolio_id: str) -> bool:
     return is_paper_competition_portfolio(portfolio_id)
+
+
+def refresh_broker_marks_from_latest_closes(
+    store: TradingStore,
+    symbols: list[str] | None = None,
+    *,
+    at: datetime | None = None,
+) -> None:
+    """Mark broker positions from latest candle closes (no fill required)."""
+    from decimal import Decimal
+
+    from quantara_engine.broker.execution_service import BrokerExecutionService
+    from quantara_engine.market_data.polling import PROVIDER_TIMEFRAME
+
+    service = BrokerExecutionService(store)
+    if not service._tables_ready() or not service.get_account_id():
+        return
+
+    marks: dict[str, Decimal] = {}
+    if symbols:
+        target = {s.upper() for s in symbols}
+    else:
+        snap = service.load_account_snapshot()
+        target = set(snap.positions.keys())
+
+    from sqlalchemy import desc, select
+
+    from quantara_engine.models.instruments import Candle as OrmCandle
+
+    for symbol in target:
+        instrument = store.get_instrument_by_symbol(symbol)
+        if not instrument:
+            continue
+        close = store.session.execute(
+            select(OrmCandle.close)
+            .where(
+                OrmCandle.instrument_id == instrument.id,
+                OrmCandle.timeframe == PROVIDER_TIMEFRAME,
+            )
+            .order_by(desc(OrmCandle.timestamp))
+            .limit(1)
+        ).scalar()
+        if close is not None:
+            marks[symbol.upper()] = Decimal(str(close))
+
+    if marks:
+        service.mark_to_market(marks, at=at)

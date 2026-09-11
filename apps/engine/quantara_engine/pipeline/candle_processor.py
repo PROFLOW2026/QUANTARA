@@ -422,33 +422,37 @@ class CandleProcessor:
         strategy_position_id: str | None = None,
         fill_override=None,
         order_override=None,
+        order_purpose: str = "entry",
     ) -> tuple[bool, object | None, object | None]:
         """Final broker validation + persisted fill. Returns (accepted, order, fill)."""
-        from quantara_engine.broker.execution_service import BrokerExecutionService
-        from quantara_engine.broker.integration import should_use_broker_realism
+        from quantara_engine.broker.execution_bridge import execute_through_broker
 
         if fill_override is not None and order_override is not None:
             order, fill = order_override, fill_override
         else:
             order, fill = self.broker.execute_entry(intent, candle)
-        if not self.store or not should_use_broker_realism(self.state.portfolio.id):
-            return True, order, fill
 
-        opp_key = None
-        if self.store:
-            opp_key = self.store.resolve_entry_opportunity_key(intent)
-
-        svc = BrokerExecutionService(self.store)
-        result = svc.execute_intent(
-            intent,
-            self.instrument,
-            fill,
+        opp_key = self.store.resolve_entry_opportunity_key(intent) if self.store else None
+        result = execute_through_broker(
+            self.store,
+            portfolio_id=self.state.portfolio.id,
+            instrument=self.instrument,
+            direction=intent.direction,
+            quantity=intent.quantity,
+            fill=fill,
             execution_at=candle.timestamp,
             timeframe=candle.timeframe,
             idempotency_key=idempotency_key,
-            opportunity_key=opp_key,
+            is_close=intent.is_close,
             strategy_position_id=strategy_position_id,
-        )
+            opportunity_key=opp_key,
+            order_purpose=order_purpose,
+            skip_if_not_competition=True,
+        ) if self.store else None
+
+        if result is None:
+            return True, order, fill
+
         if not result.accepted:
             reason = (
                 result.decision.rejection_reason.value
@@ -650,6 +654,7 @@ class CandleProcessor:
                 strategy_position_id=position.id,
                 fill_override=fill,
                 order_override=order,
+                order_purpose="sl" if reason == ExitReason.SL else "tp",
             )
             if not accepted or fill is None:
                 continue

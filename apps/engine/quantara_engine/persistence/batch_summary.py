@@ -63,6 +63,8 @@ class CompetitionExposureRiskSummary:
     risk_zero_valid_count: int = 0
     exposure_missing_count: int = 0
     exposure_available: bool = True
+    total_remaining_sl_risk_usd: Decimal | None = None
+    projected_equity_at_stops: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -250,6 +252,38 @@ def _resolve_position_open_risk(
     return None, "missing"
 
 
+def _derive_remaining_sl_risk(
+    *,
+    quantity: Decimal,
+    direction: Any,
+    mark_price: Decimal,
+    stop_loss: Decimal,
+    instrument: Instrument | None,
+    fx_rates: Any,
+) -> Decimal | None:
+    """Risk from current mark to stop (remaining open risk if all stops hit now)."""
+    if instrument is None or mark_price <= 0 or stop_loss <= 0:
+        return None
+    qty = abs(Decimal(str(quantity or 0)))
+    if qty <= 0:
+        return None
+    from quantara_engine.risk.sizing import _expected_risk_at_quantity
+
+    dir_value = direction.value if hasattr(direction, "value") else str(direction)
+    try:
+        return _expected_risk_at_quantity(
+            qty,
+            direction=Direction(dir_value),
+            entry_reference=mark_price,
+            stop_loss=stop_loss,
+            instrument=instrument,
+            fx_rates=fx_rates,
+            execution_assumptions=None,
+        )
+    except (ValueError, ZeroDivisionError, TypeError):
+        return None
+
+
 def batch_portfolio_equity(
     store: TradingStore, portfolio_ids: list[str]
 ) -> dict[str, Decimal]:
@@ -339,9 +373,12 @@ def batch_competition_exposure_risk_summary(
     exposure_missing_by_instrument: dict[str, int] = {}
     risk_known_by_instrument: dict[str, Decimal] = {}
     risk_missing_by_instrument: dict[str, int] = {}
+    remaining_risk_known_by_instrument: dict[str, Decimal] = {}
+    remaining_risk_missing_by_instrument: dict[str, int] = {}
     risk_found_count = 0
     risk_missing_count = 0
     risk_zero_valid_count = 0
+    remaining_risk_missing_count = 0
     exposure_missing_count = 0
 
     for (
@@ -381,6 +418,24 @@ def batch_competition_exposure_risk_summary(
             intent_risk=intent_risk,
             fx_rates=fx_rates,
         )
+        remaining_risk = _derive_remaining_sl_risk(
+            quantity=qty,
+            direction=direction,
+            mark_price=mark,
+            stop_loss=Decimal(str(stop_loss or 0)),
+            instrument=inst,
+            fx_rates=fx_rates,
+        )
+        if remaining_risk is None:
+            remaining_risk_missing_count += 1
+            remaining_risk_missing_by_instrument[iid] = (
+                remaining_risk_missing_by_instrument.get(iid, 0) + 1
+            )
+        else:
+            remaining_risk_known_by_instrument[iid] = (
+                remaining_risk_known_by_instrument.get(iid, Decimal("0")) + remaining_risk
+            )
+
         if source == "missing" or resolved_risk is None:
             risk_missing_count += 1
             risk_missing_by_instrument[iid] = risk_missing_by_instrument.get(iid, 0) + 1
@@ -414,6 +469,19 @@ def batch_competition_exposure_risk_summary(
         )
         open_risk_pct = round(open_risk_pct, 2)
 
+    total_remaining_sl_risk_usd: Decimal | None
+    projected_equity_at_stops: Decimal | None
+    if remaining_risk_missing_count > 0:
+        total_remaining_sl_risk_usd = None
+        projected_equity_at_stops = None
+    else:
+        total_remaining_sl_risk_usd = sum(
+            remaining_risk_known_by_instrument.values(), Decimal("0")
+        ).quantize(Decimal("0.01"))
+        projected_equity_at_stops = (total_equity - total_remaining_sl_risk_usd).quantize(
+            Decimal("0.01")
+        )
+
     summary = CompetitionExposureRiskSummary(
         total_open_exposure=total_open_exposure,
         total_open_risk_usd=total_open_risk_usd,
@@ -425,6 +493,8 @@ def batch_competition_exposure_risk_summary(
         risk_zero_valid_count=risk_zero_valid_count,
         exposure_missing_count=exposure_missing_count,
         exposure_available=exposure_missing_count == 0,
+        total_remaining_sl_risk_usd=total_remaining_sl_risk_usd,
+        projected_equity_at_stops=projected_equity_at_stops,
     )
 
     instrument_ids_with_positions = {str(row[1]) for row in open_rows}

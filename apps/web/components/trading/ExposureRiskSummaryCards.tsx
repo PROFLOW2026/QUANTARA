@@ -29,6 +29,25 @@ function formatExposureMetric(
   return t("common.metric_unavailable");
 }
 
+function formatRemainingMetric(
+  summary: AssetAnalyticsSummary | null | undefined,
+  field: "remaining_sl_risk_usd" | "projected_equity_at_stops"
+) {
+  if (!summary) {
+    return t("common.metric_unavailable");
+  }
+  const value = summary[field];
+  if (value != null) {
+    return formatCurrencyOrUnavailable(value);
+  }
+  if ((summary.open_position_count ?? 0) === 0) {
+    return field === "remaining_sl_risk_usd"
+      ? formatCurrencyOrUnavailable(0)
+      : formatCurrencyOrUnavailable(summary.total_equity ?? 0);
+  }
+  return t("common.metric_unavailable");
+}
+
 export function ExposureRiskSummaryCards({
   summary,
   loading,
@@ -37,7 +56,7 @@ export function ExposureRiskSummaryCards({
   loading?: boolean;
 }) {
   return (
-    <div className="grid gap-4 sm:grid-cols-3">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
       <Card>
         <CardHeader>
           <CardTitle title={t("home.open_exposure_usd_hint")}>
@@ -73,6 +92,36 @@ export function ExposureRiskSummaryCards({
             <span className="text-muted">{t("common.loading")}</span>
           ) : (
             <p className="font-mono text-2xl">{formatExposureMetric(summary, "open_risk_pct")}</p>
+          )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle title={t("home.remaining_sl_risk_hint")}>
+            {t("home.remaining_sl_risk_title")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <span className="text-muted">{t("common.loading")}</span>
+          ) : (
+            <p className="font-mono text-2xl">{formatRemainingMetric(summary, "remaining_sl_risk_usd")}</p>
+          )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle title={t("home.projected_equity_at_stops_hint")}>
+            {t("home.projected_equity_at_stops_title")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <span className="text-muted">{t("common.loading")}</span>
+          ) : (
+            <p className="font-mono text-2xl">
+              {formatRemainingMetric(summary, "projected_equity_at_stops")}
+            </p>
           )}
         </CardContent>
       </Card>
