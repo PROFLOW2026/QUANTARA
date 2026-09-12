@@ -32,7 +32,7 @@ from quantara_engine.live_sim.risk_policy import (
     target_risk_for_equity,
     update_high_water_mark,
 )
-from quantara_engine.market_data.assets import get_asset
+from quantara_engine.market_data.registry import get_asset
 from quantara_engine.market_data.sessions import session_allows_entries
 from quantara_engine.persistence.store import TradingStore
 from quantara_engine.pipeline.candle_processor import signal_age_minutes
