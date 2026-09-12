@@ -1667,6 +1667,7 @@ class TradingStore:
             backtest_run_id=self._bt_uuid(),
         )
         self.session.merge(row)
+        self.session.flush()
         from quantara_engine.competition.paper_run import stamp_paper_run_id
 
         stamp_paper_run_id(self, table="order_intents", row_id=intent.id)

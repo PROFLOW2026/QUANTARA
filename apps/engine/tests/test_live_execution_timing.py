@@ -22,7 +22,7 @@ from quantara_engine.models.trading import OrderIntent as OrmOrderIntent
 def test_live_fill_allows_small_processing_latency():
     signal_ts = datetime(2026, 9, 9, 14, 20, tzinfo=timezone.utc)
     exec_ts = datetime(2026, 9, 9, 14, 25, tzinfo=timezone.utc)
-    now = datetime(2026, 9, 9, 14, 27, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 9, 14, 32, tzinfo=timezone.utc)
     allowed, reason = live_fill_allowed(
         execution_candle_timestamp=exec_ts,
         candle_timestamp=exec_ts,
@@ -52,8 +52,8 @@ def test_live_fill_rejects_genuinely_stale_signal():
 def test_aapl_style_late_created_intent_expires():
     signal_ts = datetime(2026, 9, 9, 14, 35, tzinfo=timezone.utc)
     exec_ts = datetime(2026, 9, 9, 14, 40, tzinfo=timezone.utc)
-    created_at = datetime(2026, 9, 9, 14, 50, tzinfo=timezone.utc)
-    now = datetime(2026, 9, 9, 14, 52, tzinfo=timezone.utc)
+    created_at = datetime(2026, 9, 9, 14, 51, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 9, 14, 58, tzinfo=timezone.utc)
     assert intent_past_execution_window(
         signal_candle_timestamp=signal_ts,
         execution_candle_timestamp=exec_ts,
@@ -66,12 +66,12 @@ def test_aapl_style_late_created_intent_expires():
 def test_cancel_stale_expires_overdue_pending_intent():
     from quantara_engine.persistence.store import TradingStore
 
-    now = datetime(2026, 9, 9, 14, 52, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 9, 14, 58, tzinfo=timezone.utc)
     row = MagicMock(spec=OrmOrderIntent)
     row.strategy_instance_id = uuid.uuid4()
     row.execution_candle_timestamp = datetime(2026, 9, 9, 14, 40, tzinfo=timezone.utc)
     row.signal_candle_timestamp = datetime(2026, 9, 9, 14, 35, tzinfo=timezone.utc)
-    row.created_at = datetime(2026, 9, 9, 14, 50, tzinfo=timezone.utc)
+    row.created_at = datetime(2026, 9, 9, 14, 51, tzinfo=timezone.utc)
     row.status = OrderIntentStatus.PENDING_EXECUTION
 
     instance = MagicMock(spec=OrmStrategyInstance)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from quantara_engine.market_data.polling import timeframe_minutes
+from quantara_engine.market_data.polling import bar_close_timestamp, is_bar_complete, timeframe_minutes
 
 # Baseline 5m constants (preserved for backward-compatible defaults).
 LIVE_EXECUTION_GRACE_MINUTES = 8
@@ -40,6 +40,12 @@ def freshness_max_age_minutes(timeframe: str) -> int:
     if bar <= 5:
         return 30
     return stale_signal_max_age_minutes(timeframe) + intent_creation_tolerance_minutes(timeframe)
+
+
+def _as_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def next_execution_timestamp(signal_candle_timestamp: datetime, timeframe: str) -> datetime:
@@ -78,12 +84,17 @@ def intent_past_execution_window(
     exec_ts = execution_candle_timestamp or next_execution_timestamp(
         signal_candle_timestamp, timeframe
     )
+    now = _as_utc(now)
+    intent_created_at = _as_utc(intent_created_at)
+    signal_candle_timestamp = _as_utc(signal_candle_timestamp)
+    exec_ts = _as_utc(exec_ts)
+
+    # N+1 execution bar must close before expiry — tolerate scheduler +18/+32 offsets.
+    if not is_bar_complete(exec_ts, timeframe, now):
+        return False
+
     deadline = execution_grace_deadline(exec_ts, timeframe, grace_minutes=grace)
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=timezone.utc)
-    if intent_created_at.tzinfo is None:
-        intent_created_at = intent_created_at.replace(tzinfo=timezone.utc)
-    creation_deadline = exec_ts + timedelta(minutes=tolerance)
+    creation_deadline = bar_close_timestamp(exec_ts, timeframe) + timedelta(minutes=tolerance)
     if intent_created_at > creation_deadline:
         return True
     return now > deadline
@@ -102,8 +113,16 @@ def live_fill_allowed(
     grace = grace_minutes if grace_minutes is not None else execution_grace_minutes(timeframe)
     stale_max = stale_signal_max_age_minutes(timeframe)
 
+    now = _as_utc(now)
+    signal_candle_timestamp = _as_utc(signal_candle_timestamp)
+    execution_candle_timestamp = _as_utc(execution_candle_timestamp)
+    candle_timestamp = _as_utc(candle_timestamp)
+
     if execution_candle_timestamp != candle_timestamp:
         return False, "execution_candle_mismatch"
+
+    if not is_bar_complete(execution_candle_timestamp, timeframe, now):
+        return False, "execution_bar_not_complete"
 
     age_min = (now - signal_candle_timestamp).total_seconds() / 60
     if age_min > stale_max:
