@@ -1,5 +1,6 @@
 "use client";
 
+import { FinancialValue } from "@/components/trading/FinancialValue";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -28,5 +29,7 @@ export function HomeSummaryValue({
   children: React.ReactNode;
   className?: string;
 }) {
-  return <p className={cn("font-mono text-2xl font-semibold text-financial", className)}>{children}</p>;
+  return (
+    <FinancialValue className={cn("w-full font-semibold", className)}>{children}</FinancialValue>
+  );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { FinancialValue } from "@/components/trading/FinancialValue";
 import { Card, CardContent, CardHeader, CardTitle, HighlightCard } from "@/components/ui/card";
 import type { BrokerAccountSummary } from "@/lib/api-client";
 import { formatCurrencyOrUnavailable, formatPercentOrUnavailable } from "@/lib/display-text";
@@ -27,7 +28,7 @@ export function BrokerAccountSummaryCards({
           <CardTitle>{t("home.broker_equity")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="font-mono text-2xl text-financial">{v(account?.equity)}</p>
+          <FinancialValue className="w-full">{v(account?.equity)}</FinancialValue>
           <p className="text-muted mt-1 text-xs">
             {t("home.broker_balance_cash", {
               balance: v(account?.balance),
@@ -41,7 +42,7 @@ export function BrokerAccountSummaryCards({
           <CardTitle>{t("home.broker_gross_exposure")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="font-mono text-2xl text-financial">{v(account?.gross_exposure)}</p>
+          <FinancialValue className="w-full">{v(account?.gross_exposure)}</FinancialValue>
           <p className="text-muted mt-1 text-xs">
             {t("home.broker_net_exposure", { value: v(account?.net_exposure) })}
           </p>
@@ -52,7 +53,9 @@ export function BrokerAccountSummaryCards({
           <CardTitle>{t("home.broker_net_realized_pnl")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="font-mono text-2xl text-financial">{v(account?.net_realized_pnl ?? account?.realized_pnl)}</p>
+          <FinancialValue className="w-full">
+            {v(account?.net_realized_pnl ?? account?.realized_pnl)}
+          </FinancialValue>
           {account?.gross_realized_pnl != null && account?.fees_paid != null && (
             <p className="text-muted mt-1 text-xs">
               {t("home.broker_gross_fees", {
@@ -68,7 +71,9 @@ export function BrokerAccountSummaryCards({
           <CardTitle>{t("home.broker_available_margin")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="font-mono text-2xl text-financial">{v(account?.available_margin ?? account?.buying_power)}</p>
+          <FinancialValue className="w-full">
+            {v(account?.available_margin ?? account?.buying_power)}
+          </FinancialValue>
           {account?.spot_crypto_cash != null && (
             <p className="text-muted mt-1 text-xs">
               {t("home.broker_spot_crypto_cash", { value: v(account.spot_crypto_cash) })}

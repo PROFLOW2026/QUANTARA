@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { AssetChartModal } from "@/components/trading/AssetChartModal";
+import { AssetMetricsGrid } from "@/components/trading/AssetMetricsGrid";
 import { AssetTradeDrilldownModal } from "@/components/trading/AssetTradeDrilldownModal";
+import { FinancialValue } from "@/components/trading/FinancialValue";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import {
   type AssetAnalyticsRow,
   type Decision,
@@ -13,17 +14,14 @@ import {
   type ProviderHealthStatus,
 } from "@/lib/api-client";
 import {
-  formatCurrencyOrUnavailable,
-  formatRiskPercentOrUnavailable,
   formatProviderUsageLine,
   resolveAssetDataStatusPresentation,
   translateProviderStatus,
   translateStructureRegime,
   translateVolatilityRegime,
 } from "@/lib/display-text";
-import { formatRiskRewardLabel, formatTargetProfitOrUnavailable } from "@/lib/profit-target";
 import { t } from "@/lib/i18n";
-import { cn, formatCurrency, formatRiskPercent, formatRelativeTime } from "@/lib/utils";
+import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 
 function statusBadge(
   status: string,
@@ -44,65 +42,6 @@ function providerLabel(name: string) {
   if (name === "tiingo") return "Tiingo";
   if (name === "alpaca") return "Alpaca";
   return name;
-}
-
-function formatAssetExposure(asset: AssetAnalyticsRow) {
-  if (asset.open_exposure != null) {
-    return formatCurrencyOrUnavailable(asset.open_exposure);
-  }
-  if ((asset.open_positions ?? 0) === 0) {
-    return formatCurrencyOrUnavailable(0);
-  }
-  return formatCurrencyOrUnavailable(null);
-}
-
-function formatAssetRisk(asset: AssetAnalyticsRow) {
-  if (asset.open_risk_usd != null) {
-    return formatCurrencyOrUnavailable(asset.open_risk_usd);
-  }
-  if ((asset.open_positions ?? 0) === 0) {
-    return formatCurrencyOrUnavailable(0);
-  }
-  return formatCurrencyOrUnavailable(null);
-}
-
-function formatAssetTargetProfit(asset: AssetAnalyticsRow) {
-  if ((asset.open_positions ?? 0) === 0) {
-    return formatCurrencyOrUnavailable(0);
-  }
-  if (asset.open_target_profit_usd != null) {
-    return formatTargetProfitOrUnavailable(asset.open_target_profit_usd);
-  }
-  return formatTargetProfitOrUnavailable(null);
-}
-
-function formatAssetRiskReward(asset: AssetAnalyticsRow) {
-  if ((asset.open_positions ?? 0) === 0) {
-    return formatRiskRewardLabel(0);
-  }
-  return formatRiskRewardLabel(asset.combined_risk_reward);
-}
-
-function formatRiskPctBlock(asset: AssetAnalyticsRow) {
-  const cap = asset.global_risk_cap_pct ?? 2;
-  const currentPct =
-    asset.open_risk_pct != null
-      ? formatRiskPercentOrUnavailable(asset.open_risk_pct)
-      : (asset.open_positions ?? 0) === 0
-        ? formatRiskPercentOrUnavailable(0)
-        : formatRiskPercentOrUnavailable(null);
-  return (
-    <div className="space-y-0.5" title={t("home.asset_risk_cap_hint", { cap: formatRiskPercent(cap) })}>
-      <p>
-        <span className="text-muted">{t("home.asset_risk_current_pct")}: </span>
-        <span className="font-mono text-financial">{currentPct}</span>
-      </p>
-      <p>
-        <span className="text-muted">{t("home.asset_risk_limit_pct")}: </span>
-        <span className="font-mono text-financial">{formatRiskPercent(cap)}</span>
-      </p>
-    </div>
-  );
 }
 
 function providerStatusBadge(status: string) {
@@ -214,39 +153,6 @@ function AssetSymbolButton({
   );
 }
 
-function AssetDrilldownButton({
-  label,
-  count,
-  ariaLabel,
-  onClick,
-  className = "",
-}: {
-  label: string;
-  count: number;
-  ariaLabel: string;
-  onClick: () => void;
-  className?: string;
-}) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "group flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-border-interactive bg-surface-drilldown px-2.5 py-2 text-xs transition-colors",
-        "hover:border-border-hover hover:bg-surface-drilldown-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-focus/45",
-        "md:px-2 md:py-1.5",
-        className
-      )}
-      onClick={onClick}
-      aria-label={ariaLabel}
-    >
-      <span className="text-foreground-secondary transition-colors group-hover:text-text-normal">{label}</span>
-      <span className="font-mono text-sm font-medium text-accent transition-colors group-hover:text-primary">
-        {count}
-      </span>
-    </button>
-  );
-}
-
 function DesktopActiveAssetCard({
   asset,
   onDrilldown,
@@ -257,13 +163,13 @@ function DesktopActiveAssetCard({
   onChartOpen: () => void;
 }) {
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-md border border-border bg-surface text-sm shadow-card">
-      <div className="border-b border-border-nested bg-surface-header p-3">
+    <div className="flex h-full min-h-[21.5rem] flex-col overflow-hidden rounded-md border border-border bg-surface text-sm shadow-card">
+      <div className="shrink-0 border-b border-border-nested bg-surface-header p-3">
         <div className="flex items-start justify-between gap-2">
           <AssetSymbolButton asset={asset} onOpen={onChartOpen} className="text-base text-foreground" />
-          <p className="shrink-0 font-mono text-base leading-tight text-financial">
+          <FinancialValue variant="compact" className="shrink-0 text-base">
             {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
-          </p>
+          </FinancialValue>
         </div>
         <p className="mt-0.5 h-4 truncate text-xs leading-4 text-text-subtle">
           {providerLabel(asset.provider)} · {t(`home.session_${asset.session_status}`)}
@@ -278,78 +184,25 @@ function DesktopActiveAssetCard({
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col p-3">
-      <div className="mb-2 border-b border-border-nested pb-2 text-xs leading-snug">
-        <span className="text-muted">{t("home.market_regime_title")}: </span>
-        {asset.market_regime ? (
-          <>
-            <span className="text-text-normal">{translateStructureRegime(asset.market_regime.structure_regime)}</span>
-            <span className="text-muted">
-              {" "}
-              · {translateVolatilityRegime(asset.market_regime.volatility_regime)}
-            </span>
-          </>
-        ) : (
-          <span>—</span>
-        )}
-      </div>
+      <div className="flex min-h-0 flex-1 flex-col p-3">
+        <div className="mb-2 min-h-[2.5rem] shrink-0 border-b border-border-nested pb-2 text-xs leading-snug">
+          <span className="text-muted">{t("home.market_regime_title")}: </span>
+          {asset.market_regime ? (
+            <>
+              <span className="text-text-normal">{translateStructureRegime(asset.market_regime.structure_regime)}</span>
+              <span className="text-muted">
+                {" "}
+                · {translateVolatilityRegime(asset.market_regime.volatility_regime)}
+              </span>
+            </>
+          ) : (
+            <span>—</span>
+          )}
+        </div>
 
-      <div className="mt-auto grid grid-cols-2 gap-x-2 gap-y-1.5 text-xs leading-snug">
-        <AssetDrilldownButton
-          label={t("home.open_positions")}
-          count={asset.open_positions}
-          ariaLabel={t("home.open_positions_modal_title", { asset: asset.symbol })}
-          onClick={() => onDrilldown("open")}
-        />
-        <AssetDrilldownButton
-          label={t("home.closed_trades")}
-          count={asset.closed_trades}
-          ariaLabel={t("home.closed_trades_modal_title", { asset: asset.symbol })}
-          onClick={() => onDrilldown("closed")}
-        />
-        <div className="rounded-md bg-surface-inner px-2 py-1.5">
-          <p className="text-muted">{t("home.realized_pnl")}</p>
-          <div className="mt-0.5">
-            <PnLDisplay value={asset.realized_pnl} size="sm" />
-          </div>
+        <div className="mt-auto min-h-0">
+          <AssetMetricsGrid asset={asset} onDrilldown={onDrilldown} />
         </div>
-        <div className="rounded-md bg-surface-inner px-2 py-1.5">
-          <p className="text-muted">{t("home.unrealized_pnl")}</p>
-          <div className="mt-0.5">
-            <PnLDisplay value={asset.unrealized_pnl} size="sm" />
-          </div>
-        </div>
-        <div className="col-span-2 flex items-baseline justify-between gap-2 rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
-          <span className="text-muted">{t("home.total_pnl")}</span>
-          <PnLDisplay value={asset.total_pnl} size="sm" />
-        </div>
-        {(asset.open_positions ?? 0) > 0 ? (
-          <>
-            <div className="col-span-2 grid grid-cols-2 gap-x-2 gap-y-1.5">
-              <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
-                <p className="text-muted">{t("home.asset_exposure_short")}</p>
-                <p className="mt-0.5 font-mono text-financial">{formatAssetExposure(asset)}</p>
-              </div>
-              <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
-                <p className="text-muted">{t("home.asset_risk_short")}</p>
-                <p className="mt-0.5 font-mono text-financial">{formatAssetRisk(asset)}</p>
-              </div>
-              <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
-                <p className="text-muted">{t("home.asset_target_profit_short")}</p>
-                <p className="mt-0.5 font-mono text-financial">{formatAssetTargetProfit(asset)}</p>
-              </div>
-              <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
-                <p className="text-muted">{t("home.asset_risk_reward_short")}</p>
-                <p className="mt-0.5 font-mono text-financial">{formatAssetRiskReward(asset)}</p>
-              </div>
-            </div>
-            <div className="col-span-2 rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
-              <p className="text-muted">{t("home.asset_risk_pct_short")}</p>
-              <div className="mt-0.5 text-xs">{formatRiskPctBlock(asset)}</div>
-            </div>
-          </>
-        ) : null}
-      </div>
       </div>
     </div>
   );
@@ -385,9 +238,9 @@ export function ActiveAssetsTable({
                 <p className="mt-1.5 text-xs text-text-subtle">
                   {providerLabel(asset.provider)} · {t(`home.session_${asset.session_status}`)}
                 </p>
-                <p className="mt-1.5 font-mono text-financial">
+                <FinancialValue variant="compact" className="mt-1.5">
                   {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
-                </p>
+                </FinancialValue>
                 <div className="mt-2">
                   {statusBadge(
                     asset.data_status,
@@ -398,51 +251,32 @@ export function ActiveAssetsTable({
                 </div>
               </div>
               <div className="px-4 py-4">
-                <div className="grid grid-cols-2 gap-2.5 text-xs">
-                  <AssetDrilldownButton
-                    label={t("home.open_positions")}
-                    count={asset.open_positions}
-                    ariaLabel={t("home.open_positions_modal_title", { asset: asset.symbol })}
-                    onClick={() => setDrilldown({ asset, mode: "open" })}
-                  />
-                  <AssetDrilldownButton
-                    label={t("home.closed_trades")}
-                    count={asset.closed_trades}
-                    ariaLabel={t("home.closed_trades_modal_title", { asset: asset.symbol })}
-                    onClick={() => setDrilldown({ asset, mode: "closed" })}
-                  />
-                  <p>
-                    {t("home.realized_pnl")}: <PnLDisplay value={asset.realized_pnl} size="sm" />
-                  </p>
-                  <p>
-                    {t("home.unrealized_pnl")}: <PnLDisplay value={asset.unrealized_pnl} size="sm" />
-                  </p>
-                  <p className="col-span-2">
-                    {t("home.total_pnl")}: <PnLDisplay value={asset.total_pnl} size="sm" />
-                  </p>
-                  {(asset.open_positions ?? 0) > 0 ? (
+                <div className="mb-3 min-h-[2.5rem] border-b border-border-nested pb-2 text-xs leading-snug">
+                  <span className="text-muted">{t("home.market_regime_title")}: </span>
+                  {asset.market_regime ? (
                     <>
-                      <p>
-                        {t("home.asset_exposure_short")}: {formatAssetExposure(asset)}
-                      </p>
-                      <p>
-                        {t("home.asset_risk_short")}: {formatAssetRisk(asset)}
-                      </p>
-                      <p>
-                        {t("home.asset_target_profit_short")}: {formatAssetTargetProfit(asset)}
-                      </p>
-                      <p>
-                        {t("home.asset_risk_reward_short")}: {formatAssetRiskReward(asset)}
-                      </p>
-                      <div className="col-span-2">{formatRiskPctBlock(asset)}</div>
+                      <span className="text-text-normal">
+                        {translateStructureRegime(asset.market_regime.structure_regime)}
+                      </span>
+                      <span className="text-muted">
+                        {" "}
+                        · {translateVolatilityRegime(asset.market_regime.volatility_regime)}
+                      </span>
                     </>
-                  ) : null}
+                  ) : (
+                    <span>—</span>
+                  )}
                 </div>
+                <AssetMetricsGrid
+                  asset={asset}
+                  onDrilldown={(mode) => setDrilldown({ asset, mode })}
+                  mobile
+                />
               </div>
             </div>
           ))}
         </div>
-        <div className="hidden gap-3 md:grid md:grid-cols-2 lg:grid-cols-4">
+        <div className="hidden gap-3 md:grid md:auto-rows-fr md:grid-cols-2 lg:grid-cols-4">
           {assets.map((asset) => (
             <DesktopActiveAssetCard
               key={asset.db_symbol}
