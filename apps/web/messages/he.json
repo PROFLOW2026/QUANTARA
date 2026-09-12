@@ -15,7 +15,10 @@
     "experiments": "ניסויים",
     "analytics": "ביצועים",
     "market_gold": "נתוני זהב",
-    "settings": "הגדרות"
+    "settings": "הגדרות",
+    "more": "עוד",
+    "portfolios": "תיקים",
+    "main_navigation": "ניווט ראשי"
   },
   "common": {
     "loading": "טוען...",

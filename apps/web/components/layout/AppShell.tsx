@@ -1,15 +1,14 @@
-import { Sidebar, MobileBottomNav } from "./Sidebar";
+import { BottomNavigation } from "./BottomNavigation";
+import { TopHeader } from "./TopHeader";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen">
-      <main className="flex-1 overflow-auto pb-20 lg:pb-0">
-        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-          {children}
-        </div>
+    <div className="flex min-h-screen flex-col">
+      <TopHeader />
+      <main className="flex-1 overflow-auto pb-20">
+        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">{children}</div>
       </main>
-      <Sidebar />
-      <MobileBottomNav />
+      <BottomNavigation />
     </div>
   );
 }

@@ -6,7 +6,8 @@ import { cn } from "@/lib/utils";
 import { activeModuleFromLocation } from "@/lib/modal-workspace/parse-route";
 import { isModalPath } from "@/lib/modal-workspace/module-registry";
 import { HomeDashboard } from "@/components/dashboard/HomeDashboard";
-import { Sidebar, MobileBottomNav } from "./Sidebar";
+import { BottomNavigation } from "./BottomNavigation";
+import { TopHeader } from "./TopHeader";
 import { ModalWorkspaceShell } from "./ModalWorkspaceShell";
 import { useModalWorkspace } from "./ModalWorkspaceProvider";
 
@@ -40,13 +41,11 @@ export function DashboardShell() {
   }, [pathname, searchParams, openModule, router]);
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen flex-col">
+      <TopHeader />
       <main
         ref={mainScrollRef}
-        className={cn(
-          "flex-1 overflow-auto pb-20 lg:pb-0",
-          isOpen && "overflow-hidden"
-        )}
+        className={cn("flex-1 overflow-auto pb-20", isOpen && "overflow-hidden")}
         aria-hidden={isOpen}
       >
         <div
@@ -58,8 +57,7 @@ export function DashboardShell() {
           <HomeDashboard />
         </div>
       </main>
-      <Sidebar />
-      <MobileBottomNav />
+      <BottomNavigation />
       <ModalWorkspaceShell />
     </div>
   );
