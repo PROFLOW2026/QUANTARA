@@ -68,7 +68,7 @@ export function ExposureRiskSummaryCards({
       ? formatRiskRewardLabel(summary.combined_risk_reward)
       : hasOpenPositions
         ? t("home.risk_reward_unavailable")
-        : formatRiskRewardLabel(0);
+        : "—";
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
