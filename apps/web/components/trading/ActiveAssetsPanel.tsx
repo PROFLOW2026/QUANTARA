@@ -21,10 +21,7 @@ import {
   translateVolatilityRegime,
 } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
-import {
-  AssetTradingPauseControl,
-  CloseAllPositionsButton,
-} from "@/components/trading/AssetTradingControl";
+import { AssetTradingPauseControl } from "@/components/trading/AssetTradingControl";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 
 function statusBadge(
@@ -194,19 +191,6 @@ function DesktopActiveAssetCard({
             onChanged={onRefresh}
           />
         </div>
-        {asset.open_positions > 0 ? (
-          <div className="mt-2">
-            <CloseAllPositionsButton
-              dbSymbol={asset.db_symbol}
-              displaySymbol={asset.symbol}
-              openCount={asset.open_positions}
-              exposure={asset.open_exposure}
-              unrealizedPnl={asset.unrealized_pnl}
-              slRisk={asset.open_risk_usd}
-              onClosed={onRefresh}
-            />
-          </div>
-        ) : null}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col p-3">
@@ -282,19 +266,6 @@ export function ActiveAssetsTable({
                     onChanged={onRefresh}
                   />
                 </div>
-                {asset.open_positions > 0 ? (
-                  <div className="mt-2">
-                    <CloseAllPositionsButton
-                      dbSymbol={asset.db_symbol}
-                      displaySymbol={asset.symbol}
-                      openCount={asset.open_positions}
-                      exposure={asset.open_exposure}
-                      unrealizedPnl={asset.unrealized_pnl}
-                      slRisk={asset.open_risk_usd}
-                      onClosed={onRefresh}
-                    />
-                  </div>
-                ) : null}
               </div>
               <div className="px-4 py-4">
                 <div className="mb-3 min-h-[2.5rem] border-b border-border-nested pb-2 text-xs leading-snug">
