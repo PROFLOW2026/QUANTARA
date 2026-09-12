@@ -81,3 +81,23 @@ def test_provider_error_translation_helpers_exist():
     assert "formatProviderUsageLine" in src
     assert "backend request timeout" in src
     assert "twelvedata.com" in src
+
+
+def test_asset_data_status_visual_state_labels():
+    he = json.loads(HE_JSON.read_text(encoding="utf-8"))
+    home = he["home"]
+    assert home["asset_status_healthy"] == "תקין"
+    assert home["asset_status_session_closed"] == "סגור — נתוני סשן אחרון"
+    assert home["asset_status_data_error"] == "שגיאת נתונים"
+    assert home["asset_status_updating"] == "מעדכן"
+    assert home["asset_status_waiting_data"] == "ממתין לנתון"
+
+    src = DISPLAY_TEXT.read_text(encoding="utf-8")
+    panel = (
+        REPO_ROOT / "apps" / "web" / "components" / "trading" / "ActiveAssetsPanel.tsx"
+    ).read_text(encoding="utf-8")
+    assert "resolveAssetDataStatusPresentation" in src
+    assert "resolveAssetDataStatusPresentation" in panel
+    assert 'variant: "warning"' in src or 'variant: "warning"' in panel
+    assert "session_closed" in panel
+    assert "last_candle" in panel

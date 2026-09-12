@@ -259,19 +259,88 @@ export function formatProviderUsageLine(
   return null;
 }
 
+export type AssetDataStatusVariant = "success" | "warning" | "danger" | "default";
+
+export function resolveAssetDataStatusPresentation(
+  status: string | null | undefined,
+  options?: {
+    stale?: boolean;
+    sessionClosed?: boolean;
+    hasLastCandle?: boolean;
+  }
+): { label: string; variant: AssetDataStatusVariant } {
+  const normalized = (status ?? "unknown").toLowerCase();
+  const stale = options?.stale ?? false;
+  const sessionClosed = options?.sessionClosed ?? false;
+  const hasLastCandle = options?.hasLastCandle ?? true;
+
+  if (sessionClosed && normalized !== "error" && normalized !== "blocked") {
+    return {
+      label: t("home.asset_status_session_closed"),
+      variant: "warning",
+    };
+  }
+
+  if (!hasLastCandle && normalized !== "error" && normalized !== "blocked") {
+    return {
+      label: t("home.asset_status_waiting_data"),
+      variant: "default",
+    };
+  }
+
+  if (
+    (stale && !sessionClosed) ||
+    normalized === "error" ||
+    normalized === "blocked" ||
+    normalized === "exhausted" ||
+    normalized === "stale"
+  ) {
+    return {
+      label: t("home.asset_status_data_error"),
+      variant: "danger",
+    };
+  }
+
+  if (normalized === "healthy" || normalized === "fresh") {
+    return {
+      label: t("home.asset_status_healthy"),
+      variant: "success",
+    };
+  }
+
+  if (
+    normalized === "deferred" ||
+    normalized === "conservation" ||
+    normalized === "waiting" ||
+    normalized === "unknown"
+  ) {
+    return {
+      label:
+        normalized === "unknown"
+          ? t("home.asset_status_waiting_data")
+          : t("home.asset_status_updating"),
+      variant: "default",
+    };
+  }
+
+  const key = DATA_STATUS_KEYS[normalized];
+  return {
+    label: key ? t(key) : status ?? "—",
+    variant: "default",
+  };
+}
+
 export function translateDataStatus(
   status: string | null | undefined,
   stale?: boolean,
-  sessionClosed?: boolean
+  sessionClosed?: boolean,
+  hasLastCandle?: boolean
 ): string {
-  if (sessionClosed && status !== "error" && status !== "blocked") {
-    return t("home.asset_status_session_closed");
-  }
-  if (stale && status !== "error" && status !== "blocked") {
-    return t("home.asset_status_stale");
-  }
-  const key = DATA_STATUS_KEYS[(status ?? "unknown").toLowerCase()];
-  return key ? t(key) : status ?? "—";
+  return resolveAssetDataStatusPresentation(status, {
+    stale,
+    sessionClosed,
+    hasLastCandle,
+  }).label;
 }
 
 export function translateRobotStrategyLabel(

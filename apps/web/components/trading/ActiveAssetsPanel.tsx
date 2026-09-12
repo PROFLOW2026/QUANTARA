@@ -14,7 +14,7 @@ import {
   formatCurrencyOrUnavailable,
   formatPercentOrUnavailable,
   formatProviderUsageLine,
-  translateDataStatus,
+  resolveAssetDataStatusPresentation,
   translateProviderStatus,
   translateStructureRegime,
   translateVolatilityRegime,
@@ -22,25 +22,18 @@ import {
 import { t } from "@/lib/i18n";
 import { formatCurrency, formatPercent, formatRelativeTime } from "@/lib/utils";
 
-function statusBadge(status: string, stale?: boolean, sessionClosed?: boolean) {
-  const effectiveStatus =
-    sessionClosed && status !== "error" && status !== "blocked" ? "deferred" : status;
-  const key = stale && !sessionClosed ? "stale" : effectiveStatus;
-  const variant =
-    key === "healthy" || key === "fresh"
-      ? "success"
-      : key === "deferred"
-        ? "muted"
-        : key === "blocked" || key === "error" || key === "exhausted"
-          ? "danger"
-          : key === "conservation"
-            ? "warning"
-            : "warning";
-  return (
-    <Badge variant={variant}>
-      {translateDataStatus(effectiveStatus, stale && !sessionClosed, sessionClosed)}
-    </Badge>
-  );
+function statusBadge(
+  status: string,
+  stale?: boolean,
+  sessionClosed?: boolean,
+  hasLastCandle?: boolean
+) {
+  const { label, variant } = resolveAssetDataStatusPresentation(status, {
+    stale,
+    sessionClosed,
+    hasLastCandle,
+  });
+  return <Badge variant={variant}>{label}</Badge>;
 }
 
 function providerLabel(name: string) {
@@ -208,7 +201,12 @@ function DesktopActiveAssetCard({
           {providerLabel(asset.provider)} · {t(`home.session_${asset.session_status}`)}
         </p>
         <div className="mt-1 flex h-5 items-center">
-          {statusBadge(asset.data_status, asset.stale, asset.session_closed)}
+          {statusBadge(
+            asset.data_status,
+            asset.stale,
+            asset.session_closed,
+            Boolean(asset.last_candle)
+          )}
         </div>
       </div>
 
@@ -300,7 +298,14 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
               <p className="mt-1 font-mono">
                 {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
               </p>
-              <div className="mt-2">{statusBadge(asset.data_status, asset.stale)}</div>
+              <div className="mt-2">
+                {statusBadge(
+                  asset.data_status,
+                  asset.stale,
+                  asset.session_closed,
+                  Boolean(asset.last_candle)
+                )}
+              </div>
               <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                 <AssetDrilldownButton
                   label={t("home.open_positions")}
