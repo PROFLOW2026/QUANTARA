@@ -551,7 +551,10 @@ export interface ProviderHealthStatus {
   last_success?: string | null;
   last_error?: string | null;
   used_today?: number;
+  provider_plan_limit?: number;
   guard_limit?: number;
+  internal_guard_limit?: number;
+  internal_guard_active?: boolean;
   remaining?: number;
   usable_budget?: number;
   candle_remaining?: number;

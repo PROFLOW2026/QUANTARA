@@ -264,8 +264,6 @@ def all_provider_status(store: TradingStore | None) -> dict[str, dict[str, Any]]
     if isinstance(errors, list) and any("429" in str(item) for item in errors):
         td["status"] = "blocked"
         td["last_error"] = next((str(item) for item in errors if "429" in str(item)), td.get("last_error"))
-    elif int(td.get("used_today") or 0) >= 720:
-        td["status"] = "blocked"
 
     return {
         "twelvedata": td,

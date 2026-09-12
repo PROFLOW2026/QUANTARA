@@ -136,6 +136,17 @@ class WorkerScheduler:
             self.register_jobs()
             register_scheduler_listeners(self.scheduler)
             self.scheduler.start()
+            from quantara_engine.market_data.credits import maybe_refresh_twelve_data_health
+
+            maybe_refresh_twelve_data_health(force=True)
+            self.scheduler.add_job(
+                maybe_refresh_twelve_data_health,
+                CronTrigger(minute=0, second=15),
+                id="twelve_data_health_sync",
+                replace_existing=True,
+                executor="housekeeping",
+                kwargs={"force": False},
+            )
             # Bootstrap any 0-candle assets immediately instead of waiting 30m for fetch_bulk.
             self.scheduler.add_job(
                 fetch_bulk_job,

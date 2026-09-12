@@ -16,6 +16,7 @@ SETTINGS_KEY = "provider_credits:twelvedata"
 DAILY_HARD_LIMIT = 800
 INTERNAL_GUARD_LIMIT = 720
 MAX_LOG_ENTRIES = 500
+HEALTH_SYNC_INTERVAL_SECONDS = 3600
 
 ENDPOINT_CREDITS: dict[str, int] = {
     "time_series": 1,
@@ -123,17 +124,45 @@ def record_usage(
 
 
 def sync_provider_usage(store: TradingStore | None, provider_usage: dict[str, Any]) -> None:
-    """Optional reconcile from Twelve Data api_usage."""
+    """Reconcile provider-reported usage from Twelve Data api_usage."""
     if store is None:
         return
     state = _load_state(store)
     daily_usage = provider_usage.get("daily_usage")
     if daily_usage is not None:
         state["provider_daily_usage"] = int(daily_usage)
-    daily_limit = provider_usage.get("daily_limit")
+    daily_limit = provider_usage.get("plan_daily_limit")
+    if daily_limit is None:
+        daily_limit = provider_usage.get("daily_limit")
     if daily_limit is not None:
         state["provider_daily_limit"] = int(daily_limit)
-    state["last_sync"] = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc).isoformat()
+    state["last_sync"] = now
+    state["last_health_sync"] = now
+    state["health_status"] = "healthy"
+    err = str(state.get("last_error") or "").lower()
+    if "429" not in err and "run out of api credits" not in err:
+        state.pop("last_error", None)
+    _save_state(store, state)
+
+
+def record_health_error(
+    store: TradingStore | None,
+    error: str,
+    *,
+    code: int | None = None,
+) -> None:
+    """Persist a failed Twelve Data health sync (does not affect trading state)."""
+    if store is None:
+        return
+    state = _load_state(store)
+    state["last_error"] = error
+    lower = error.lower()
+    if code == 429 or "429" in lower or "run out of api credits" in lower:
+        state["health_status"] = "blocked"
+    else:
+        state["health_status"] = "error"
+    state["last_health_attempt"] = datetime.now(timezone.utc).isoformat()
     _save_state(store, state)
 
 
@@ -143,6 +172,7 @@ def mark_blocked(store: TradingStore | None, error: str) -> None:
         return
     state = _load_state(store)
     state["last_error"] = error
+    state["health_status"] = "blocked"
     state["used"] = max(int(state.get("used") or 0), DAILY_HARD_LIMIT)
     _save_state(store, state)
 
@@ -180,30 +210,96 @@ def estimate_run_rate_per_hour(store: TradingStore | None) -> float:
     return round(int(state.get("used") or 0) / hours, 2)
 
 
+def _provider_health_status(state: dict[str, Any]) -> str:
+    """Health is independent from credit usage — sync success means healthy."""
+    err = str(state.get("last_error") or "").lower()
+    if state.get("health_status") == "blocked" or "429" in err or "run out of api credits" in err:
+        return "blocked"
+    if state.get("health_status") == "error":
+        return "error"
+    if state.get("last_health_sync") or state.get("last_sync"):
+        return "healthy"
+    if int(state.get("used") or 0) > 0:
+        return "healthy"
+    return "unknown"
+
+
 def status_payload(store: TradingStore | None) -> dict[str, Any]:
     state = _load_state(store)
-    used = int(state.get("provider_daily_usage") or state.get("used") or 0)
-    limit = int(state.get("provider_daily_limit") or DAILY_HARD_LIMIT)
-    remaining = max(0, limit - used)
-    if used >= DAILY_HARD_LIMIT:
-        status = "blocked"
-    elif used >= INTERNAL_GUARD_LIMIT:
-        status = "stale"
-    elif used > 0:
-        status = "healthy"
+    if state.get("provider_daily_usage") is not None:
+        used_today = int(state["provider_daily_usage"])
     else:
-        status = "unknown"
+        used_today = int(state.get("used") or 0)
+    plan_limit = int(state.get("provider_daily_limit") or DAILY_HARD_LIMIT)
+    ledger_used = int(state.get("used") or 0)
+    health = _provider_health_status(state)
     return {
         "provider": "twelvedata",
-        "status": status,
+        "status": health,
         "date": state.get("date", _today_key()),
-        "used_today": used,
-        "remaining": remaining,
+        "used_today": used_today,
+        "remaining": max(0, plan_limit - used_today),
+        "provider_plan_limit": plan_limit,
+        "daily_limit": plan_limit,
         "estimated_run_rate_per_hour": estimate_run_rate_per_hour(store),
         "daily_hard_limit": DAILY_HARD_LIMIT,
         "internal_guard_limit": INTERNAL_GUARD_LIMIT,
         "guard_limit": INTERNAL_GUARD_LIMIT,
-        "ledger_used": int(state.get("used") or 0),
+        "internal_guard_active": ledger_used >= INTERNAL_GUARD_LIMIT,
+        "ledger_used": ledger_used,
         "last_sync": state.get("last_sync"),
+        "last_success": state.get("last_health_sync") or state.get("last_sync"),
         "last_error": state.get("last_error"),
     }
+
+
+def refresh_twelve_data_health(*, force: bool = False) -> dict[str, Any]:
+    """Sync Twelve Data api_usage into settings (short-lived DB sessions)."""
+    from quantara_engine.db.session import session_scope
+    from quantara_engine.market_data.adapters.twelvedata import TwelveDataError, TwelveDataMarketDataProvider
+    from quantara_engine.persistence.store import TradingStore
+
+    with session_scope() as session:
+        store = TradingStore(session)
+        state = _load_state(store)
+        last = state.get("last_health_sync")
+        if not force and last:
+            try:
+                last_dt = datetime.fromisoformat(str(last))
+                age = (datetime.now(timezone.utc) - last_dt).total_seconds()
+                if age < HEALTH_SYNC_INTERVAL_SECONDS:
+                    return status_payload(store)
+            except ValueError:
+                pass
+
+    usage_payload: dict[str, Any] | None = None
+    error: tuple[str, int | None] | None = None
+    try:
+        provider = TwelveDataMarketDataProvider(
+            store=None,
+            caller="twelve_data_health_sync",
+            priority=FetchPriority.AUDIT,
+        )
+        usage_payload = provider.fetch_api_usage()
+    except TwelveDataError as exc:
+        error = (str(exc), getattr(exc, "code", None))
+        logger.warning("Twelve Data health sync failed: %s", exc)
+    except Exception as exc:
+        error = (str(exc), None)
+        logger.warning("Twelve Data health sync unexpected error: %s", exc)
+
+    with session_scope() as session:
+        store = TradingStore(session)
+        if usage_payload is not None:
+            sync_provider_usage(store, usage_payload)
+        elif error is not None:
+            record_health_error(store, error[0], code=error[1])
+        return status_payload(store)
+
+
+def maybe_refresh_twelve_data_health(*, force: bool = False) -> None:
+    """Best-effort health refresh — never raises."""
+    try:
+        refresh_twelve_data_health(force=force)
+    except Exception as exc:
+        logger.warning("Twelve Data health refresh skipped: %s", exc)

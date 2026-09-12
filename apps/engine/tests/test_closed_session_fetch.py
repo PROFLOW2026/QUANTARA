@@ -75,8 +75,8 @@ def test_twelve_data_skips_invalid_range_without_http():
 
 def test_twelve_data_fetch_latest_returns_empty_when_since_not_before_now():
     provider = TwelveDataMarketDataProvider(api_key="test-key", asset=get_asset("XAUUSD"))
-    now = datetime(2026, 9, 12, 12, 0, tzinfo=timezone.utc)
+    future = datetime(2099, 1, 1, 12, 0, tzinfo=timezone.utc)
     with patch.object(provider, "_time_series") as mock_ts:
-        candles = provider.fetch_latest("inst-id", "5m", since=now)
+        candles = provider.fetch_latest("inst-id", "5m", since=future)
     assert candles == []
     mock_ts.assert_not_called()

@@ -118,6 +118,11 @@ function ProviderHealthCard({
         </p>
       ) : null}
       {usageLine ? <p className="text-xs text-muted">{usageLine}</p> : null}
+      {name === "twelvedata" && health?.guard_limit != null ? (
+        <p className="text-xs text-muted">
+          {t("home.provider_guard_limit", { limit: health.guard_limit })}
+        </p>
+      ) : null}
       {name === "tiingo" && health?.fallback_mode ? (
         <p className="text-xs text-muted">{t("home.provider_fallback_active")}</p>
       ) : null}

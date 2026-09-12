@@ -204,7 +204,10 @@ export function formatProviderUsageLine(
   }
   if (provider === "twelvedata") {
     const used = health.used_today ?? health.used_day ?? 0;
-    const limit = health.guard_limit ?? health.daily_limit ?? 800;
+    const limit =
+      (health as { provider_plan_limit?: number }).provider_plan_limit ??
+      health.daily_limit ??
+      800;
     return t("home.provider_usage_daily", { used, limit });
   }
   if (provider === "alpaca") {
@@ -248,11 +251,14 @@ export function translateRobotStrategyLabel(
   strategyName?: string | null,
   strategySlug?: string | null
 ): string {
-  if (robotLabel === "Robot A") return "Robot A — Trend Pullback";
-  if (robotLabel === "Robot B") return "Robot B — Opening Range Breakout";
-  if (strategyName && robotLabel) return `${robotLabel} — ${strategyName}`;
-  if (strategySlug === "opening-range-breakout") return "Robot B — Opening Range Breakout";
-  if (strategySlug === "gold-trend-pullback") return "Robot A — Trend Pullback";
+  if (robotLabel === "Robot A" || strategySlug === "gold-trend-pullback") {
+    return t("home.robot_a_label");
+  }
+  if (robotLabel === "Robot B" || strategySlug === "opening-range-breakout") {
+    return t("home.robot_b_label");
+  }
+  if (strategyName && robotLabel === "Robot A") return t("home.robot_a_label");
+  if (strategyName && robotLabel === "Robot B") return t("home.robot_b_label");
   return robotLabel ?? strategyName ?? "—";
 }
 
