@@ -61,6 +61,7 @@ class FakeStore:
 
 def _block_primaries(store: FakeStore) -> None:
     mark_cooldown(store, "alpaca", reason="timeout")
+    mark_cooldown(store, "coinbase", reason="timeout")
     mark_blocked(store, "HTTP 429: quota exhausted")
 
 

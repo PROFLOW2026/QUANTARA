@@ -7,7 +7,7 @@ import logging
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from quantara_engine.domain.types import Candle
@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 
 COINBASE_BASE = "https://api.exchange.coinbase.com"
 GRANULARITY_MAP = {"5m": 300, "15m": 900, "1h": 3600}
+_COINBASE_HEADERS = {
+    "Accept": "application/json",
+    "User-Agent": "QUANTARA-Engine/1.0 (+https://github.com/PROFLOW2026/QUANTARA)",
+}
 
 
 class CoinbaseError(Exception):
@@ -80,7 +84,7 @@ class CoinbaseMarketDataProvider:
             params["end"] = end.isoformat()
 
         url = f"{COINBASE_BASE}/products/{urllib.parse.quote(product)}/candles?{urllib.parse.urlencode(params)}"
-        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        req = urllib.request.Request(url, headers=_COINBASE_HEADERS)
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 raw = json.loads(resp.read().decode())
@@ -126,3 +130,77 @@ class CoinbaseMarketDataProvider:
         if limit and len(candles) > limit:
             candles = candles[-limit:]
         return candles
+
+    def fetch_latest(
+        self,
+        instrument_id: str,
+        timeframe: str,
+        since: datetime | None = None,
+    ) -> list[Candle]:
+        end = datetime.now(timezone.utc)
+        if since is not None:
+            if since.tzinfo is None:
+                since = since.replace(tzinfo=timezone.utc)
+            return self.fetch_candles(
+                instrument_id,
+                timeframe,
+                start=since,
+                end=end,
+                limit=BOOTSTRAP_OUTPUT_SIZE,
+            )
+        return self.fetch_candles(instrument_id, timeframe, end=end, limit=30)
+
+    def fetch_range(
+        self,
+        instrument_id: str,
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+    ) -> list[Candle]:
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        return self.fetch_candles(instrument_id, timeframe, start=start, end=end)
+
+    def fetch_bootstrap(
+        self,
+        instrument_id: str,
+        timeframe: str,
+        bars: int = BOOTSTRAP_OUTPUT_SIZE,
+    ) -> list[Candle]:
+        from quantara_engine.market_data.polling import BOOTSTRAP_MIN_5M_BARS, bootstrap_start
+
+        pad = timeframe_minutes("1h") // timeframe_minutes("5m") if timeframe == PROVIDER_TIMEFRAME else 0
+        target = max(bars, (BOOTSTRAP_MIN_5M_BARS + pad) if timeframe == PROVIDER_TIMEFRAME else bars)
+        end = datetime.now(timezone.utc)
+        collected: list[Candle] = []
+        chunk_end = end
+        while len(collected) < target:
+            remaining = target - len(collected)
+            chunk_bars = min(300, remaining)
+            chunk_start = bootstrap_start(timeframe, chunk_end, chunk_bars)
+            batch = self.fetch_candles(
+                instrument_id,
+                timeframe,
+                start=chunk_start,
+                end=chunk_end,
+                limit=chunk_bars,
+            )
+            if not batch:
+                break
+            seen = {c.timestamp for c in collected}
+            for candle in batch:
+                if candle.timestamp not in seen:
+                    collected.append(candle)
+                    seen.add(candle.timestamp)
+            collected.sort(key=lambda c: c.timestamp)
+            oldest = batch[0].timestamp
+            if oldest <= chunk_start:
+                break
+            chunk_end = oldest - timedelta(minutes=timeframe_minutes(timeframe))
+            if chunk_end >= oldest:
+                break
+        if len(collected) > target:
+            collected = collected[-target:]
+        return collected

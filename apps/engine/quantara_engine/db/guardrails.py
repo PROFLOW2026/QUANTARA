@@ -68,3 +68,48 @@ def is_legacy_supabase_url(url: str) -> bool:
 
 def expected_migration_version() -> str:
     return "0007_paper_competition_runs"
+
+
+def is_production_database(url: str) -> bool:
+    return db_name_from_url(url) == PRODUCTION_DB_NAME
+
+
+def validate_production_market_data_provider(database_url: str, provider: str) -> None:
+    """Refuse mock market data on quantara_prod (production runtime)."""
+    if not is_production_database(database_url):
+        return
+    if (provider or "").strip().lower() == "mock":
+        raise RuntimeError(
+            f"MARKET_DATA_PROVIDER=mock is not allowed on production database "
+            f"'{PRODUCTION_DB_NAME}'. Configure live providers (Coinbase, Twelve Data, Alpaca, Tiingo)."
+        )
+
+
+def validate_postgres_listen_addresses(listen_addresses: str) -> None:
+    """
+    Refuse runtime when PostgreSQL listens beyond loopback.
+    Accept: localhost, 127.0.0.1, ::1 (alone or comma-separated).
+    """
+    raw = (listen_addresses or "").strip()
+    if not raw:
+        raise RuntimeError(
+            "PostgreSQL listen_addresses is empty. "
+            "Run scripts/configure_postgres_localhost.ps1 as Administrator."
+        )
+    if raw == "*":
+        raise RuntimeError(
+            "PostgreSQL listen_addresses='*' exposes port 5432 on all interfaces. "
+            "Run scripts/configure_postgres_localhost.ps1 as Administrator, then restart postgresql-x64-17."
+        )
+
+    allowed = {"localhost", "127.0.0.1", "::1"}
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    if not parts:
+        raise RuntimeError("PostgreSQL listen_addresses invalid — configure localhost-only binding.")
+
+    disallowed = [p for p in parts if p not in allowed]
+    if disallowed:
+        raise RuntimeError(
+            f"PostgreSQL listen_addresses includes non-loopback address(es): {', '.join(disallowed)}. "
+            "Run scripts/configure_postgres_localhost.ps1 as Administrator."
+        )

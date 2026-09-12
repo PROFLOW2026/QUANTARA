@@ -23,3 +23,11 @@ def test_registry_crypto_primary_coinbase():
     asset = _btc_asset()
     assert asset.primary_provider == ProviderName.COINBASE
     assert asset.secondary_provider == ProviderName.ALPACA
+
+
+def test_coinbase_provider_eligible_without_api_key():
+    from quantara_engine.market_data.provider_resolver import is_provider_eligible
+    from quantara_engine.market_data.registry import ProviderName
+    from tests.test_provider_failover import FakeStore
+
+    assert is_provider_eligible(FakeStore(), ProviderName.COINBASE)

@@ -342,9 +342,19 @@ def test_alpaca_cooldown_recovery_after_expiry(provider_factory, settings_mock):
     store = FakeStore()
     mark_cooldown(store, "alpaca", reason="timeout")
 
+    coinbase = MagicMock()
+    coinbase.fetch_latest.return_value = [
+        _candle(datetime(2026, 9, 11, 10, 0, tzinfo=timezone.utc), source="coinbase")
+    ]
     tiingo = MagicMock()
     tiingo.fetch_latest.return_value = [_candle(datetime(2026, 9, 11, 10, 0, tzinfo=timezone.utc), source="tiingo")]
-    provider_factory.return_value = tiingo
+
+    def _factory(name, asset=None):
+        if name == "coinbase":
+            return coinbase
+        return tiingo
+
+    provider_factory.side_effect = _factory
 
     outcome = fetch_with_failover(
         store,
@@ -353,7 +363,7 @@ def test_alpaca_cooldown_recovery_after_expiry(provider_factory, settings_mock):
         priority=3,
         fetch_fn=lambda p: p.fetch_latest("inst-1", "5m"),
     )
-    assert outcome.provider == ProviderName.TIINGO
+    assert outcome.provider == ProviderName.COINBASE
 
     from quantara_engine.market_data.provider_cooldown import clear_cooldown
 
@@ -361,10 +371,14 @@ def test_alpaca_cooldown_recovery_after_expiry(provider_factory, settings_mock):
     alpaca = MagicMock()
     alpaca.fetch_latest.return_value = [_candle(datetime(2026, 9, 11, 10, 5, tzinfo=timezone.utc), source="alpaca")]
 
-    def _factory(name, asset=None):
-        return alpaca if name == "alpaca" else tiingo
+    def _factory2(name, asset=None):
+        if name == "alpaca":
+            return alpaca
+        if name == "coinbase":
+            return coinbase
+        return tiingo
 
-    provider_factory.side_effect = _factory
+    provider_factory.side_effect = _factory2
     outcome2 = fetch_with_failover(
         store,
         asset,
@@ -372,7 +386,8 @@ def test_alpaca_cooldown_recovery_after_expiry(provider_factory, settings_mock):
         priority=3,
         fetch_fn=lambda p: p.fetch_latest("inst-1", "5m"),
     )
-    assert outcome2.provider == ProviderName.ALPACA
+    # BTC primary is Coinbase; Alpaca is secondary on crypto assets.
+    assert outcome2.provider == ProviderName.COINBASE
 
 
 def test_btc_provider_chain():

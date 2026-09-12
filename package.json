@@ -21,6 +21,8 @@
     "verify:db": "python scripts/verify_local_runtime.py",
     "verify:db:legacy": "python scripts/verify_supabase_runtime.py",
     "db:bootstrap": "python scripts/bootstrap_market_data.py",
+    "db:purge-mock": "python scripts/purge_mock_candles.py",
+    "report:market-data": "python scripts/report_market_data_coverage.py",
     "db:provision:local": "powershell -ExecutionPolicy Bypass -File scripts/provision_local_prod_db.ps1",
     "db:backup": "powershell -ExecutionPolicy Bypass -File scripts/backup_local_db.ps1",
     "preflight:local": "node scripts/preflight-local-runtime.mjs",

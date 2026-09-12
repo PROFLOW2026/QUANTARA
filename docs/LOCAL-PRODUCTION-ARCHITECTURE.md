@@ -56,9 +56,26 @@ python scripts/seed_competition.py
 python scripts/seed_orb_strategy.py
 python scripts/seed_orb_competition.py
 python scripts/paper_broker_reset.py --execute
-npm run db:bootstrap          # minimum strategy candle history
+python scripts/purge_mock_candles.py   # if mock rows ever present on quantara_prod
+npm run db:bootstrap          # REAL provider history only (requires API keys in .env)
+npm run report:market-data    # coverage + source audit table
 npm run verify:db             # smoke test
 ```
+
+**Never** set `MARKET_DATA_PROVIDER=mock` on `quantara_prod`. Mock is for tests / `quantara_broker_test` only.
+
+Required `.env` keys for full 8-asset bootstrap:
+
+- `MARKET_DATA_API_KEY` — Twelve Data (XAUUSD, GBPJPY)
+- `ALPACA_API_KEY_ID` + `ALPACA_API_SECRET_KEY` — US equities (NVDA, TSLA, AMD, COIN)
+- `TIINGO_API_KEY` — fallback chain (optional if primaries configured)
+- BTC/ETH use Coinbase public API (no key)
+
+Before first `START_QUANTARA.bat`:
+
+1. Run `scripts/configure_postgres_localhost.ps1` **as Administrator**
+2. Ensure `listen_addresses = 'localhost'` (START preflight verifies)
+3. Confirm zero `source='mock'` rows: `python scripts/purge_mock_candles.py`
 
 Do **not** run `packages/db/owner/0006_owner_recovery.sql` — that was Supabase residue recovery only.
 

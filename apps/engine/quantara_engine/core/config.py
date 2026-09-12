@@ -4,7 +4,11 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from quantara_engine.db.guardrails import PRODUCTION_DB_NAME, validate_production_database_url
+from quantara_engine.db.guardrails import (
+    PRODUCTION_DB_NAME,
+    validate_production_database_url,
+    validate_production_market_data_provider,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _DEFAULT_LOCAL_DB = "postgresql://quantara:quantara@localhost:5432/quantara"
@@ -82,6 +86,10 @@ class Settings(BaseSettings):
                 f"(database: {PRODUCTION_DB_NAME})."
             )
         validate_production_database_url(self.database_url.strip())
+        validate_production_market_data_provider(
+            self.database_url.strip(),
+            self.market_data_provider,
+        )
 
     @property
     def cors_origin_list(self) -> list[str]:

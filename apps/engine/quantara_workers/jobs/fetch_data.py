@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from quantara_engine.db.session import session_scope
 from quantara_engine.market_data.adapters.alpaca import AlpacaError
+from quantara_engine.market_data.adapters.coinbase import CoinbaseError
 from quantara_engine.market_data.adapters.tiingo import TiingoError
 from quantara_engine.market_data.adapters.twelvedata import TwelveDataError
 from quantara_engine.market_data.aggregation import (
@@ -664,7 +665,7 @@ def _fetch_asset_bulk(
                         continue
                     validated_secondary.append(candle)
                 count += _persist_candles_chunked(validated_secondary)
-            except (TwelveDataError, AlpacaError, TiingoError) as exc:
+            except (TwelveDataError, AlpacaError, TiingoError, CoinbaseError) as exc:
                 logger.warning("Secondary bootstrap failed for %s — %s", asset.db_symbol, exc)
 
     derived = 0
@@ -746,7 +747,7 @@ def _accelerate_btc_catchup(
 
         try:
             candles = provider.fetch_latest(instrument.id, PROVIDER_TIMEFRAME, since=last_ts)
-        except (AlpacaError, TiingoError) as exc:
+        except (AlpacaError, TiingoError, CoinbaseError) as exc:
             logger.warning("BTC catch-up pass %d failed — %s", pass_num + 1, exc)
             break
 

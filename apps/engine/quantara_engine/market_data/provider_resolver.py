@@ -10,6 +10,7 @@ from typing import Callable, Literal
 from quantara_engine.core.config import settings
 from quantara_engine.domain.types import Candle
 from quantara_engine.market_data.adapters.alpaca import AlpacaError
+from quantara_engine.market_data.adapters.coinbase import CoinbaseError
 from quantara_engine.market_data.adapters.tiingo import TiingoError
 from quantara_engine.market_data.adapters.twelvedata import TwelveDataError
 from quantara_engine.market_data.credits import FetchPriority, can_fetch, is_blocked as twelve_data_blocked
@@ -24,6 +25,15 @@ ProviderFetchFn = Callable[..., list[Candle]]
 
 # Alpaca FX endpoints return 404 on this account — excluded from FX failover chains.
 _ALPACA_FX_ENABLED = False
+
+_PLACEHOLDER_SECRETS = frozenset(
+    {"", "local-dev-placeholder", "dev", "test", "changeme", "your", "placeholder"}
+)
+
+
+def _usable_secret(value: str) -> bool:
+    v = (value or "").strip()
+    return bool(v) and v.lower() not in _PLACEHOLDER_SECRETS
 
 
 @dataclass(frozen=True)
@@ -59,11 +69,13 @@ def fx_conversion_provider_chain() -> tuple[ProviderName, ...]:
 
 def is_provider_configured(provider: ProviderName) -> bool:
     if provider == ProviderName.TWELVE_DATA:
-        return bool(settings.market_data_api_key.strip())
+        return _usable_secret(settings.market_data_api_key)
     if provider == ProviderName.TIINGO:
-        return bool(settings.tiingo_api_key.strip())
+        return _usable_secret(settings.tiingo_api_key)
     if provider == ProviderName.ALPACA:
-        return bool(settings.alpaca_api_key_id.strip() and settings.alpaca_api_secret_key.strip())
+        return _usable_secret(settings.alpaca_api_key_id) and _usable_secret(
+            settings.alpaca_api_secret_key
+        )
     if provider == ProviderName.COINBASE:
         return True  # public exchange API — no key required
     return False
@@ -97,6 +109,11 @@ def is_provider_eligible(
         if purpose == "fx_rate" and not _ALPACA_FX_ENABLED:
             return False
         if purpose == "candles" and store is not None and not can_request(store, "alpaca"):
+            return False
+        return True
+
+    if provider == ProviderName.COINBASE:
+        if store is not None and not can_request(store, "coinbase", purpose=purpose):
             return False
         return True
 
@@ -175,7 +192,7 @@ def fetch_with_failover(
                     len(candles),
                 )
             return FetchOutcome(candles=candles, provider=provider_name)
-        except (TwelveDataError, TiingoError, AlpacaError) as exc:
+        except (TwelveDataError, TiingoError, AlpacaError, CoinbaseError) as exc:
             last_error = f"{provider_name.value}: {exc}"
             logger.warning("Provider %s failed for %s — %s", provider_name.value, asset.db_symbol, exc)
             _record_failure(store, provider_name, exc)
