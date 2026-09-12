@@ -18,7 +18,12 @@
     "db:seed": "python scripts/seed.py",
     "db:seed:competition": "python scripts/seed_competition.py",
     "demo": "python scripts/demo.py",
-    "verify:db": "python scripts/verify_supabase_runtime.py",
+    "verify:db": "python scripts/verify_local_runtime.py",
+    "verify:db:legacy": "python scripts/verify_supabase_runtime.py",
+    "db:bootstrap": "python scripts/bootstrap_market_data.py",
+    "db:provision:local": "powershell -ExecutionPolicy Bypass -File scripts/provision_local_prod_db.ps1",
+    "db:backup": "powershell -ExecutionPolicy Bypass -File scripts/backup_local_db.ps1",
+    "preflight:local": "node scripts/preflight-local-runtime.mjs",
     "verify:twelvedata": "python scripts/verify_twelvedata.py",
     "test:engine": "cd apps/engine && python -m pytest tests/ -q",
     "test:launcher": "node --test scripts/test-quantara-launcher.mjs"

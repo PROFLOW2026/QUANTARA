@@ -4,8 +4,11 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from quantara_engine.db.guardrails import PRODUCTION_DB_NAME, validate_production_database_url
+
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _DEFAULT_LOCAL_DB = "postgresql://quantara:quantara@localhost:5432/quantara"
+_UNCONFIGURED_SENTINEL = _DEFAULT_LOCAL_DB
 
 
 class Settings(BaseSettings):
@@ -15,9 +18,14 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # PostgreSQL / Supabase
+    # PostgreSQL (local production: quantara_prod)
     database_url: str = _DEFAULT_LOCAL_DB
     direct_url: str = ""
+    broker_test_database_url: str = ""
+
+    # LEGACY — archive tooling only; not used by Engine/Worker runtime
+    legacy_supabase_database_url: str = ""
+    legacy_supabase_direct_url: str = ""
     supabase_project: str = "QUANTARA"
 
     # Engine / FastAPI
@@ -57,7 +65,7 @@ class Settings(BaseSettings):
     @property
     def database_configured(self) -> bool:
         url = self.database_url.strip()
-        return bool(url) and url != _DEFAULT_LOCAL_DB
+        return bool(url) and url != _UNCONFIGURED_SENTINEL
 
     @property
     def migration_database_url(self) -> str:
@@ -65,6 +73,15 @@ class Settings(BaseSettings):
         if direct:
             return direct
         return self.database_url.strip()
+
+    def validate_runtime_database(self) -> None:
+        """Raise when production DATABASE_URL is misconfigured."""
+        if not self.database_configured:
+            raise RuntimeError(
+                f"DATABASE_URL not configured. Set local production PostgreSQL "
+                f"(database: {PRODUCTION_DB_NAME})."
+            )
+        validate_production_database_url(self.database_url.strip())
 
     @property
     def cors_origin_list(self) -> list[str]:

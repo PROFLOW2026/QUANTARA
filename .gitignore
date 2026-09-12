@@ -64,6 +64,9 @@ pgdata/
 # Drizzle
 packages/db/migrations/meta/
 
+# Local database backups (never commit)
+backups/
+
 # Misc
 *.pem
 .vercel

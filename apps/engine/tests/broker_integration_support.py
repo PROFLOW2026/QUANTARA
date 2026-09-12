@@ -14,11 +14,16 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from quantara_engine.core.config import settings
+from quantara_engine.db.guardrails import (
+    BROKER_TEST_DB_NAME,
+    PRODUCTION_DB_NAME,
+    validate_broker_test_database_url,
+)
 from quantara_engine.persistence.store import TradingStore
 
 TEST_ACCOUNT_SLUG = "__test_broker_integration__"
 STARTING_CASH = Decimal("320000")
-BROKER_TEST_DB_NAME = os.environ.get("BROKER_TEST_DB_NAME", "quantara_broker_test")
+_BROKER_TEST_DB_NAME = os.environ.get("BROKER_TEST_DB_NAME", BROKER_TEST_DB_NAME)
 BROKER_TEST_DATABASE_URL = os.environ.get(
     "BROKER_TEST_DATABASE_URL",
     f"postgresql://quantara:quantara@localhost:5432/{BROKER_TEST_DB_NAME}",
@@ -108,9 +113,9 @@ def _provision_local_database() -> str | None:
         "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'quantara') "
         "THEN CREATE ROLE quantara LOGIN PASSWORD 'quantara'; END IF; END $$;"
     )
-    cur.execute(f'DROP DATABASE IF EXISTS "{BROKER_TEST_DB_NAME}" WITH (FORCE)')
-    cur.execute(f'CREATE DATABASE "{BROKER_TEST_DB_NAME}" OWNER quantara')
-    cur.execute(f'GRANT ALL PRIVILEGES ON DATABASE "{BROKER_TEST_DB_NAME}" TO quantara')
+    cur.execute(f'DROP DATABASE IF EXISTS "{_BROKER_TEST_DB_NAME}" WITH (FORCE)')
+    cur.execute(f'CREATE DATABASE "{_BROKER_TEST_DB_NAME}" OWNER quantara')
+    cur.execute(f'GRANT ALL PRIVILEGES ON DATABASE "{_BROKER_TEST_DB_NAME}" TO quantara')
     admin.close()
 
     _apply_all_migrations(BROKER_TEST_DATABASE_URL)
@@ -155,11 +160,23 @@ def provision_broker_test_database() -> str:
     if _broker_db_ready:
         return BROKER_TEST_DATABASE_URL
 
+    try:
+        validate_broker_test_database_url(
+            BROKER_TEST_DATABASE_URL,
+            production_url=_owner_database_url(),
+        )
+    except RuntimeError as exc:
+        pytest.fail(str(exc))
+
     owner_url = _owner_database_url()
     if owner_url and BROKER_TEST_DATABASE_URL.strip() == owner_url:
         pytest.fail(
             "BROKER_TEST_DATABASE_URL must not equal Owner DATABASE_URL. "
             "Use disposable local PostgreSQL or a dedicated test database."
+        )
+    if PRODUCTION_DB_NAME in BROKER_TEST_DATABASE_URL:
+        pytest.fail(
+            f"BROKER_TEST_DATABASE_URL must not point to production '{PRODUCTION_DB_NAME}'."
         )
 
     local_url = _provision_local_database()

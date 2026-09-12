@@ -3,6 +3,7 @@
 import logging
 import sys
 
+from quantara_engine.core.config import settings
 from quantara_workers.scheduler import WorkerScheduler
 from quantara_workers.singleton import WorkerAlreadyRunningError, WorkerSingletonLock
 
@@ -11,6 +12,9 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
+    if settings.database_configured:
+        settings.validate_runtime_database()
+
     lock = WorkerSingletonLock()
     try:
         lock.acquire()

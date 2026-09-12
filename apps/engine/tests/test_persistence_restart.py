@@ -23,7 +23,7 @@ from quantara_workers.jobs.run_strategy import OWNER_ID, run_strategy_job  # noq
 
 @pytest.mark.skipif(
     not settings.database_configured,
-    reason="Set DATABASE_URL in repo root .env (Supabase QUANTARA pooler URI)",
+    reason="Set DATABASE_URL in repo root .env (local quantara_prod)",
 )
 def test_persistence_restart_counts_match() -> None:
     """Run demo pipeline, then reload state in a fresh session and compare counts."""

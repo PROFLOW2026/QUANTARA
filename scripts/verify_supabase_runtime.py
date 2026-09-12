@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real-DB verification against Supabase QUANTARA (seed, demo, persistence counts)."""
+"""LEGACY — Supabase archive verification only. Runtime uses verify_local_runtime.py."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def _fail(msg: str) -> int:
 
 
 def main() -> int:
-    print("QUANTARA Supabase runtime verification")
+    print("QUANTARA LEGACY Supabase archive verification (NOT runtime)")
     print("=" * 50)
 
     if not (ROOT / ".env").exists():

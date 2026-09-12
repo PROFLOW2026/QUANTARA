@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from quantara_engine.core.config import settings
+from quantara_engine.db.guardrails import validate_production_database_url
 
 _UNCONFIGURED = "postgresql://localhost:5432/quantara_unconfigured"
 
@@ -46,11 +47,9 @@ def session_scope() -> Generator[Session, None, None]:
 
 
 def init_db() -> None:
-    """Verify DB connectivity against configured DATABASE_URL."""
+    """Verify DB guardrails and connectivity against configured DATABASE_URL."""
     if not settings.database_configured:
         return
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-    except Exception:
-        pass
+    validate_production_database_url(settings.database_url.strip())
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))

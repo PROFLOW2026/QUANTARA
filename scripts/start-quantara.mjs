@@ -5,6 +5,7 @@
  * Does not modify trading state, DB data, or Vercel configuration.
  */
 import { spawnSync } from "child_process";
+import path from "path";
 import {
   prepareDevEnv,
   engineService,
@@ -34,6 +35,7 @@ import {
 } from "./process-utils.mjs";
 
 const { ROOT, ENGINE } = prepareDevEnv();
+const python = process.platform === "win32" ? "python" : "python3";
 
 function log(line = "") {
   console.log(line);
@@ -178,6 +180,24 @@ async function main() {
   log("=========================");
   log(`Project root: ${ROOT}`);
   log(`Engine dir:   ${ENGINE}`);
+  log("");
+
+  log("Preflight (local PostgreSQL + schema)");
+  log("-----------------------------------");
+  const preflight = spawnSync(python, [path.join(ROOT, "scripts", "preflight_local_runtime.py")], {
+    cwd: ROOT,
+    encoding: "utf8",
+    env: process.env,
+  });
+  if (preflight.stdout) log(preflight.stdout.trimEnd());
+  if (preflight.status !== 0) {
+    if (preflight.stderr) log(preflight.stderr.trimEnd());
+    log("");
+    log("START BLOCKED — fix PostgreSQL / DATABASE_URL / migrations, then retry.");
+    log("  Service: postgresql-x64-17 must be Running on Owner PC.");
+    log("  Migrations: npm run db:migrate");
+    process.exit(1);
+  }
   log("");
 
   const engine = await launchEngine();

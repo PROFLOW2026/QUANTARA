@@ -8,7 +8,7 @@ Python trading engine for QUANTARA.
 
 1. Create a Supabase project named **QUANTARA** (separate from ProjectFlow).
 2. In Supabase → **Project Settings → Database**, copy the **Connection pooler** URI (port `6543`).
-3. Copy `.env.example` to `.env` and set `DATABASE_URL` with your pooler URI.
+3. Copy `.env.example` to `.env` and set `DATABASE_URL` to local `quantara_prod` (see `docs/LOCAL-PRODUCTION-ARCHITECTURE.md`).
 4. Optionally set `DIRECT_URL` for migrations/admin (port `5432`, direct host).
 
 ### 2. Apply schema (owner runs SQL manually)
