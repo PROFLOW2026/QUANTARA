@@ -488,7 +488,10 @@ def build_competition_response(store: TradingStore) -> dict[str, Any]:
         batch_entry_actual_risk_by_position,
         planned_position_metrics,
     )
-    from quantara_engine.portfolio.currency import resolve_dashboard_fx_rates
+    from quantara_engine.portfolio.currency import (
+        quote_currencies_for_instruments,
+        resolve_dashboard_fx_rates,
+    )
 
     paired_open_positions: list[tuple[dict[str, Any], Any]] = []
     for entry in all_entries:
@@ -499,7 +502,9 @@ def build_competition_response(store: TradingStore) -> dict[str, Any]:
     instrument_ids = list({pos.instrument_id for _, pos in paired_open_positions})
     intent_risks = batch_entry_actual_risk_by_position(store, position_ids)
     instruments = _batch_instruments_by_id(store, instrument_ids)
-    fx_rates = resolve_dashboard_fx_rates(store)
+    fx_rates = resolve_dashboard_fx_rates(
+        store, quote_currencies_for_instruments(instruments.values())
+    )
 
     open_positions_detail = []
     for entry, pos in paired_open_positions:
