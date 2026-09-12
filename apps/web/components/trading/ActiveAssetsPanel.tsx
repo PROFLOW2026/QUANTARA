@@ -200,12 +200,14 @@ function AssetDrilldownButton({
   return (
     <button
       type="button"
-      className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-border/60 bg-surface-elevated/40 px-2 py-1.5 text-xs transition-colors hover:border-border hover:bg-surface-elevated/70 active:bg-surface-elevated focus:outline-none focus-visible:ring-1 focus-visible:ring-accent/50 ${className}`}
+      className={`group flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg border border-border/90 bg-background/75 px-2 py-1.5 text-xs shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05),0_1px_2px_rgba(0,0,0,0.14)] transition-[color,background-color,border-color,box-shadow,transform] duration-150 hover:border-accent/30 hover:bg-background hover:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06),0_2px_6px_rgba(0,0,0,0.18)] active:translate-y-px active:border-accent/20 active:bg-background/60 active:shadow-[inset_0_1px_2px_rgba(0,0,0,0.18)] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/45 focus-visible:ring-offset-1 focus-visible:ring-offset-background ${className}`}
       onClick={onClick}
       aria-label={ariaLabel}
     >
-      <span className="text-muted">{label}</span>
-      <span className="font-mono text-sm text-accent">{count}</span>
+      <span className="text-muted transition-colors group-hover:text-foreground/85">{label}</span>
+      <span className="font-mono text-sm text-accent transition-colors group-hover:text-blue-300">
+        {count}
+      </span>
     </button>
   );
 }
