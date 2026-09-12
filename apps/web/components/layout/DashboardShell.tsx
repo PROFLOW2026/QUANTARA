@@ -45,7 +45,10 @@ export function DashboardShell() {
       <TopHeader />
       <main
         ref={mainScrollRef}
-        className={cn("flex-1 overflow-auto pb-20", isOpen && "overflow-hidden")}
+        className={cn(
+          "flex-1 overflow-auto pb-20 pb-[calc(5rem+env(safe-area-inset-bottom))]",
+          isOpen && "overflow-hidden"
+        )}
         aria-hidden={isOpen}
       >
         <div

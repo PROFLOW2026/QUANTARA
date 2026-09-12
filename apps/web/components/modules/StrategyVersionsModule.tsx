@@ -54,7 +54,7 @@ export default function StrategyVersionsModule({ embedded, params = {} }: Module
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <h3 className="mb-2 text-sm font-medium text-slate-200">
+                  <h3 className="mb-2 text-sm font-medium text-foreground-secondary">
                     {t("strategies.parameters_summary")}
                   </h3>
                   <StrategyParametersSummary parameters={v.parameters} />

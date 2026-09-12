@@ -207,7 +207,7 @@ export function AssetChartModal({
     <div className="fixed inset-0 z-[85] flex items-end justify-center p-2 sm:items-center sm:p-4">
       <button
         type="button"
-        className="absolute inset-0 bg-black/55"
+        className="absolute inset-0 bg-overlay"
         aria-label={t("common.close_module")}
         onClick={onClose}
       />

@@ -20,7 +20,7 @@ export function parseHomeView(raw: string | null): HomeView {
 function EngineInlineStatus({ healthy }: { healthy: boolean | null | undefined }) {
   const dotClass =
     healthy === null || healthy === undefined
-      ? "bg-slate-500"
+      ? "bg-muted"
       : healthy
         ? "bg-profit"
         : "bg-loss";

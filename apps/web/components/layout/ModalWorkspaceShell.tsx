@@ -84,7 +84,7 @@ export function ModalWorkspaceShell() {
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-2 sm:p-4"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-overlay p-2 sm:p-4"
       onMouseDown={handleBackdropClick}
       role="presentation"
     >
@@ -101,14 +101,14 @@ export function ModalWorkspaceShell() {
         )}
       >
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-6">
-          <h2 className="truncate text-lg font-semibold text-slate-100">
+          <h2 className="truncate text-lg font-semibold text-foreground">
             {titleKey ? t(titleKey) : "—"}
           </h2>
           <button
             type="button"
             onClick={closeModule}
             aria-label={t("common.close_module")}
-            className="inline-flex h-9 min-w-9 items-center justify-center rounded-md border border-border bg-surface-elevated px-3 text-sm text-slate-200 transition hover:bg-accent/20 hover:text-accent"
+            className="inline-flex h-9 min-w-9 items-center justify-center rounded-md border border-border bg-surface-elevated px-3 text-sm text-foreground-secondary transition hover:bg-accent/20 hover:text-accent"
           >
             ✕ {t("common.close_module")}
           </button>

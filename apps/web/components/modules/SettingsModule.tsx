@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { translateRiskProfile } from "@/lib/display-text";
 import { OwnerTradingControls } from "@/components/trading/OwnerTradingControls";
 import { api, ApiError, type Settings } from "@/lib/api-client";
+import { PwaInstallPanel } from "@/components/pwa/PwaInstallPanel";
+import { ThemeSettings } from "@/components/theme/ThemeSettings";
 import { t } from "@/lib/i18n";
 import type { ModuleProps } from "@/lib/modal-workspace/types";
 
@@ -134,6 +136,20 @@ export default function SettingsModule({ embedded }: ModuleProps) {
           <CardHeader><CardTitle>{t("settings.language")}</CardTitle></CardHeader>
           <CardContent>
             <p>{t("settings.language_hebrew")}</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>{t("settings.display")}</CardTitle></CardHeader>
+          <CardContent>
+            <ThemeSettings />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>{t("settings.app")}</CardTitle></CardHeader>
+          <CardContent>
+            <PwaInstallPanel />
           </CardContent>
         </Card>
       </div>

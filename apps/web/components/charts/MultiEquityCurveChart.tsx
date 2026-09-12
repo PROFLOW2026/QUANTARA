@@ -17,6 +17,7 @@ import {
   axisStyle,
   gridStyle,
   tooltipStyle,
+  useChartTheme,
 } from "./chart-theme";
 
 const LINE_COLORS = ["#3b82f6", "#22c55e", "#eab308", "#f97316", "#ef4444"];
@@ -61,6 +62,11 @@ export function MultiEquityCurveChart({
   series,
   height = 280,
 }: MultiEquityCurveChartProps) {
+  const colors = useChartTheme();
+  const axis = axisStyle(colors);
+  const grid = gridStyle(colors);
+  const tooltip = tooltipStyle(colors);
+
   if (!series.length || series.every((s) => !s.data.length)) {
     return (
       <div
@@ -77,13 +83,13 @@ export function MultiEquityCurveChart({
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={data} margin={CHART_DEFAULTS.margin}>
-        <CartesianGrid {...gridStyle} />
+        <CartesianGrid {...grid} />
         <XAxis
           dataKey="date"
           tickFormatter={formatAxisDate}
-          tick={axisStyle.tick}
-          axisLine={axisStyle.axisLine}
-          tickLine={axisStyle.tickLine}
+          tick={axis.tick}
+          axisLine={axis.axisLine}
+          tickLine={axis.tickLine}
           minTickGap={32}
         />
         <YAxis
@@ -93,14 +99,16 @@ export function MultiEquityCurveChart({
               maximumFractionDigits: 1,
             }).format(v)
           }
-          tick={axisStyle.tick}
-          axisLine={axisStyle.axisLine}
-          tickLine={axisStyle.tickLine}
+          tick={axis.tick}
+          axisLine={axis.axisLine}
+          tickLine={axis.tickLine}
           width={56}
           domain={["auto", "auto"]}
         />
         <Tooltip
-          {...tooltipStyle}
+          contentStyle={tooltip.contentStyle}
+          labelStyle={tooltip.labelStyle}
+          itemStyle={tooltip.itemStyle}
           labelFormatter={(label) => formatDateTime(String(label))}
           formatter={(value: number, name: string) => {
             const label = series.find((s) => s.id === name)?.name ?? name;

@@ -20,7 +20,7 @@ export function Tabs({ tabs, active, onChange, className }: TabsProps) {
             "px-4 py-2.5 text-sm font-medium transition-colors",
             active === tab.id
               ? "border-b-2 border-accent text-accent"
-              : "text-muted hover:text-slate-200"
+              : "text-muted hover:text-foreground"
           )}
         >
           {tab.label}

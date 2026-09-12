@@ -3,8 +3,46 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    color-scheme: dark;
+    --color-background: #0a0e17;
+    --color-surface: #111827;
+    --color-surface-elevated: #1a2234;
+    --color-border: #1e293b;
+    --color-foreground: #f1f5f9;
+    --color-foreground-secondary: #cbd5e1;
+    --color-muted: #64748b;
+    --color-profit: #22c55e;
+    --color-loss: #ef4444;
+    --color-warning: #eab308;
+    --color-accent: #3b82f6;
+    --color-primary: #1d4ed8;
+    --color-primary-foreground: #f8fafc;
+    --color-overlay: rgb(0 0 0 / 0.45);
+    --scrollbar-thumb: #334155;
+  }
+
+  .light {
+    color-scheme: light;
+    --color-background: #f1f5f9;
+    --color-surface: #ffffff;
+    --color-surface-elevated: #f8fafc;
+    --color-border: #e2e8f0;
+    --color-foreground: #0f172a;
+    --color-foreground-secondary: #475569;
+    --color-muted: #64748b;
+    --color-profit: #15803d;
+    --color-loss: #dc2626;
+    --color-warning: #b45309;
+    --color-accent: #2563eb;
+    --color-primary: #2563eb;
+    --color-primary-foreground: #ffffff;
+    --color-overlay: rgb(15 23 42 / 0.35);
+    --scrollbar-thumb: #cbd5e1;
+  }
+
   body {
-    @apply bg-background text-slate-100 antialiased;
+    @apply bg-background text-foreground antialiased;
   }
 
   * {
@@ -15,6 +53,6 @@
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: #334155 transparent;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 }

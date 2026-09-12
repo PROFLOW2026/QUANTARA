@@ -7,8 +7,8 @@ const variants: Record<BadgeVariant, string> = {
   success: "bg-profit/15 text-profit border-profit/30",
   danger: "bg-loss/15 text-loss border-loss/30",
   warning: "bg-warning/15 text-warning border-warning/30",
-  muted: "bg-slate-700/50 text-slate-300 border-slate-600",
-  outline: "bg-transparent text-slate-300 border-border",
+  muted: "bg-surface-elevated text-foreground-secondary border-border",
+  outline: "bg-transparent text-foreground-secondary border-border",
 };
 
 export function Badge({

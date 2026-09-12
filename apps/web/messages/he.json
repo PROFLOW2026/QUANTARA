@@ -731,6 +731,17 @@
     "api_key": "מפתח API",
     "language": "שפה",
     "language_hebrew": "עברית",
-    "save": "שמור"
+    "save": "שמור",
+    "display": "תצוגה",
+    "theme_dark": "כהה",
+    "theme_light": "בהיר",
+    "app": "אפליקציה",
+    "pwa_install_button": "התקן את QUANTARA כאפליקציה",
+    "pwa_installed": "QUANTARA מותקנת כאפליקציה",
+    "pwa_install_unavailable": "התקנה ישירה אינה זמינה בדפדפן זה",
+    "pwa_install_dismissed": "ההתקנה בוטלה — ניתן לנסות שוב",
+    "pwa_ios_step_share": "לחץ על כפתור השיתוף (Share)",
+    "pwa_ios_step_add": "בחר \"הוסף למסך הבית\"",
+    "pwa_ios_step_confirm": "אשר את ההתקנה"
   }
 }

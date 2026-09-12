@@ -16,11 +16,12 @@ import type { ChartExecutionMarker } from "./chart-types";
 import { t } from "@/lib/i18n";
 import { formatDateTime, formatPrice } from "@/lib/utils";
 import {
-  CHART_COLORS,
   CHART_DEFAULTS,
   axisStyle,
   gridStyle,
   tooltipStyle,
+  useChartTheme,
+  type ChartColorPalette,
 } from "./chart-theme";
 
 interface CandlestickChartProps {
@@ -103,8 +104,9 @@ function CandlestickLayer(props: {
   xAxisMap?: Record<string, { scale: (v: string) => number; bandwidth?: () => number }>;
   yAxisMap?: Record<string, { scale: (v: number) => number }>;
   data?: CandleChartPoint[];
+  colors: ChartColorPalette;
 }) {
-  const { xAxisMap, yAxisMap, data } = props;
+  const { xAxisMap, yAxisMap, data, colors } = props;
   if (!xAxisMap || !yAxisMap || !data?.length) return null;
 
   const xAxis = Object.values(xAxisMap)[0];
@@ -120,7 +122,7 @@ function CandlestickLayer(props: {
         const yLow = yAxis.scale(c.low);
         const yOpen = yAxis.scale(c.open);
         const yClose = yAxis.scale(c.close);
-        const color = c.isUp ? CHART_COLORS.profit : CHART_COLORS.loss;
+        const color = c.isUp ? colors.profit : colors.loss;
         const bodyTop = Math.min(yOpen, yClose);
         const bodyBottom = Math.max(yOpen, yClose);
         const bodyHeight = Math.max(bodyBottom - bodyTop, 1);
@@ -157,6 +159,11 @@ export function CandlestickChart({
   timeframe = "15m",
   markers: _markers,
 }: CandlestickChartProps) {
+  const colors = useChartTheme();
+  const axis = axisStyle(colors);
+  const grid = gridStyle(colors);
+  const tooltip = tooltipStyle(colors);
+
   const chartData = useMemo<CandleChartPoint[]>(
     () =>
       [...candles]
@@ -204,25 +211,27 @@ export function CandlestickChart({
         margin={{ ...CHART_DEFAULTS.margin, bottom: 4 }}
         barCategoryGap="24%"
       >
-        <CartesianGrid {...gridStyle} />
+        <CartesianGrid {...grid} />
         <XAxis
           dataKey="time"
           tickFormatter={tickFormatter}
-          tick={axisStyle.tick}
-          axisLine={axisStyle.axisLine}
-          tickLine={axisStyle.tickLine}
+          tick={axis.tick}
+          axisLine={axis.axisLine}
+          tickLine={axis.tickLine}
           minTickGap={minTickGap}
         />
         <YAxis
           domain={yDomain}
           tickFormatter={(v: number) => formatPrice(v)}
-          tick={axisStyle.tick}
-          axisLine={axisStyle.axisLine}
-          tickLine={axisStyle.tickLine}
+          tick={axis.tick}
+          axisLine={axis.axisLine}
+          tickLine={axis.tickLine}
           width={72}
         />
         <Tooltip
-          {...tooltipStyle}
+          contentStyle={tooltip.contentStyle}
+          labelStyle={tooltip.labelStyle}
+          itemStyle={tooltip.itemStyle}
           labelFormatter={(label) => formatDateTime(String(label))}
           content={({ active, payload }) => {
             if (!active || !payload?.length) return null;
@@ -230,23 +239,23 @@ export function CandlestickChart({
             return (
               <div
                 style={{
-                  ...tooltipStyle.contentStyle,
+                  ...tooltip.contentStyle,
                   padding: "8px 12px",
                 }}
               >
-                <p style={{ ...tooltipStyle.labelStyle, marginBottom: 4 }}>
+                <p style={{ ...tooltip.labelStyle, marginBottom: 4 }}>
                   {formatDateTime(c.time)}
                 </p>
-                <p style={tooltipStyle.itemStyle}>
+                <p style={tooltip.itemStyle}>
                   {t("market.open")}: {formatPrice(c.open)}
                 </p>
-                <p style={tooltipStyle.itemStyle}>
+                <p style={tooltip.itemStyle}>
                   {t("market.high")}: {formatPrice(c.high)}
                 </p>
-                <p style={tooltipStyle.itemStyle}>
+                <p style={tooltip.itemStyle}>
                   {t("market.low")}: {formatPrice(c.low)}
                 </p>
-                <p style={{ ...tooltipStyle.itemStyle, color: c.isUp ? CHART_COLORS.profit : CHART_COLORS.loss }}>
+                <p style={{ ...tooltip.itemStyle, color: c.isUp ? colors.profit : colors.loss }}>
                   {t("market.close")}: {formatPrice(c.close)}
                 </p>
               </div>
@@ -259,7 +268,7 @@ export function CandlestickChart({
           component={(props: {
             xAxisMap?: Record<string, { scale: (v: string) => number; bandwidth?: () => number }>;
             yAxisMap?: Record<string, { scale: (v: number) => number }>;
-          }) => <CandlestickLayer {...props} data={chartData} />}
+          }) => <CandlestickLayer {...props} data={chartData} colors={colors} />}
         />
       </ComposedChart>
     </ResponsiveContainer>

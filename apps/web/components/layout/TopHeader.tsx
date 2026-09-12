@@ -13,7 +13,7 @@ export function TopHeader() {
           className="block rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/45"
           aria-label={t("app.name")}
         >
-          <h1 className="text-base font-bold tracking-tight text-slate-100 sm:text-lg">
+          <h1 className="text-base font-bold tracking-tight text-foreground sm:text-lg">
             {t("app.name")}
           </h1>
           <p className="mt-0.5 text-[11px] leading-snug text-muted sm:text-xs">

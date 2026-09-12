@@ -12,11 +12,11 @@ import {
 import { t } from "@/lib/i18n";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 import {
-  CHART_COLORS,
   CHART_DEFAULTS,
   axisStyle,
   gridStyle,
   tooltipStyle,
+  useChartTheme,
 } from "./chart-theme";
 
 export type EquityPoint = { date: string; equity: number };
@@ -38,6 +38,11 @@ function formatAxisDate(iso: string): string {
 }
 
 export function EquityCurveChart({ data, height = CHART_DEFAULTS.height }: EquityCurveChartProps) {
+  const colors = useChartTheme();
+  const axis = axisStyle(colors);
+  const grid = gridStyle(colors);
+  const tooltip = tooltipStyle(colors);
+
   if (!data.length) {
     return (
       <div className="flex items-center justify-center rounded-lg border border-dashed border-border bg-surface-elevated/30" style={{ height }}>
@@ -49,13 +54,13 @@ export function EquityCurveChart({ data, height = CHART_DEFAULTS.height }: Equit
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={data} margin={CHART_DEFAULTS.margin}>
-        <CartesianGrid {...gridStyle} />
+        <CartesianGrid {...grid} />
         <XAxis
           dataKey="date"
           tickFormatter={formatAxisDate}
-          tick={axisStyle.tick}
-          axisLine={axisStyle.axisLine}
-          tickLine={axisStyle.tickLine}
+          tick={axis.tick}
+          axisLine={axis.axisLine}
+          tickLine={axis.tickLine}
           minTickGap={32}
         />
         <YAxis
@@ -65,24 +70,26 @@ export function EquityCurveChart({ data, height = CHART_DEFAULTS.height }: Equit
               maximumFractionDigits: 1,
             }).format(v)
           }
-          tick={axisStyle.tick}
-          axisLine={axisStyle.axisLine}
-          tickLine={axisStyle.tickLine}
+          tick={axis.tick}
+          axisLine={axis.axisLine}
+          tickLine={axis.tickLine}
           width={56}
           domain={["auto", "auto"]}
         />
         <Tooltip
-          {...tooltipStyle}
+          contentStyle={tooltip.contentStyle}
+          labelStyle={tooltip.labelStyle}
+          itemStyle={tooltip.itemStyle}
           labelFormatter={(label) => formatDateTime(String(label))}
           formatter={(value: number) => [formatCurrency(value), t("charts.equity")]}
         />
         <Line
           type="monotone"
           dataKey="equity"
-          stroke={CHART_COLORS.accent}
+          stroke={colors.accent}
           strokeWidth={2}
           dot={false}
-          activeDot={{ r: 4, fill: CHART_COLORS.accent, stroke: CHART_COLORS.surface }}
+          activeDot={{ r: 4, fill: colors.accent, stroke: colors.surface }}
         />
       </LineChart>
     </ResponsiveContainer>

@@ -25,7 +25,7 @@ export function PriceDisplay({
 
   return (
     <div className={className}>
-      <span className={cn("font-mono font-bold text-slate-100", sizeClasses[size])}>
+      <span className={cn("font-mono font-bold text-foreground", sizeClasses[size])}>
         {formatCurrency(value).replace("$", "$")}
       </span>
       {(change !== undefined || changePct !== undefined) && (

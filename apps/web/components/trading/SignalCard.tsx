@@ -32,7 +32,7 @@ export function SignalCard({ decision }: SignalCardProps) {
           <p className="text-sm text-muted">{t("common.no_data")}</p>
         ) : !hasSignal ? (
           <div className="space-y-2 text-sm">
-            <p className="font-medium text-slate-200">{t("home.no_signal")}</p>
+            <p className="font-medium text-foreground-secondary">{t("home.no_signal")}</p>
             <p>
               <span className="text-muted">{t("home.reason")}: </span>
               {translateSignalReason(decision.message)}

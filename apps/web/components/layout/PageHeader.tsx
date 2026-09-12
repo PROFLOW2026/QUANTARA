@@ -14,7 +14,7 @@ export function PageHeader({ titleKey, subtitleKey, action }: PageHeaderProps) {
   return (
     <div className="mb-6 flex items-center justify-between">
       <div>
-        <h1 className="text-2xl font-bold text-slate-100">{t(titleKey)}</h1>
+        <h1 className="text-2xl font-bold text-foreground">{t(titleKey)}</h1>
         {subtitleKey ? (
           <p className="mt-1 text-sm text-muted">{t(subtitleKey)}</p>
         ) : null}
@@ -42,7 +42,7 @@ export function EngineConnectionError({ onRetry }: { onRetry: () => void }) {
         <button
           type="button"
           onClick={onRetry}
-          className="rounded-md bg-surface-elevated px-4 py-2 text-sm text-slate-100 hover:bg-accent/20"
+          className="rounded-md bg-surface-elevated px-4 py-2 text-sm text-foreground hover:bg-accent/20"
         >
           {t("common.retry")}
         </button>
@@ -74,7 +74,7 @@ export function WorkerIndicator({ healthy }: { healthy: boolean }) {
 
 export function StatusBadge({ status }: { status: string }) {
   const lower = status.toLowerCase();
-  let color = "bg-slate-600";
+  let color = "bg-muted";
   if (["active", "running", "completed", "healthy"].includes(lower))
     color = "bg-profit";
   else if (["failed", "error", "halted"].includes(lower)) color = "bg-loss";

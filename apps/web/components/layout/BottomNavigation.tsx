@@ -64,7 +64,7 @@ function BottomNavItem({
       className={cn(
         "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2 text-[10px] leading-tight transition-colors sm:text-xs",
         "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/45 focus-visible:ring-inset",
-        active ? "text-accent" : "text-muted hover:text-slate-200"
+        active ? "text-accent" : "text-muted hover:text-foreground"
       )}
       aria-current={active ? "page" : undefined}
     >
@@ -98,7 +98,7 @@ function MoreMenu({
     <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-end">
       <button
         type="button"
-        className="absolute inset-0 bg-black/45"
+        className="absolute inset-0 bg-overlay"
         aria-label={t("common.close_module")}
         onClick={onClose}
       />
@@ -149,7 +149,7 @@ export function BottomNavigation() {
   return (
     <>
       <nav
-        className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-border bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/90"
+        className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur supports-[backdrop-filter]:bg-surface/90"
         aria-label={t("nav.main_navigation")}
       >
         {bottomNavItems.map((item) => (
@@ -166,7 +166,7 @@ export function BottomNavigation() {
           className={cn(
             "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2 text-[10px] leading-tight transition-colors sm:text-xs",
             "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/45 focus-visible:ring-inset",
-            moreActive || moreOpen ? "text-accent" : "text-muted hover:text-slate-200"
+            moreActive || moreOpen ? "text-accent" : "text-muted hover:text-foreground"
           )}
           aria-expanded={moreOpen}
           aria-haspopup="menu"

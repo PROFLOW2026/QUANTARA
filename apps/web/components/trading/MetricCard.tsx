@@ -28,7 +28,7 @@ export function MetricCard({
         <CardTitle>{label}</CardTitle>
       </CardHeader>
       <CardContent>
-        <p className={cn("text-2xl font-semibold text-slate-100", mono && "font-mono")}>
+        <p className={cn("text-2xl font-semibold text-foreground", mono && "font-mono")}>
           {value}
         </p>
         {hint ? <p className="mt-1 truncate text-xs text-muted">{hint}</p> : null}

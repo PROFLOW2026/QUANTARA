@@ -36,7 +36,7 @@ export function CardTitle({
   ...props
 }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
-    <h3 className={cn("text-sm font-medium text-slate-300", className)} {...props}>
+    <h3 className={cn("text-sm font-medium text-foreground-secondary", className)} {...props}>
       {children}
     </h3>
   );

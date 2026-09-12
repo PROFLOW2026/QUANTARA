@@ -39,7 +39,7 @@ export default function StrategyDetailModule({ embedded, params = {} }: ModulePr
     <>
       {!embedded ? (
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-slate-100">{strategy?.name ?? slug}</h1>
+          <h1 className="text-2xl font-bold text-foreground">{strategy?.name ?? slug}</h1>
           {ROBOT_LABELS[slug] ? (
             <p className="mt-1 text-sm text-muted">{ROBOT_LABELS[slug]}</p>
           ) : null}
