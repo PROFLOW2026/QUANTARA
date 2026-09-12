@@ -16,9 +16,11 @@ from quantara_engine.portfolio.currency import FxRateTable
 from quantara_engine.persistence.batch_summary import (
     AssetExposureRiskMetrics,
     CompetitionExposureRiskSummary,
+    _derive_position_target_profit,
     _position_mark_price,
     batch_competition_exposure_risk_summary,
     batch_entry_actual_risk_by_position,
+    combined_risk_reward_ratio,
 )
 
 
@@ -89,6 +91,7 @@ class TestBatchCompetitionExposureRiskSummary:
                 Decimal("70000"),
                 Decimal("69900"),
                 Decimal("68000"),
+                None,
                 OrmDirection.LONG,
             ),
         ]
@@ -148,6 +151,7 @@ class TestBatchCompetitionExposureRiskSummary:
                     Decimal("100"),
                     Decimal("99"),
                     Decimal("95"),
+                    None,
                     OrmDirection.LONG,
                 )
             )
@@ -197,6 +201,7 @@ class TestBatchCompetitionExposureRiskSummary:
                 Decimal("0"),
                 Decimal("50"),
                 Decimal("48"),
+                None,
                 OrmDirection.SHORT,
             ),
         ]
@@ -244,6 +249,7 @@ class TestBatchCompetitionExposureRiskSummary:
                 Decimal("100"),
                 Decimal("100"),
                 Decimal("0"),
+                None,
                 OrmDirection.LONG,
             ),
         ]
@@ -286,8 +292,8 @@ class TestBatchCompetitionExposureRiskSummary:
         inst_a = _uuid(110)
         inst_b = _uuid(111)
         store.session.execute.return_value.all.return_value = [
-            (UUID(_uuid(901)), UUID(inst_a), Decimal("1"), Decimal("10"), Decimal("10"), Decimal("9"), OrmDirection.LONG),
-            (UUID(_uuid(902)), UUID(inst_b), Decimal("2"), Decimal("20"), Decimal("20"), Decimal("18"), OrmDirection.LONG),
+            (UUID(_uuid(901)), UUID(inst_a), Decimal("1"), Decimal("10"), Decimal("10"), Decimal("9"), None, OrmDirection.LONG),
+            (UUID(_uuid(902)), UUID(inst_b), Decimal("2"), Decimal("20"), Decimal("20"), Decimal("18"), None, OrmDirection.LONG),
         ]
 
         with patch(
@@ -440,3 +446,161 @@ def test_analytics_assets_open_positions_without_metrics_use_null_not_zero(
     assert btc["open_positions"] == 3
     assert btc["open_exposure"] is None
     assert btc["open_risk_usd"] is None
+
+
+class TestTargetProfitAndRiskReward:
+    def test_long_target_profit_from_entry_and_tp(self):
+        inst = _usd_inst(_uuid(1), "ETHUSD")
+        profit = _derive_position_target_profit(
+            quantity=Decimal("2"),
+            direction=OrmDirection.LONG,
+            entry_price=Decimal("3000"),
+            take_profit=Decimal("3100"),
+            instrument=inst,
+            fx_rates=FxRateTable.usd_only(),
+        )
+        assert profit == Decimal("200.00")
+
+    def test_short_target_profit_from_entry_and_tp(self):
+        inst = _usd_inst(_uuid(1), "ETHUSD")
+        profit = _derive_position_target_profit(
+            quantity=Decimal("2"),
+            direction=OrmDirection.SHORT,
+            entry_price=Decimal("3100"),
+            take_profit=Decimal("3000"),
+            instrument=inst,
+            fx_rates=FxRateTable.usd_only(),
+        )
+        assert profit == Decimal("200.00")
+
+    def test_no_tp_returns_none(self):
+        inst = _usd_inst(_uuid(1), "ETHUSD")
+        assert (
+            _derive_position_target_profit(
+                quantity=Decimal("1"),
+                direction=OrmDirection.LONG,
+                entry_price=Decimal("3000"),
+                take_profit=None,
+                instrument=inst,
+                fx_rates=FxRateTable.usd_only(),
+            )
+            is None
+        )
+
+    def test_combined_rr_from_dollar_sums_not_average(self):
+        assert combined_risk_reward_ratio(Decimal("105"), Decimal("210")) == 2.0
+        assert combined_risk_reward_ratio(Decimal("20"), Decimal("40")) == 2.0
+        assert combined_risk_reward_ratio(None, Decimal("40")) is None
+        assert combined_risk_reward_ratio(Decimal("0"), Decimal("40")) is None
+
+    def test_aggregate_target_profit_and_rr_when_all_tp_present(self):
+        store = MagicMock()
+        pos_a = _uuid(901)
+        pos_b = _uuid(902)
+        inst_id = _uuid(100)
+        store.session.execute.return_value.all.return_value = [
+            (
+                UUID(pos_a),
+                UUID(inst_id),
+                Decimal("1"),
+                Decimal("3000"),
+                Decimal("3000"),
+                Decimal("2900"),
+                Decimal("3200"),
+                OrmDirection.LONG,
+            ),
+            (
+                UUID(pos_b),
+                UUID(inst_id),
+                Decimal("1"),
+                Decimal("3000"),
+                Decimal("3000"),
+                Decimal("2900"),
+                Decimal("3200"),
+                OrmDirection.LONG,
+            ),
+        ]
+
+        with patch(
+            "quantara_engine.persistence.batch_summary.batch_portfolio_equity",
+            return_value={_uuid(1): Decimal("40000")},
+        ), patch(
+            "quantara_engine.persistence.batch_summary.batch_entry_actual_risk_by_position",
+            return_value={pos_a: Decimal("50"), pos_b: Decimal("55")},
+        ), patch(
+            "quantara_engine.persistence.batch_summary._batch_instruments_by_id",
+            return_value={inst_id: _usd_inst(inst_id, "ETHUSD")},
+        ), patch(
+            "quantara_engine.portfolio.currency.resolve_dashboard_fx_rates",
+            return_value=FxRateTable.usd_only(),
+        ), patch(
+            "quantara_engine.competition.asset_equity.portfolio_ids_for_symbol",
+            return_value=[_uuid(1)],
+        ), patch(
+            "quantara_engine.competition.asset_equity.nominal_asset_allocated_equity",
+            return_value=Decimal("40000"),
+        ), patch(
+            "quantara_engine.market_data.active_universe.ACTIVE_DB_SYMBOLS",
+            ("ETHUSD",),
+        ):
+            summary, by_inst = batch_competition_exposure_risk_summary(
+                store,
+                [_uuid(1)],
+                symbol_by_instrument_id={inst_id: "ETHUSD"},
+            )
+
+        assert summary.total_open_risk_usd == Decimal("105.00")
+        assert summary.total_open_target_profit_usd == Decimal("400.00")
+        assert summary.combined_risk_reward == pytest.approx(3.81, rel=0.01)
+        asset = by_inst[inst_id]
+        assert asset.open_target_profit_usd == Decimal("400.00")
+        assert asset.combined_risk_reward == pytest.approx(3.81, rel=0.01)
+
+    def test_missing_tp_blocks_aggregate_target_and_rr(self):
+        store = MagicMock()
+        pos_id = _uuid(911)
+        inst_id = _uuid(101)
+        store.session.execute.return_value.all.return_value = [
+            (
+                UUID(pos_id),
+                UUID(inst_id),
+                Decimal("1"),
+                Decimal("3000"),
+                Decimal("3000"),
+                Decimal("2900"),
+                None,
+                OrmDirection.LONG,
+            ),
+        ]
+
+        with patch(
+            "quantara_engine.persistence.batch_summary.batch_portfolio_equity",
+            return_value={_uuid(1): Decimal("40000")},
+        ), patch(
+            "quantara_engine.persistence.batch_summary.batch_entry_actual_risk_by_position",
+            return_value={pos_id: Decimal("50")},
+        ), patch(
+            "quantara_engine.persistence.batch_summary._batch_instruments_by_id",
+            return_value={inst_id: _usd_inst(inst_id, "ETHUSD")},
+        ), patch(
+            "quantara_engine.portfolio.currency.resolve_dashboard_fx_rates",
+            return_value=FxRateTable.usd_only(),
+        ), patch(
+            "quantara_engine.competition.asset_equity.portfolio_ids_for_symbol",
+            return_value=[_uuid(1)],
+        ), patch(
+            "quantara_engine.competition.asset_equity.nominal_asset_allocated_equity",
+            return_value=Decimal("40000"),
+        ), patch(
+            "quantara_engine.market_data.active_universe.ACTIVE_DB_SYMBOLS",
+            ("ETHUSD",),
+        ):
+            summary, by_inst = batch_competition_exposure_risk_summary(
+                store,
+                [_uuid(1)],
+                symbol_by_instrument_id={inst_id: "ETHUSD"},
+            )
+
+        assert summary.total_open_target_profit_usd is None
+        assert summary.combined_risk_reward is None
+        assert by_inst[inst_id].open_target_profit_usd is None

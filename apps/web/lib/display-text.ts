@@ -1,5 +1,5 @@
 import { t } from "@/lib/i18n";
-import { formatCurrency, formatPercent } from "@/lib/utils";
+import { formatCurrency, formatPercent, formatRiskPercent } from "@/lib/utils";
 
 const STATUS_KEYS: Record<string, string> = {
   active: "display.status.active",
@@ -595,6 +595,13 @@ export function formatPercentOrUnavailable(value: number | null | undefined): st
     return t("common.metric_unavailable");
   }
   return formatPercent(value);
+}
+
+export function formatRiskPercentOrUnavailable(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) {
+    return t("common.metric_unavailable");
+  }
+  return formatRiskPercent(value);
 }
 
 export function formatMetricOrInsufficient(

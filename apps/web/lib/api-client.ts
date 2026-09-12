@@ -586,6 +586,8 @@ export interface AssetAnalyticsRow {
   open_risk_usd?: number | null;
   open_risk_pct?: number | null;
   global_risk_cap_pct?: number;
+  open_target_profit_usd?: number | null;
+  combined_risk_reward?: number | null;
   market_regime?: {
     structure_regime?: string;
     volatility_regime?: string;
@@ -650,6 +652,8 @@ export interface AssetAnalyticsSummary {
   exposure_available?: boolean;
   remaining_sl_risk_usd?: number | null;
   projected_equity_at_stops?: number | null;
+  open_target_profit_usd?: number | null;
+  combined_risk_reward?: number | null;
 }
 
 export interface AssetAnalyticsResponse {
@@ -828,10 +832,13 @@ export interface CompetitionResponse {
     timeframe?: string;
   }>;
   open_positions?: Array<{
+    position_id?: string;
     portfolio_id: string;
     portfolio_name: string;
     robot_label?: string;
     strategy_slug?: string;
+    risk_slug?: string;
+    risk_name_he?: string;
     timeframe_he: string;
     direction: string;
     entry_price: number;
@@ -840,6 +847,10 @@ export interface CompetitionResponse {
     take_profit: number | null;
     unrealized_pnl: number;
     quantity: number;
+    exposure_usd?: number | null;
+    risk_to_sl_usd?: number | null;
+    target_profit_usd?: number | null;
+    risk_reward_ratio?: number | null;
   }>;
   closed_trades?: Array<{
     trade_id: string;

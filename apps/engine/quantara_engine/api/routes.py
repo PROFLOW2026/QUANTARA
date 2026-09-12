@@ -464,10 +464,18 @@ def analytics_assets(store: StoreDep):
                 else None
             )
             open_risk_pct = risk_metrics.open_risk_pct
+            open_target_profit_usd = (
+                float(risk_metrics.open_target_profit_usd)
+                if risk_metrics.open_target_profit_usd is not None
+                else None
+            )
+            combined_risk_reward = risk_metrics.combined_risk_reward
         elif open_positions > 0:
             open_exposure = None
             open_risk_usd = None
             open_risk_pct = None
+            open_target_profit_usd = None
+            combined_risk_reward = None
         else:
             open_exposure = (
                 float(risk_metrics.open_exposure)
@@ -480,6 +488,12 @@ def analytics_assets(store: StoreDep):
                 else 0.0
             )
             open_risk_pct = risk_metrics.open_risk_pct if risk_metrics else 0.0
+            open_target_profit_usd = (
+                float(risk_metrics.open_target_profit_usd)
+                if risk_metrics and risk_metrics.open_target_profit_usd is not None
+                else 0.0
+            )
+            combined_risk_reward = risk_metrics.combined_risk_reward if risk_metrics else None
         global_risk_cap_pct = risk_metrics.global_risk_cap_pct if risk_metrics else 2.0
 
         asset_health = (worker_raw.get("assets") or {}).get(asset.db_symbol, {})
@@ -529,6 +543,12 @@ def analytics_assets(store: StoreDep):
                 "open_risk_usd": round(open_risk_usd, 2) if open_risk_usd is not None else None,
                 "open_risk_pct": round(open_risk_pct, 2) if open_risk_pct is not None else None,
                 "global_risk_cap_pct": global_risk_cap_pct,
+                "open_target_profit_usd": (
+                    round(open_target_profit_usd, 2)
+                    if open_target_profit_usd is not None
+                    else None
+                ),
+                "combined_risk_reward": combined_risk_reward,
                 "market_regime": regime_payload,
             }
         )
@@ -564,6 +584,12 @@ def analytics_assets(store: StoreDep):
             if exposure_summary.projected_equity_at_stops is not None
             else None
         ),
+        "open_target_profit_usd": (
+            float(exposure_summary.total_open_target_profit_usd)
+            if exposure_summary.total_open_target_profit_usd is not None
+            else None
+        ),
+        "combined_risk_reward": exposure_summary.combined_risk_reward,
     }
     return {
         "assets_active": len(list_target_assets()),

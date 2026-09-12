@@ -31,6 +31,7 @@
     "preflight:local": "node scripts/preflight-local-runtime.mjs",
     "verify:twelvedata": "python scripts/verify_twelvedata.py",
     "test:engine": "cd apps/engine && python -m pytest tests/ -q",
+    "test:web:profit-target": "node --test apps/web/lib/profit-target.test.mjs",
     "test:launcher": "node --test scripts/test-quantara-launcher.mjs"
   },
   "devDependencies": {

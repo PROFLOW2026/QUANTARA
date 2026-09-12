@@ -14,15 +14,16 @@ import {
 } from "@/lib/api-client";
 import {
   formatCurrencyOrUnavailable,
-  formatPercentOrUnavailable,
+  formatRiskPercentOrUnavailable,
   formatProviderUsageLine,
   resolveAssetDataStatusPresentation,
   translateProviderStatus,
   translateStructureRegime,
   translateVolatilityRegime,
 } from "@/lib/display-text";
+import { formatRiskRewardLabel, formatTargetProfitOrUnavailable } from "@/lib/profit-target";
 import { t } from "@/lib/i18n";
-import { cn, formatCurrency, formatPercent, formatRelativeTime } from "@/lib/utils";
+import { cn, formatCurrency, formatRiskPercent, formatRelativeTime } from "@/lib/utils";
 
 function statusBadge(
   status: string,
@@ -65,18 +66,42 @@ function formatAssetRisk(asset: AssetAnalyticsRow) {
   return formatCurrencyOrUnavailable(null);
 }
 
-function formatRiskPct(asset: AssetAnalyticsRow) {
+function formatAssetTargetProfit(asset: AssetAnalyticsRow) {
+  if ((asset.open_positions ?? 0) === 0) {
+    return formatCurrencyOrUnavailable(0);
+  }
+  if (asset.open_target_profit_usd != null) {
+    return formatTargetProfitOrUnavailable(asset.open_target_profit_usd);
+  }
+  return formatTargetProfitOrUnavailable(null);
+}
+
+function formatAssetRiskReward(asset: AssetAnalyticsRow) {
+  if ((asset.open_positions ?? 0) === 0) {
+    return formatRiskRewardLabel(0);
+  }
+  return formatRiskRewardLabel(asset.combined_risk_reward);
+}
+
+function formatRiskPctBlock(asset: AssetAnalyticsRow) {
   const cap = asset.global_risk_cap_pct ?? 2;
-  const pctLabel =
+  const currentPct =
     asset.open_risk_pct != null
-      ? formatPercentOrUnavailable(asset.open_risk_pct)
+      ? formatRiskPercentOrUnavailable(asset.open_risk_pct)
       : (asset.open_positions ?? 0) === 0
-        ? formatPercentOrUnavailable(0)
-        : formatPercentOrUnavailable(null);
+        ? formatRiskPercentOrUnavailable(0)
+        : formatRiskPercentOrUnavailable(null);
   return (
-    <span title={t("home.asset_risk_cap_hint", { cap: formatPercent(cap) })}>
-      {pctLabel} / {formatPercent(cap)}
-    </span>
+    <div className="space-y-0.5" title={t("home.asset_risk_cap_hint", { cap: formatRiskPercent(cap) })}>
+      <p>
+        <span className="text-muted">{t("home.asset_risk_current_pct")}: </span>
+        <span className="font-mono text-financial">{currentPct}</span>
+      </p>
+      <p>
+        <span className="text-muted">{t("home.asset_risk_limit_pct")}: </span>
+        <span className="font-mono text-financial">{formatRiskPercent(cap)}</span>
+      </p>
+    </div>
   );
 }
 
@@ -298,20 +323,32 @@ function DesktopActiveAssetCard({
           <span className="text-muted">{t("home.total_pnl")}</span>
           <PnLDisplay value={asset.total_pnl} size="sm" />
         </div>
-        <div className="col-span-2 grid grid-cols-3 gap-x-2">
-          <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
-            <p className="text-muted">{t("home.asset_exposure_short")}</p>
-            <p className="mt-0.5 font-mono text-financial">{formatAssetExposure(asset)}</p>
-          </div>
-          <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
-            <p className="text-muted">{t("home.asset_risk_short")}</p>
-            <p className="mt-0.5 font-mono text-financial">{formatAssetRisk(asset)}</p>
-          </div>
-          <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
-            <p className="text-muted">{t("home.asset_risk_pct_short")}</p>
-            <p className="mt-0.5 font-mono text-financial">{formatRiskPct(asset)}</p>
-          </div>
-        </div>
+        {(asset.open_positions ?? 0) > 0 ? (
+          <>
+            <div className="col-span-2 grid grid-cols-2 gap-x-2 gap-y-1.5">
+              <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
+                <p className="text-muted">{t("home.asset_exposure_short")}</p>
+                <p className="mt-0.5 font-mono text-financial">{formatAssetExposure(asset)}</p>
+              </div>
+              <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
+                <p className="text-muted">{t("home.asset_risk_short")}</p>
+                <p className="mt-0.5 font-mono text-financial">{formatAssetRisk(asset)}</p>
+              </div>
+              <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
+                <p className="text-muted">{t("home.asset_target_profit_short")}</p>
+                <p className="mt-0.5 font-mono text-financial">{formatAssetTargetProfit(asset)}</p>
+              </div>
+              <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
+                <p className="text-muted">{t("home.asset_risk_reward_short")}</p>
+                <p className="mt-0.5 font-mono text-financial">{formatAssetRiskReward(asset)}</p>
+              </div>
+            </div>
+            <div className="col-span-2 rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
+              <p className="text-muted">{t("home.asset_risk_pct_short")}</p>
+              <div className="mt-0.5 text-xs">{formatRiskPctBlock(asset)}</div>
+            </div>
+          </>
+        ) : null}
       </div>
       </div>
     </div>
@@ -383,15 +420,23 @@ export function ActiveAssetsTable({
                   <p className="col-span-2">
                     {t("home.total_pnl")}: <PnLDisplay value={asset.total_pnl} size="sm" />
                   </p>
-                  <p>
-                    {t("home.asset_exposure_short")}: {formatAssetExposure(asset)}
-                  </p>
-                  <p>
-                    {t("home.asset_risk_short")}: {formatAssetRisk(asset)}
-                  </p>
-                  <p className="col-span-2">
-                    {t("home.asset_risk_pct_short")}: {formatRiskPct(asset)}
-                  </p>
+                  {(asset.open_positions ?? 0) > 0 ? (
+                    <>
+                      <p>
+                        {t("home.asset_exposure_short")}: {formatAssetExposure(asset)}
+                      </p>
+                      <p>
+                        {t("home.asset_risk_short")}: {formatAssetRisk(asset)}
+                      </p>
+                      <p>
+                        {t("home.asset_target_profit_short")}: {formatAssetTargetProfit(asset)}
+                      </p>
+                      <p>
+                        {t("home.asset_risk_reward_short")}: {formatAssetRiskReward(asset)}
+                      </p>
+                      <div className="col-span-2">{formatRiskPctBlock(asset)}</div>
+                    </>
+                  ) : null}
                 </div>
               </div>
             </div>

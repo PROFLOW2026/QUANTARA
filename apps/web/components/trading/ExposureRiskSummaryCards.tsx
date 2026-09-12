@@ -4,8 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle, HighlightCard } from "@/compo
 import type { AssetAnalyticsSummary } from "@/lib/api-client";
 import {
   formatCurrencyOrUnavailable,
-  formatPercentOrUnavailable,
+  formatRiskPercentOrUnavailable,
 } from "@/lib/display-text";
+import { formatRiskRewardLabel, formatTargetProfitOrUnavailable } from "@/lib/profit-target";
 import { t } from "@/lib/i18n";
 
 function formatExposureMetric(
@@ -18,12 +19,12 @@ function formatExposureMetric(
   const value = summary[field];
   if (value != null) {
     return field === "open_risk_pct"
-      ? formatPercentOrUnavailable(value)
+      ? formatRiskPercentOrUnavailable(value)
       : formatCurrencyOrUnavailable(value);
   }
   if ((summary.open_position_count ?? 0) === 0) {
     return field === "open_risk_pct"
-      ? formatPercentOrUnavailable(0)
+      ? formatRiskPercentOrUnavailable(0)
       : formatCurrencyOrUnavailable(0);
   }
   return t("common.metric_unavailable");
@@ -55,8 +56,22 @@ export function ExposureRiskSummaryCards({
   summary: AssetAnalyticsSummary | null | undefined;
   loading?: boolean;
 }) {
+  const hasOpenPositions = (summary?.open_position_count ?? 0) > 0;
+  const targetProfitLabel =
+    summary?.open_target_profit_usd != null
+      ? formatTargetProfitOrUnavailable(summary.open_target_profit_usd)
+      : hasOpenPositions
+        ? t("home.target_profit_partial")
+        : formatTargetProfitOrUnavailable(0);
+  const combinedRrLabel =
+    summary?.combined_risk_reward != null
+      ? formatRiskRewardLabel(summary.combined_risk_reward)
+      : hasOpenPositions
+        ? t("home.risk_reward_unavailable")
+        : formatRiskRewardLabel(0);
+
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
       <HighlightCard>
         <CardHeader>
           <CardTitle title={t("home.open_exposure_usd_hint")}>
@@ -122,6 +137,30 @@ export function ExposureRiskSummaryCards({
             <p className="font-mono text-2xl">
               {formatRemainingMetric(summary, "projected_equity_at_stops")}
             </p>
+          )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("home.target_profit_total_title")}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <span className="text-muted">{t("common.loading")}</span>
+          ) : (
+            <p className="font-mono text-2xl text-financial">{targetProfitLabel}</p>
+          )}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("home.combined_risk_reward_title")}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <span className="text-muted">{t("common.loading")}</span>
+          ) : (
+            <p className="font-mono text-2xl">{combinedRrLabel}</p>
           )}
         </CardContent>
       </Card>

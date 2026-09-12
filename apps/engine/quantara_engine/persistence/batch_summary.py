@@ -65,6 +65,8 @@ class CompetitionExposureRiskSummary:
     exposure_available: bool = True
     total_remaining_sl_risk_usd: Decimal | None = None
     projected_equity_at_stops: Decimal | None = None
+    total_open_target_profit_usd: Decimal | None = None
+    combined_risk_reward: float | None = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,9 @@ class AssetExposureRiskMetrics:
     open_risk_pct: float | None
     global_risk_cap_pct: float
     open_risk_missing_count: int = 0
+    open_target_profit_usd: Decimal | None = None
+    combined_risk_reward: float | None = None
+    target_profit_missing_count: int = 0
 
 
 def batch_trade_metrics(store: TradingStore, portfolio_ids: list[str]) -> dict[str, TradeBatchMetrics]:
@@ -259,6 +264,95 @@ def _resolve_position_open_risk(
     return None, "missing"
 
 
+def _derive_position_target_profit(
+    *,
+    quantity: Decimal,
+    direction: Any,
+    entry_price: Decimal,
+    take_profit: Decimal | None,
+    instrument: Instrument | None,
+    fx_rates: Any,
+) -> Decimal | None:
+    """Planned account-currency profit if take-profit is reached from entry."""
+    if instrument is None or take_profit is None or entry_price <= 0:
+        return None
+    qty = abs(Decimal(str(quantity or 0)))
+    if qty <= 0:
+        return None
+    from quantara_engine.portfolio.currency import normalize_quote_currency
+
+    dir_value = direction.value if hasattr(direction, "value") else str(direction)
+    tp = Decimal(str(take_profit))
+    entry = Decimal(str(entry_price))
+    if dir_value == Direction.LONG.value:
+        quote_pnl = (tp - entry) * qty
+    elif dir_value == Direction.SHORT.value:
+        quote_pnl = (entry - tp) * qty
+    else:
+        return None
+    quote = normalize_quote_currency(instrument.quote_currency)
+    try:
+        return fx_rates.quote_to_account(quote_pnl, quote).quantize(Decimal("0.01"))
+    except (ValueError, TypeError):
+        return None
+
+
+def combined_risk_reward_ratio(
+    total_risk_usd: Decimal | None, total_target_profit_usd: Decimal | None
+) -> float | None:
+    """Reward multiple for display as 1:X (target profit / planned SL risk)."""
+    if total_risk_usd is None or total_target_profit_usd is None:
+        return None
+    if total_risk_usd <= 0:
+        return None
+    return round(float(total_target_profit_usd / total_risk_usd), 2)
+
+
+def planned_position_metrics(
+    *,
+    position: Position,
+    instrument: Instrument | None,
+    fx_rates: Any,
+    intent_risk: Decimal | None = None,
+) -> dict[str, Decimal | float | None]:
+    """Canonical planned exposure / SL risk / TP profit for one open position."""
+    mark = _position_mark_price(position.current_price, position.entry_price)
+    qty = abs(Decimal(str(position.quantity or 0)))
+    entry = Decimal(str(position.entry_price or 0))
+    stop = Decimal(str(position.stop_loss or 0))
+    exposure = _position_exposure_usd(
+        quantity=qty,
+        mark=mark,
+        instrument=instrument,
+        fx_rates=fx_rates,
+    )
+    risk_usd, _ = _resolve_position_open_risk(
+        position_id=position.id,
+        quantity=qty,
+        direction=position.direction,
+        entry_price=entry,
+        stop_loss=stop,
+        instrument=instrument,
+        intent_risk=intent_risk,
+        fx_rates=fx_rates,
+    )
+    target_profit = _derive_position_target_profit(
+        quantity=qty,
+        direction=position.direction,
+        entry_price=entry,
+        take_profit=Decimal(str(position.take_profit)) if position.take_profit else None,
+        instrument=instrument,
+        fx_rates=fx_rates,
+    )
+    rr = combined_risk_reward_ratio(risk_usd, target_profit)
+    return {
+        "exposure_usd": exposure,
+        "risk_to_sl_usd": risk_usd,
+        "target_profit_usd": target_profit,
+        "risk_reward_ratio": rr,
+    }
+
+
 def _derive_remaining_sl_risk(
     *,
     quantity: Decimal,
@@ -351,6 +445,7 @@ def batch_competition_exposure_risk_summary(
             OrmPosition.current_price,
             OrmPosition.entry_price,
             OrmPosition.stop_loss,
+            OrmPosition.take_profit,
             OrmPosition.direction,
         ).where(
             OrmPosition.portfolio_id.in_(_uuids(portfolio_ids)),
@@ -389,6 +484,9 @@ def batch_competition_exposure_risk_summary(
     risk_zero_valid_count = 0
     remaining_risk_missing_count = 0
     exposure_missing_count = 0
+    target_profit_known_by_instrument: dict[str, Decimal] = {}
+    target_profit_missing_by_instrument: dict[str, int] = {}
+    target_profit_missing_count = 0
 
     for (
         position_id,
@@ -397,6 +495,7 @@ def batch_competition_exposure_risk_summary(
         current_price,
         entry_price,
         stop_loss,
+        take_profit,
         direction,
     ) in open_rows:
         iid = str(instrument_id)
@@ -448,12 +547,30 @@ def batch_competition_exposure_risk_summary(
         if source == "missing" or resolved_risk is None:
             risk_missing_count += 1
             risk_missing_by_instrument[iid] = risk_missing_by_instrument.get(iid, 0) + 1
-            continue
-        if resolved_risk <= 0:
+        elif resolved_risk <= 0:
             risk_zero_valid_count += 1
+            risk_known_by_instrument[iid] = risk_known_by_instrument.get(iid, Decimal("0")) + resolved_risk
         else:
             risk_found_count += 1
-        risk_known_by_instrument[iid] = risk_known_by_instrument.get(iid, Decimal("0")) + resolved_risk
+            risk_known_by_instrument[iid] = risk_known_by_instrument.get(iid, Decimal("0")) + resolved_risk
+
+        target_profit = _derive_position_target_profit(
+            quantity=qty,
+            direction=direction,
+            entry_price=Decimal(str(entry_price or 0)),
+            take_profit=Decimal(str(take_profit)) if take_profit is not None else None,
+            instrument=inst,
+            fx_rates=fx_rates,
+        )
+        if target_profit is None:
+            target_profit_missing_count += 1
+            target_profit_missing_by_instrument[iid] = (
+                target_profit_missing_by_instrument.get(iid, 0) + 1
+            )
+        else:
+            target_profit_known_by_instrument[iid] = (
+                target_profit_known_by_instrument.get(iid, Decimal("0")) + target_profit
+            )
 
     total_open_exposure: Decimal | None
     if exposure_missing_count > 0:
@@ -491,6 +608,17 @@ def batch_competition_exposure_risk_summary(
             Decimal("0.01")
         )
 
+    total_open_target_profit_usd: Decimal | None
+    combined_rr: float | None
+    if target_profit_missing_count > 0:
+        total_open_target_profit_usd = None
+        combined_rr = None
+    else:
+        total_open_target_profit_usd = sum(
+            target_profit_known_by_instrument.values(), Decimal("0")
+        ).quantize(Decimal("0.01"))
+        combined_rr = combined_risk_reward_ratio(total_open_risk_usd, total_open_target_profit_usd)
+
     summary = CompetitionExposureRiskSummary(
         total_open_exposure=total_open_exposure,
         total_open_risk_usd=total_open_risk_usd,
@@ -504,6 +632,8 @@ def batch_competition_exposure_risk_summary(
         exposure_available=exposure_missing_count == 0,
         total_remaining_sl_risk_usd=total_remaining_sl_risk_usd,
         projected_equity_at_stops=projected_equity_at_stops,
+        total_open_target_profit_usd=total_open_target_profit_usd,
+        combined_risk_reward=combined_rr,
     )
 
     instrument_ids_with_positions = {str(row[1]) for row in open_rows}
@@ -525,6 +655,15 @@ def batch_competition_exposure_risk_summary(
             risk_usd = known_risk
             risk_pct = float(known_risk / allocated * Decimal("100")) if allocated > 0 else 0.0
             risk_pct = round(risk_pct, 2)
+        tp_missing = target_profit_missing_by_instrument.get(iid, 0)
+        if tp_missing > 0:
+            target_profit_usd: Decimal | None = None
+            asset_rr: float | None = None
+        else:
+            target_profit_usd = target_profit_known_by_instrument.get(iid, Decimal("0")).quantize(
+                Decimal("0.01")
+            )
+            asset_rr = combined_risk_reward_ratio(risk_usd, target_profit_usd)
         by_instrument[iid] = AssetExposureRiskMetrics(
             open_exposure=exposure_val,
             open_risk_usd=risk_usd,
@@ -532,6 +671,9 @@ def batch_competition_exposure_risk_summary(
             open_risk_pct=risk_pct,
             global_risk_cap_pct=cap_pct,
             open_risk_missing_count=risk_missing,
+            open_target_profit_usd=target_profit_usd,
+            combined_risk_reward=asset_rr,
+            target_profit_missing_count=tp_missing,
         )
     return summary, by_instrument
 

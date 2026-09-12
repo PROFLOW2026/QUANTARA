@@ -19,6 +19,7 @@ import {
   translateRiskProfile,
 } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
+import { formatRiskRewardLabel, formatTargetProfitOrUnavailable } from "@/lib/profit-target";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 
 type DrilldownMode = "open" | "closed";
@@ -123,7 +124,7 @@ export function AssetTradeDrilldownModal({
           <div className="space-y-3">
             {openRows.map((row) => (
               <div
-                key={`${row.portfolio_id}-${row.entry_price}`}
+                key={row.position_id ?? `${row.portfolio_id}-${row.entry_price}`}
                 className="rounded-md border border-border/60 p-3 text-sm"
               >
                 <p className="font-medium">{row.portfolio_name}</p>
@@ -135,6 +136,13 @@ export function AssetTradeDrilldownModal({
                   )}{" "}
                   · {row.timeframe_he}
                 </p>
+                {row.risk_name_he || row.risk_slug ? (
+                  <p className="mt-1 text-xs text-muted">
+                    {t("home.position_risk_tier")}:{" "}
+                    {row.risk_name_he ??
+                      (row.risk_slug ? translateRiskProfile(row.risk_slug) : "—")}
+                  </p>
+                ) : null}
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <p>
                     {t("competition.open_direction")}: {directionLabel(row.direction)}
@@ -149,11 +157,31 @@ export function AssetTradeDrilldownModal({
                     {t("positions.size")}: {row.quantity}
                   </p>
                   <p>
+                    {t("home.position_exposure")}:{" "}
+                    {row.exposure_usd != null
+                      ? formatCurrency(row.exposure_usd)
+                      : t("common.metric_unavailable")}
+                  </p>
+                  <p>
                     {t("competition.stop_loss")}: {formatCurrency(row.stop_loss)}
+                  </p>
+                  <p>
+                    {t("home.position_risk_to_sl")}:{" "}
+                    {row.risk_to_sl_usd != null
+                      ? formatCurrency(row.risk_to_sl_usd)
+                      : t("common.metric_unavailable")}
                   </p>
                   <p>
                     {t("competition.take_profit")}:{" "}
                     {row.take_profit != null ? formatCurrency(row.take_profit) : "—"}
+                  </p>
+                  <p>
+                    {t("home.position_target_profit")}:{" "}
+                    {formatTargetProfitOrUnavailable(row.target_profit_usd)}
+                  </p>
+                  <p>
+                    {t("home.position_risk_reward")}:{" "}
+                    {formatRiskRewardLabel(row.risk_reward_ratio)}
                   </p>
                   <p className="sm:col-span-2">
                     {t("competition.unrealized_pnl")}:{" "}

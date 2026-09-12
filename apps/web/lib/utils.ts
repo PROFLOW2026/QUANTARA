@@ -19,6 +19,11 @@ export function formatPercent(value: number): string {
   return `${sign}${value.toFixed(2)}%`;
 }
 
+/** Risk/limit percentages — no leading "+" (not a signed PnL metric). */
+export function formatRiskPercent(value: number): string {
+  return `${value.toFixed(2)}%`;
+}
+
 export function formatPrice(value: number): string {
   return new Intl.NumberFormat("he-IL", {
     minimumFractionDigits: 2,

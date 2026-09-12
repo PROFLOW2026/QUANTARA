@@ -478,30 +478,66 @@ def build_competition_response(store: TradingStore) -> dict[str, Any]:
         entry["portfolio"].id: {
             "robot_label": ROBOT_LABELS.get(entry["instance"].strategy_slug, entry["instance"].strategy_slug),
             "strategy_slug": entry["instance"].strategy_slug,
+            "risk_slug": entry["risk_profile"].slug,
+            "risk_name_he": RISK_SLUG_HE.get(entry["risk_profile"].slug, entry["portfolio"].name),
         }
         for entry in all_entries
     }
-    open_positions_detail = []
+    from quantara_engine.persistence.batch_summary import (
+        _batch_instruments_by_id,
+        batch_entry_actual_risk_by_position,
+        planned_position_metrics,
+    )
+    from quantara_engine.portfolio.currency import resolve_dashboard_fx_rates
+
+    paired_open_positions: list[tuple[dict[str, Any], Any]] = []
     for entry in all_entries:
         pid = entry["portfolio"].id
-        identity = identity_by_portfolio.get(pid, {})
         for pos in batch_stats.get(pid, {}).get("open_positions") or []:
-            open_positions_detail.append(
-                {
-                    "portfolio_id": pid,
-                    "portfolio_name": _portfolio_display_name(pid, entry["portfolio"].name),
-                    "robot_label": identity.get("robot_label"),
-                    "strategy_slug": identity.get("strategy_slug"),
-                    "timeframe_he": TIMEFRAME_HE.get(entry["instance"].timeframe, entry["instance"].timeframe),
-                    "direction": pos.direction.value,
-                    "entry_price": float(pos.entry_price),
-                    "current_price": float(pos.current_price),
-                    "stop_loss": float(pos.stop_loss),
-                    "take_profit": float(pos.take_profit) if pos.take_profit else None,
-                    "unrealized_pnl": float(pos.unrealized_pnl),
-                    "quantity": float(pos.quantity),
-                }
-            )
+            paired_open_positions.append((entry, pos))
+    position_ids = [pos.id for _, pos in paired_open_positions]
+    instrument_ids = list({pos.instrument_id for _, pos in paired_open_positions})
+    intent_risks = batch_entry_actual_risk_by_position(store, position_ids)
+    instruments = _batch_instruments_by_id(store, instrument_ids)
+    fx_rates = resolve_dashboard_fx_rates(store)
+
+    open_positions_detail = []
+    for entry, pos in paired_open_positions:
+        pid = entry["portfolio"].id
+        identity = identity_by_portfolio.get(pid, {})
+        metrics = planned_position_metrics(
+            position=pos,
+            instrument=instruments.get(pos.instrument_id),
+            fx_rates=fx_rates,
+            intent_risk=intent_risks.get(pos.id),
+        )
+        exposure_usd = metrics.get("exposure_usd")
+        risk_to_sl = metrics.get("risk_to_sl_usd")
+        target_profit = metrics.get("target_profit_usd")
+        rr_ratio = metrics.get("risk_reward_ratio")
+        open_positions_detail.append(
+            {
+                "position_id": pos.id,
+                "portfolio_id": pid,
+                "portfolio_name": _portfolio_display_name(pid, entry["portfolio"].name),
+                "robot_label": identity.get("robot_label"),
+                "strategy_slug": identity.get("strategy_slug"),
+                "risk_slug": identity.get("risk_slug"),
+                "risk_name_he": identity.get("risk_name_he"),
+                "timeframe_he": TIMEFRAME_HE.get(entry["instance"].timeframe, entry["instance"].timeframe),
+                "direction": pos.direction.value,
+                "entry_price": float(pos.entry_price),
+                "current_price": float(pos.current_price),
+                "stop_loss": float(pos.stop_loss),
+                "take_profit": float(pos.take_profit) if pos.take_profit else None,
+                "unrealized_pnl": float(pos.unrealized_pnl),
+                "quantity": float(pos.quantity),
+                "exposure_usd": float(exposure_usd) if exposure_usd is not None else None,
+                "risk_to_sl_usd": float(risk_to_sl) if risk_to_sl is not None else None,
+                "target_profit_usd": float(target_profit) if target_profit is not None else None,
+                "risk_reward_ratio": rr_ratio,
+            }
+        )
 
     closed_trades = _collect_closed_trades(store, robot_a_exp_id, orb_enabled)
     robot_groups = [
