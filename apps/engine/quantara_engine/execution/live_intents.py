@@ -200,6 +200,19 @@ def execute_pending_intents_live(store: TradingStore, now: datetime | None = Non
         if candle_index is None:
             continue
 
+        if not intent.is_close:
+            from quantara_engine.trading.asset_trading_controls import (
+                SCOPE_RESEARCH,
+                allows_entries_for_symbol,
+            )
+
+            if not allows_entries_for_symbol(
+                store.get_settings_dict(),
+                scope=SCOPE_RESEARCH,
+                symbol=instrument.symbol,
+            ):
+                continue
+
         portfolios_checked.add(portfolio.id)
         try:
             pending_before = sum(

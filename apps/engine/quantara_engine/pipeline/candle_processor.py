@@ -793,13 +793,33 @@ class CandleProcessor:
                 load_trading_control,
             )
 
-            control = load_trading_control(self.store.get_settings_dict())
+            settings = self.store.get_settings_dict()
+            control = load_trading_control(settings)
             if not allows_new_entries(control):
                 self._log(
                     candle,
                     DecisionType.TRADING_HALTED,
                     f"New entries blocked — trading control: {control.state.value}",
                     signal_id,
+                )
+                return
+
+            from quantara_engine.trading.asset_trading_controls import (
+                SCOPE_RESEARCH,
+                allows_entries_for_symbol,
+            )
+
+            if not allows_entries_for_symbol(
+                settings,
+                scope=SCOPE_RESEARCH,
+                symbol=self.instrument.symbol,
+            ):
+                self._log(
+                    candle,
+                    DecisionType.TRADING_HALTED,
+                    "Asset trading paused — new entries blocked",
+                    signal_id,
+                    metadata={"asset_trading_paused": True, "symbol": self.instrument.symbol},
                 )
                 return
 

@@ -248,7 +248,11 @@ function HomeDashboardContent() {
 
       {assetRows.length ? (
         <div className="mt-6">
-          <ActiveAssetsTable assets={assetRows} assetDecisions={assetDecisions} />
+          <ActiveAssetsTable
+            assets={assetRows}
+            assetDecisions={assetDecisions}
+            onRefresh={() => void refresh()}
+          />
         </div>
       ) : null}
 

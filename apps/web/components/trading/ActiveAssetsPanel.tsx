@@ -21,6 +21,10 @@ import {
   translateVolatilityRegime,
 } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
+import {
+  AssetTradingPauseControl,
+  CloseAllPositionsButton,
+} from "@/components/trading/AssetTradingControl";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 
 function statusBadge(
@@ -157,10 +161,12 @@ function DesktopActiveAssetCard({
   asset,
   onDrilldown,
   onChartOpen,
+  onRefresh,
 }: {
   asset: AssetAnalyticsRow;
   onDrilldown: (mode: "open" | "closed") => void;
   onChartOpen: () => void;
+  onRefresh?: () => void;
 }) {
   return (
     <div className="flex h-full min-h-[21.5rem] flex-col overflow-hidden rounded-md border border-border bg-surface text-sm shadow-card">
@@ -174,14 +180,33 @@ function DesktopActiveAssetCard({
         <p className="mt-0.5 h-4 truncate text-xs leading-4 text-text-subtle">
           {providerLabel(asset.provider)} · {t(`home.session_${asset.session_status}`)}
         </p>
-        <div className="mt-1 flex h-5 items-center">
+        <div className="mt-1 flex min-h-5 flex-wrap items-center gap-2">
           {statusBadge(
             asset.data_status,
             asset.stale,
             asset.session_closed,
             Boolean(asset.last_candle)
           )}
+          <AssetTradingPauseControl
+            dbSymbol={asset.db_symbol}
+            displaySymbol={asset.symbol}
+            paused={asset.trading_paused}
+            onChanged={onRefresh}
+          />
         </div>
+        {asset.open_positions > 0 ? (
+          <div className="mt-2">
+            <CloseAllPositionsButton
+              dbSymbol={asset.db_symbol}
+              displaySymbol={asset.symbol}
+              openCount={asset.open_positions}
+              exposure={asset.open_exposure}
+              unrealizedPnl={asset.unrealized_pnl}
+              slRisk={asset.open_risk_usd}
+              onClosed={onRefresh}
+            />
+          </div>
+        ) : null}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col p-3">
@@ -211,9 +236,11 @@ function DesktopActiveAssetCard({
 export function ActiveAssetsTable({
   assets,
   assetDecisions = [],
+  onRefresh,
 }: {
   assets: AssetAnalyticsRow[];
   assetDecisions?: Decision[];
+  onRefresh?: () => void;
 }) {
   const [drilldown, setDrilldown] = useState<{
     asset: AssetAnalyticsRow;
@@ -241,14 +268,33 @@ export function ActiveAssetsTable({
                 <FinancialValue variant="compact" className="mt-1.5">
                   {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
                 </FinancialValue>
-                <div className="mt-2">
+                <div className="mt-2 flex flex-wrap items-center gap-2">
                   {statusBadge(
                     asset.data_status,
                     asset.stale,
                     asset.session_closed,
                     Boolean(asset.last_candle)
                   )}
+                  <AssetTradingPauseControl
+                    dbSymbol={asset.db_symbol}
+                    displaySymbol={asset.symbol}
+                    paused={asset.trading_paused}
+                    onChanged={onRefresh}
+                  />
                 </div>
+                {asset.open_positions > 0 ? (
+                  <div className="mt-2">
+                    <CloseAllPositionsButton
+                      dbSymbol={asset.db_symbol}
+                      displaySymbol={asset.symbol}
+                      openCount={asset.open_positions}
+                      exposure={asset.open_exposure}
+                      unrealizedPnl={asset.unrealized_pnl}
+                      slRisk={asset.open_risk_usd}
+                      onClosed={onRefresh}
+                    />
+                  </div>
+                ) : null}
               </div>
               <div className="px-4 py-4">
                 <div className="mb-3 min-h-[2.5rem] border-b border-border-nested pb-2 text-xs leading-snug">
@@ -283,6 +329,7 @@ export function ActiveAssetsTable({
               asset={asset}
               onDrilldown={(mode) => setDrilldown({ asset, mode })}
               onChartOpen={() => setChartAsset(asset)}
+              onRefresh={onRefresh}
             />
           ))}
         </div>

@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { SimpleModal } from "@/components/ui/SimpleModal";
+import {
+  CloseAllPositionsButton,
+  ClosePositionButton,
+} from "@/components/trading/AssetTradingControl";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import {
   api,
@@ -26,6 +30,11 @@ type DrilldownMode = "open" | "closed";
 
 let competitionCache: CompetitionResponse | null = null;
 let competitionPromise: Promise<CompetitionResponse> | null = null;
+
+function invalidateCompetitionCache() {
+  competitionCache = null;
+  competitionPromise = null;
+}
 let tradesCache: Trade[] | null = null;
 let tradesPromise: Promise<Trade[]> | null = null;
 
@@ -75,6 +84,12 @@ export function AssetTradeDrilldownModal({
     NonNullable<CompetitionResponse["open_positions"]>
   >([]);
   const [closedRows, setClosedRows] = useState<Trade[]>([]);
+  const [reloadToken, setReloadToken] = useState(0);
+
+  const refreshOpenRows = () => {
+    invalidateCompetitionCache();
+    setReloadToken((value) => value + 1);
+  };
 
   useEffect(() => {
     if (!open || !asset) return;
@@ -85,6 +100,7 @@ export function AssetTradeDrilldownModal({
     const load = async () => {
       try {
         if (mode === "open") {
+          invalidateCompetitionCache();
           const detail = await loadCompetitionDetail();
           const rows = (detail.open_positions ?? []).filter(
             (row) => extractAssetFromPortfolioName(row.portfolio_name) === asset.symbol
@@ -106,7 +122,7 @@ export function AssetTradeDrilldownModal({
     return () => {
       cancelled = true;
     };
-  }, [open, mode, asset]);
+  }, [open, mode, asset, reloadToken]);
 
   const title =
     mode === "open"
@@ -122,12 +138,40 @@ export function AssetTradeDrilldownModal({
       ) : mode === "open" ? (
         openRows.length ? (
           <div className="space-y-3">
+            <div className="flex justify-end">
+              <CloseAllPositionsButton
+                dbSymbol={asset?.db_symbol ?? ""}
+                displaySymbol={asset?.symbol ?? "—"}
+                openCount={openRows.length}
+                exposure={openRows.reduce(
+                  (sum, row) => sum + (row.exposure_usd ?? 0),
+                  0
+                )}
+                unrealizedPnl={openRows.reduce(
+                  (sum, row) => sum + (row.unrealized_pnl ?? 0),
+                  0
+                )}
+                slRisk={openRows.reduce(
+                  (sum, row) => sum + (row.risk_to_sl_usd ?? 0),
+                  0
+                )}
+                onClosed={refreshOpenRows}
+              />
+            </div>
             {openRows.map((row) => (
               <div
                 key={row.position_id ?? `${row.portfolio_id}-${row.entry_price}`}
                 className="rounded-md border border-border/60 p-3 text-sm"
               >
-                <p className="font-medium">{row.portfolio_name}</p>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-medium">{row.portfolio_name}</p>
+                  {row.position_id ? (
+                    <ClosePositionButton
+                      positionId={row.position_id}
+                      onClosed={refreshOpenRows}
+                    />
+                  ) : null}
+                </div>
                 <p className="mt-1 text-xs text-muted">
                   {translateRobotStrategyLabel(
                     row.robot_label,

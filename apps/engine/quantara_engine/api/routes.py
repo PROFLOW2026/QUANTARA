@@ -389,6 +389,12 @@ def analytics_assets(store: StoreDep):
     if not combined:
         raise HTTPException(404, "Competition not configured")
 
+    from quantara_engine.trading.asset_trading_controls import (
+        SCOPE_RESEARCH,
+        load_asset_trading_controls,
+    )
+
+    asset_controls = load_asset_trading_controls(store.get_settings_dict())
     now = datetime.now(timezone.utc)
     worker_raw = store.get_settings_dict().get("worker_status:data_fetcher") or {}
     rows: list[dict] = []
@@ -550,6 +556,7 @@ def analytics_assets(store: StoreDep):
                 ),
                 "combined_risk_reward": combined_risk_reward,
                 "market_regime": regime_payload,
+                "trading_paused": asset_controls.is_paused(SCOPE_RESEARCH, asset.db_symbol),
             }
         )
 
@@ -1628,6 +1635,74 @@ def post_trading_control(action: str, store: StoreDep):
         **snap.to_dict(),
         "open_positions_remaining": store.count_open_competition_positions(),
     }
+
+
+@router.get("/asset-trading-controls")
+def get_asset_trading_controls(store: StoreDep):
+    from quantara_engine.trading.asset_trading_controls import load_asset_trading_controls
+
+    return load_asset_trading_controls(store.get_settings_dict()).to_dict()
+
+
+@router.post("/asset-trading-controls/{scope}/{symbol}/{action}")
+def post_asset_trading_control(scope: str, symbol: str, action: str, store: StoreDep):
+    from fastapi import HTTPException
+
+    from quantara_engine.trading.asset_trading_controls import (
+        VALID_SCOPES,
+        set_asset_trading_paused,
+    )
+
+    if scope not in VALID_SCOPES:
+        raise HTTPException(status_code=400, detail=f"Unknown scope: {scope}")
+    action = action.replace("-", "_").lower()
+    if action in ("pause", "paused"):
+        snap = set_asset_trading_paused(store, scope=scope, symbol=symbol, paused=True)
+    elif action in ("resume", "running", "active"):
+        snap = set_asset_trading_paused(store, scope=scope, symbol=symbol, paused=False)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
+    return snap.to_dict()
+
+
+@router.post("/positions/{position_id}/close")
+def close_position(position_id: str, store: StoreDep, account_scope: str = "research"):
+    from fastapi import HTTPException
+
+    from quantara_engine.execution.manual_close import (
+        close_live_sim_position,
+        close_research_position,
+    )
+    from quantara_engine.trading.asset_trading_controls import SCOPE_LIVE_SIM
+
+    if account_scope == SCOPE_LIVE_SIM:
+        result = close_live_sim_position(store, position_id)
+    else:
+        result = close_research_position(store, position_id)
+    store.session.commit()
+    if result.status == "not_found":
+        raise HTTPException(status_code=404, detail="Position not found or already closed")
+    return result.to_dict()
+
+
+@router.post("/assets/{symbol}/close-all-positions")
+def close_all_symbol_positions(symbol: str, store: StoreDep, account_scope: str = "research"):
+    from quantara_engine.execution.manual_close import (
+        close_all_live_sim_symbol_positions,
+        close_all_research_symbol_positions,
+    )
+    from quantara_engine.trading.asset_trading_controls import (
+        SCOPE_LIVE_SIM,
+        normalize_symbol,
+    )
+
+    db_symbol = normalize_symbol(symbol)
+    if account_scope == SCOPE_LIVE_SIM:
+        payload = close_all_live_sim_symbol_positions(store, db_symbol)
+    else:
+        payload = close_all_research_symbol_positions(store, db_symbol)
+    store.session.commit()
+    return payload
 
 
 @router.get("/settings")

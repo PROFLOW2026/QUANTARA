@@ -31,4 +31,5 @@ REJECTION_HE: dict[str, str] = {
     "DATA_NOT_FRESH": "נתוני שוק לא מעודכנים",
     "MARKET_CLOSED": "שוק סגור",
     "EXECUTION_FAILED": "ביצוע נכשל",
+    "ASSET_TRADING_PAUSED": "מסחר מושהה בנכס — אין כניסות חדשות",
 }

@@ -469,6 +469,10 @@ export function translateSignalReason(reason: string | null | undefined): string
   if (!reason) return "—";
   const text = reason.trim();
 
+  if (text === "manual_close") {
+    return t("home.manual_close_journal");
+  }
+
   const orbKey = ORB_REASON_KEYS[text];
   if (orbKey) return t(orbKey);
 

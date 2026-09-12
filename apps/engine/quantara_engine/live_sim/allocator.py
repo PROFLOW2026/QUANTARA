@@ -455,6 +455,39 @@ def maybe_allocate_live_sim(
         opportunity_key=opportunity_key,
     )
 
+    from quantara_engine.trading.asset_trading_controls import (
+        SCOPE_LIVE_SIM,
+        allows_entries_for_symbol,
+    )
+
+    if not allows_entries_for_symbol(
+        store.get_settings_dict(),
+        scope=SCOPE_LIVE_SIM,
+        symbol=instrument.symbol,
+    ):
+        log_allocation(
+            store,
+            account_id=account_id,
+            canonical_key=canonical_key,
+            opportunity_key=opportunity_key,
+            strategy_slug=strategy_slug,
+            strategy_version=strategy_version,
+            robot_label=robot_label,
+            symbol=instrument.symbol,
+            timeframe=instance.timeframe,
+            direction=direction,
+            signal_candle_timestamp=candle.timestamp,
+            proposed_entry=candle.close,
+            stop_loss=signal.suggested_sl,
+            take_profit=signal.suggested_tp,
+            calculated_risk_usd=None,
+            calculated_quantity=None,
+            accepted=False,
+            rejection_reason="ASSET_TRADING_PAUSED",
+            rejection_detail=REJECTION_HE.get("ASSET_TRADING_PAUSED", "Asset trading paused"),
+        )
+        return {"status": "rejected", "reason": "ASSET_TRADING_PAUSED"}
+
     existing = find_allocation_by_canonical(store, account_id, canonical_key)
     if existing:
         lifecycle = allocation_lifecycle_state(existing)

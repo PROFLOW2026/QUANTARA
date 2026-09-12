@@ -569,6 +569,34 @@ export interface ProviderHealthStatus {
   fallback_mode?: boolean;
 }
 
+export type AccountTradingScope = "research" | "live_sim";
+
+export interface AssetTradingControls {
+  research: Record<string, boolean>;
+  live_sim: Record<string, boolean>;
+  updated_at?: string | null;
+}
+
+export interface ManualCloseResult {
+  position_id: string;
+  status: "filled" | "pending_market" | "rejected" | "already_closed" | "not_found";
+  detail?: string | null;
+  fill_price?: number | null;
+  realized_pnl?: number | null;
+  broker_order_id?: string | null;
+  symbol?: string | null;
+}
+
+export interface CloseAllPositionsResult {
+  symbol: string;
+  attempted: number;
+  filled: number;
+  pending_market: number;
+  rejected: number;
+  remaining_open: number;
+  results: ManualCloseResult[];
+}
+
 export interface AssetAnalyticsRow {
   symbol: string;
   db_symbol: string;
@@ -593,6 +621,7 @@ export interface AssetAnalyticsRow {
   global_risk_cap_pct?: number;
   open_target_profit_usd?: number | null;
   combined_risk_reward?: number | null;
+  trading_paused?: boolean;
   market_regime?: {
     structure_regime?: string;
     volatility_regime?: string;
@@ -1164,4 +1193,20 @@ export const api = {
   getTradingControl: () => apiFetch<TradingControlStatus>("/trading-control"),
   setTradingControl: (action: string) =>
     apiFetch<TradingControlStatus>(`/trading-control/${action}`, { method: "POST" }),
+  getAssetTradingControls: () =>
+    apiFetch<AssetTradingControls>("/asset-trading-controls"),
+  setAssetTradingControl: (scope: AccountTradingScope, symbol: string, action: "pause" | "resume") =>
+    apiFetch<AssetTradingControls>(`/asset-trading-controls/${scope}/${encodeURIComponent(symbol)}/${action}`, {
+      method: "POST",
+    }),
+  closePosition: (positionId: string, accountScope: AccountTradingScope = "research") =>
+    apiFetch<ManualCloseResult>(
+      `/positions/${encodeURIComponent(positionId)}/close?account_scope=${accountScope}`,
+      { method: "POST" }
+    ),
+  closeAllAssetPositions: (symbol: string, accountScope: AccountTradingScope = "research") =>
+    apiFetch<CloseAllPositionsResult>(
+      `/assets/${encodeURIComponent(symbol)}/close-all-positions?account_scope=${accountScope}`,
+      { method: "POST" }
+    ),
 };

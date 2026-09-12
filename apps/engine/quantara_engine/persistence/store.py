@@ -578,6 +578,39 @@ class TradingStore:
         slug = self.resolve_strategy_slug(row)
         return self._strategy_instance_to_domain(row, slug or "gold-trend-pullback")
 
+    def get_strategy_instance_by_id(self, instance_id: str) -> StrategyInstance | None:
+        row = self.session.get(OrmStrategyInstance, _uuid(instance_id))
+        if not row:
+            return None
+        slug = self.resolve_strategy_slug(row)
+        return self._strategy_instance_to_domain(row, slug or "gold-trend-pullback")
+
+    def get_open_position_by_id(self, position_id: str) -> Position | None:
+        row = self.session.get(OrmPosition, _uuid(position_id))
+        if not row or row.status != OrmPositionStatus.OPEN:
+            return None
+        return self._position_to_domain(row)
+
+    def list_open_competition_positions_for_symbol(self, db_symbol: str) -> list[Position]:
+        from quantara_engine.competition.paper_run import position_scope_clause
+
+        inst = self.get_instrument_by_symbol(db_symbol)
+        if not inst:
+            return []
+        _, _, combined = self.list_all_competition_entries()
+        portfolio_ids = [_uuid(e["portfolio"].id) for e in combined]
+        if not portfolio_ids:
+            return []
+        rows = self.session.scalars(
+            select(OrmPosition).where(
+                OrmPosition.portfolio_id.in_(portfolio_ids),
+                OrmPosition.instrument_id == _uuid(inst.id),
+                OrmPosition.status == OrmPositionStatus.OPEN,
+                position_scope_clause(self),
+            )
+        ).all()
+        return [self._position_to_domain(row) for row in rows]
+
     def resolve_strategy_slug(
         self, instance: OrmStrategyInstance | str
     ) -> str | None:
