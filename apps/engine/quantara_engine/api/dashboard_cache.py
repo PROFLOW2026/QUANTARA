@@ -1,17 +1,19 @@
-"""Short-lived read cache for Home dashboard candle aggregates."""
+"""Short-lived read cache for Home dashboard aggregates (UI-only, not worker decisions)."""
 
 from __future__ import annotations
 
 import time
 from threading import Lock
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from quantara_engine.persistence.store import TradingStore
 
-_CACHE_TTL_SECONDS = 45.0
+_CANDLE_TTL_SECONDS = 45.0
+_HOME_TTL_SECONDS = 45.0
 _lock = Lock()
 _candle_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
+_home_cache: dict[str, tuple[float, Any]] = {}
 
 
 def dashboard_candle_bundle(
@@ -23,7 +25,7 @@ def dashboard_candle_bundle(
     now = time.monotonic()
     with _lock:
         hit = _candle_cache.get(key)
-        if hit and now - hit[0] < _CACHE_TTL_SECONDS:
+        if hit and now - hit[0] < _CANDLE_TTL_SECONDS:
             return hit[1]
 
     from quantara_engine.persistence.batch_summary import (
@@ -40,3 +42,23 @@ def dashboard_candle_bundle(
     with _lock:
         _candle_cache[key] = (now, bundle)
     return bundle
+
+
+def cached_home_payload(cache_key: str, loader: Callable[[], Any]) -> Any:
+    """TTL cache for read-only Home dashboard endpoint payloads."""
+    now = time.monotonic()
+    with _lock:
+        hit = _home_cache.get(cache_key)
+        if hit and now - hit[0] < _HOME_TTL_SECONDS:
+            return hit[1]
+    payload = loader()
+    with _lock:
+        _home_cache[cache_key] = (now, payload)
+    return payload
+
+
+def clear_dashboard_caches() -> None:
+    """Test helper."""
+    with _lock:
+        _candle_cache.clear()
+        _home_cache.clear()

@@ -14,6 +14,7 @@ from quantara_engine.db.session import session_scope
 from quantara_engine.persistence.batch_summary import (
     batch_instruments_by_id,
     batch_latest_candle_closes,
+    batch_latest_portfolio_snapshot_rows,
     batch_open_positions_by_portfolio,
 )
 from quantara_engine.portfolio.currency import build_currency_context
@@ -24,6 +25,38 @@ logger = logging.getLogger(__name__)
 
 MAX_DEADLOCK_RETRIES = 3
 DEADLOCK_RETRY_BASE_SECONDS = 0.25
+SNAPSHOT_HEARTBEAT_MINUTES = 60
+MATERIAL_EPSILON = Decimal("0.01")
+
+
+def _snapshot_materially_changed(
+    portfolio,
+    positions: list,
+    last_row: dict | None,
+    started_at: datetime,
+) -> bool:
+    if last_row is None:
+        return True
+    last_ts = last_row["timestamp"]
+    age_minutes = (started_at - last_ts).total_seconds() / 60.0
+    if age_minutes >= SNAPSHOT_HEARTBEAT_MINUTES:
+        return True
+    open_count = len(positions)
+    if int(last_row.get("open_positions_count") or 0) != open_count:
+        return True
+    if abs(Decimal(str(last_row.get("balance") or 0)) - portfolio.balance) > MATERIAL_EPSILON:
+        return True
+    if abs(Decimal(str(last_row.get("equity") or 0)) - portfolio.equity) > MATERIAL_EPSILON:
+        return True
+    if open_count and abs(
+        Decimal(str(last_row.get("unrealized_pnl") or 0)) - portfolio.unrealized_pnl
+    ) > MATERIAL_EPSILON:
+        return True
+    if abs(
+        Decimal(str(last_row.get("exposure_notional") or 0)) - portfolio.exposure_notional
+    ) > MATERIAL_EPSILON:
+        return True
+    return False
 
 
 def _batch_marks(
@@ -59,6 +92,7 @@ def _run_batch_snapshots(s: TradingStore, entries: list[dict], started_at: datet
 
     tf_by_portfolio = {e["portfolio"].id: e["instance"].timeframe for e in entries}
     open_by_portfolio = batch_open_positions_by_portfolio(s, portfolio_ids)
+    last_snapshots = batch_latest_portfolio_snapshot_rows(s, portfolio_ids)
     marks_by_pair = _batch_marks(s, entries, open_by_portfolio)
 
     mark_updates: list[tuple[str, Decimal, Decimal]] = []
@@ -92,10 +126,22 @@ def _run_batch_snapshots(s: TradingStore, entries: list[dict], started_at: datet
     portfolios = [entry["portfolio"] for entry in entries]
     s.sync_portfolios_financial_state_from_ledger(portfolios, flush=False)
 
-    snapshots = [state.create_snapshot(started_at) for state in states]
-    s.save_snapshots_batch(snapshots)
+    snapshots = []
+    for entry, state in zip(entries, states):
+        portfolio = state.portfolio
+        if not _snapshot_materially_changed(
+            portfolio,
+            state.open_positions(),
+            last_snapshots.get(portfolio.id),
+            started_at,
+        ):
+            continue
+        snapshots.append(state.create_snapshot(started_at))
+
+    if snapshots:
+        s.save_snapshots_batch(snapshots)
     s.flush()
-    return len(portfolio_ids)
+    return len(snapshots)
 
 
 def snapshot_job(store: TradingStore | None = None) -> None:

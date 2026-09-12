@@ -19,6 +19,8 @@ from quantara_engine.domain.types import (
 from quantara_engine.execution.exit_triggers import detect_exit_trigger
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
 from quantara_engine.market_data.polling import is_bar_complete
+from quantara_engine.market_data.candle_working_set import get_worker_candle_cache
+from quantara_engine.market_data.polling import STRATEGY_MIN_CANDLES
 from quantara_engine.persistence.batch_summary import batch_open_positions_by_portfolio
 from quantara_engine.portfolio.currency import CurrencyContext, build_currency_context
 from quantara_engine.portfolio.service import PortfolioSnapshot, PortfolioState
@@ -156,12 +158,16 @@ def _prefetch_candles_by_pair(
         if prev is None or floor < prev:
             floors[key] = floor
 
+    cache = get_worker_candle_cache()
+    lookback = STRATEGY_MIN_CANDLES + 50
     out: dict[tuple[str, str], list] = {}
     for (instrument_id, timeframe), since in floors.items():
-        out[(instrument_id, timeframe)] = store.list_candles(
+        out[(instrument_id, timeframe)] = cache.candles_since(
+            store,
             instrument_id,
             timeframe,
-            since=since,
+            since,
+            lookback=lookback,
             limit=MAX_CANDLES_PER_POSITION_PER_RUN,
         )
     return out

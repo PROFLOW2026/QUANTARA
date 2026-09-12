@@ -1328,57 +1328,62 @@ def analytics_competition(store: StoreDep):
 @router.get("/analytics/today")
 def analytics_today(store: StoreDep, portfolio_id: str = "competition"):
     """Today's paper-trading activity for the Home dashboard (not backtest-wide)."""
-    if store.list_competition_entries():
-        stats = store.get_competition_today_stats()
-        entries = store.list_competition_entries()
-        portfolios = [e["portfolio"] for e in entries]
-        combined_equity = sum(float(p.equity) for p in portfolios)
-        summaries = [
-            {
-                "id": e["portfolio"].id,
-                "name": PORTFOLIO_DEF_BY_ID.get(e["portfolio"].id).name_he
-                if PORTFOLIO_DEF_BY_ID.get(e["portfolio"].id)
-                else e["portfolio"].name,
-                "return_pct": round(
-                    float(
-                        (e["portfolio"].equity - e["portfolio"].initial_capital)
-                        / e["portfolio"].initial_capital
-                        * 100
-                    )
-                    if e["portfolio"].initial_capital > 0
-                    else 0,
-                    2,
-                ),
-                "timeframe": e["instance"].timeframe,
-                "timeframe_he": TIMEFRAME_HE.get(e["instance"].timeframe, e["instance"].timeframe),
-            }
-            for e in entries
-        ]
-        leader_row = max(summaries, key=lambda row: row["return_pct"], default=None)
-        tf_groups: dict[str, list[float]] = {}
-        for row in summaries:
-            tf_groups.setdefault(row["timeframe"], []).append(row["return_pct"])
-        leading_timeframe = None
-        if tf_groups:
-            best_tf = max(tf_groups.items(), key=lambda item: sum(item[1]) / len(item[1]))
-            leading_timeframe = {
-                "timeframe": best_tf[0],
-                "timeframe_he": TIMEFRAME_HE.get(best_tf[0], best_tf[0]),
-                "title_he": TIMEFRAME_GROUP_TITLE_HE.get(best_tf[0], best_tf[0]),
-                "average_return_pct": round(sum(best_tf[1]) / len(best_tf[1]), 2),
-            }
-        open_positions_total = store.count_open_competition_positions()
-        return {
-            "scope": "competition",
-            "portfolio_count": len(entries),
-            **stats,
-            "combined_equity": round(combined_equity, 2),
-            "open_positions_total": open_positions_total,
-            "leader": leader_row,
-            "leading_timeframe": leading_timeframe,
-        }
+    from quantara_engine.api.dashboard_cache import cached_home_payload
 
+    if store.list_competition_entries():
+        return cached_home_payload("analytics_today", lambda: _analytics_today_payload(store))
     raise HTTPException(404, "Competition not configured")
+
+
+def _analytics_today_payload(store: StoreDep):
+    stats = store.get_competition_today_stats()
+    entries = store.list_competition_entries()
+    portfolios = [e["portfolio"] for e in entries]
+    combined_equity = sum(float(p.equity) for p in portfolios)
+    summaries = [
+        {
+            "id": e["portfolio"].id,
+            "name": PORTFOLIO_DEF_BY_ID.get(e["portfolio"].id).name_he
+            if PORTFOLIO_DEF_BY_ID.get(e["portfolio"].id)
+            else e["portfolio"].name,
+            "return_pct": round(
+                float(
+                    (e["portfolio"].equity - e["portfolio"].initial_capital)
+                    / e["portfolio"].initial_capital
+                    * 100
+                )
+                if e["portfolio"].initial_capital > 0
+                else 0,
+                2,
+            ),
+            "timeframe": e["instance"].timeframe,
+            "timeframe_he": TIMEFRAME_HE.get(e["instance"].timeframe, e["instance"].timeframe),
+        }
+        for e in entries
+    ]
+    leader_row = max(summaries, key=lambda row: row["return_pct"], default=None)
+    tf_groups: dict[str, list[float]] = {}
+    for row in summaries:
+        tf_groups.setdefault(row["timeframe"], []).append(row["return_pct"])
+    leading_timeframe = None
+    if tf_groups:
+        best_tf = max(tf_groups.items(), key=lambda item: sum(item[1]) / len(item[1]))
+        leading_timeframe = {
+            "timeframe": best_tf[0],
+            "timeframe_he": TIMEFRAME_HE.get(best_tf[0], best_tf[0]),
+            "title_he": TIMEFRAME_GROUP_TITLE_HE.get(best_tf[0], best_tf[0]),
+            "average_return_pct": round(sum(best_tf[1]) / len(best_tf[1]), 2),
+        }
+    open_positions_total = store.count_open_competition_positions()
+    return {
+        "scope": "competition",
+        "portfolio_count": len(entries),
+        **stats,
+        "combined_equity": round(combined_equity, 2),
+        "open_positions_total": open_positions_total,
+        "leader": leader_row,
+        "leading_timeframe": leading_timeframe,
+    }
 
 
 @router.get("/workers/status")

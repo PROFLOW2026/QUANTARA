@@ -160,10 +160,42 @@ export function useHomeDashboardPoll() {
 
   useEffect(() => {
     void fetchAll(true);
-    const id = window.setInterval(() => {
-      void fetchAll(false);
-    }, POLL_INTERVAL_MS);
-    return () => window.clearInterval(id);
+
+    let intervalId: number | undefined;
+
+    const startPolling = () => {
+      if (intervalId !== undefined) return;
+      intervalId = window.setInterval(() => {
+        if (document.visibilityState === "visible") {
+          void fetchAll(false);
+        }
+      }, POLL_INTERVAL_MS);
+    };
+
+    const stopPolling = () => {
+      if (intervalId === undefined) return;
+      window.clearInterval(intervalId);
+      intervalId = undefined;
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void fetchAll(false);
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    if (document.visibilityState === "visible") {
+      startPolling();
+    }
+
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [fetchAll]);
 
   return {

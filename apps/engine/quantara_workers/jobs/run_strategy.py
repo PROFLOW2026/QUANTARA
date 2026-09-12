@@ -12,10 +12,10 @@ from decimal import Decimal
 from quantara_engine.competition.constants import TIMEFRAME_ORDER
 from quantara_engine.competition.robot_a_universe import list_robot_a_tradable_db_symbols
 from quantara_engine.core.clock import BacktestClock
-from quantara_engine.core.config import settings
 from quantara_engine.db.session import session_scope
 from quantara_engine.domain.types import ExecutionAssumptions, Mode
-from quantara_engine.execution.catch_up import list_catchup_candle_indices
+from quantara_engine.execution.catch_up import compute_backlog_status, list_catchup_candle_indices
+from quantara_engine.market_data.candle_working_set import ensure_strategy_candles
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
 from quantara_engine.execution.strategy_scheduling import (
     ROBOT_A_LIVE_CURSOR_KEY,
@@ -24,7 +24,6 @@ from quantara_engine.execution.strategy_scheduling import (
     rotated_indices,
     save_scheduling_cursor,
 )
-from quantara_engine.market_data.factory import get_market_data_provider
 from quantara_engine.market_data.registry import get_asset
 from quantara_engine.market_data.symbols import list_target_db_symbols
 from quantara_engine.competition.constants import ACTIVE_COMPETITION_EXPERIMENT_ID, OWNER_ID
@@ -81,29 +80,13 @@ def _check_eligibility(
 
 
 def _ensure_candles(s: TradingStore, instrument, timeframe: str, settings_dict: dict) -> list:
-    stored = s.count_candles(instrument.id, timeframe)
-    if stored < STRATEGY_MIN_CANDLES:
-        if settings_dict.get("market_data_provider") == "mock" or settings.market_data_provider == "mock":
-            provider = get_market_data_provider("mock")
-            generated = provider.generate_candles(
-                instrument.id, timeframe, STRATEGY_MIN_CANDLES + 50
-            )
-            for candle in generated:
-                s.upsert_candle(candle)
-            stored = s.count_candles(instrument.id, timeframe)
-        else:
-            logger.warning(
-                "Insufficient real candles (%d/%d) for %s — skipping run",
-                stored,
-                STRATEGY_MIN_CANDLES,
-                timeframe,
-            )
-            return []
-
-    candles = s.list_recent_candles(instrument.id, timeframe, limit=CANDLE_LOOKBACK)
-    if len(candles) < STRATEGY_MIN_CANDLES:
-        return []
-    return candles
+    return ensure_strategy_candles(
+        s,
+        instrument,
+        timeframe,
+        settings_dict,
+        lookback=CANDLE_LOOKBACK,
+    )
 
 
 def _catchup_indices(
@@ -113,8 +96,18 @@ def _catchup_indices(
     instance_ids: list[str],
     instrument_id: str,
     now: datetime,
+    *,
+    processed_timestamps: set[datetime] | None = None,
 ) -> list[int]:
-    processed = s.fully_processed_candle_timestamps(instance_ids, instrument_id)
+    if processed_timestamps is None:
+        window_start = candles[0].timestamp if candles else None
+        processed = s.fully_processed_candle_timestamps(
+            instance_ids,
+            instrument_id,
+            since=window_start,
+        )
+    else:
+        processed = processed_timestamps
     indices = list_catchup_candle_indices(
         candles,
         timeframe,
@@ -126,6 +119,29 @@ def _catchup_indices(
     if competition_floor is not None:
         indices = [i for i in indices if candles[i].timestamp >= competition_floor]
     return indices
+
+
+def _timeframe_status_from_window(
+    candles: list,
+    timeframe: str,
+    processed_timestamps: set[datetime],
+    started_at: datetime,
+    *,
+    extra: dict | None = None,
+) -> dict:
+    if isinstance(processed_timestamps, set) and processed_timestamps:
+        last_processed = max(processed_timestamps)
+    else:
+        last_processed = None
+    status = compute_backlog_status(
+        candles,
+        timeframe,
+        last_processed=last_processed,
+        now=started_at,
+    )
+    if extra:
+        status.update(extra)
+    return status
 
 
 def _robot_a_symbols() -> list[str]:
@@ -189,11 +205,18 @@ def _process_candle_batch(
     if s.timeframe_group_already_processed(instance_ids, instrument.id, candle.timestamp):
         return 0
 
+    portfolio_ids = [entry["portfolio"].id for entry in group]
+    prefetched_states = s.batch_load_portfolio_states(portfolio_ids)
+
     shared_signal = None
     if not per_portfolio_eval:
         template = group[0]
+        template_state = prefetched_states.get(template["portfolio"].id)
+        if template_state is None:
+            template_state = s.load_portfolio_runtime_state(template["portfolio"].id)
+            prefetched_states[template["portfolio"].id] = template_state
         eval_processor = CandleProcessor(
-            portfolio_state=s.load_portfolio_state(template["portfolio"].id),
+            portfolio_state=template_state,
             strategy_instance=template["instance"],
             instrument=instrument,
             risk_profile=template["risk_profile"],
@@ -206,9 +229,6 @@ def _process_candle_batch(
         eval_processor.all_candles = candles
         shared_signal, _ = eval_processor.evaluate_signal(candle_index)
 
-    portfolio_ids = [entry["portfolio"].id for entry in group]
-    prefetched_states = s.batch_load_portfolio_states(portfolio_ids)
-
     total_decisions = 0
     for entry in group:
         portfolio = entry["portfolio"]
@@ -216,7 +236,7 @@ def _process_candle_batch(
         risk_profile = entry["risk_profile"]
         state = prefetched_states.get(portfolio.id)
         if state is None:
-            state = s.load_portfolio_state(portfolio.id)
+            state = s.load_portfolio_runtime_state(portfolio.id)
             prefetched_states[portfolio.id] = state
         processor = CandleProcessor(
             portfolio_state=state,
@@ -289,27 +309,48 @@ def _process_timeframe_group(
     per_portfolio_eval: bool = False,
 ) -> tuple[int, int, dict]:
     """Process missed completed candles. Live path always runs before historical."""
+    instance_ids = [entry["instance"].id for entry in group]
     eligible, skip_reason = _check_eligibility(s, instrument, timeframe, started_at)
     if not eligible:
-        return 0, 0, {
-            **s.get_timeframe_execution_status(
-                instrument.id, timeframe, [e["instance"].id for e in group], started_at
-            ),
-            "skipped": True,
-            "skip_reason": skip_reason,
-        }
-
-    candles = _ensure_candles(s, instrument, timeframe, settings_dict)
-    if len(candles) < STRATEGY_MIN_CANDLES:
-        return 0, 0, s.get_timeframe_execution_status(
-            instrument.id, timeframe, [e["instance"].id for e in group], started_at
+        candles = _ensure_candles(s, instrument, timeframe, settings_dict)
+        window_start = candles[0].timestamp if candles else None
+        processed = (
+            s.fully_processed_candle_timestamps(
+                instance_ids, instrument.id, since=window_start
+            )
+            if candles
+            else set()
+        )
+        return 0, 0, _timeframe_status_from_window(
+            candles,
+            timeframe,
+            processed,
+            started_at,
+            extra={"skipped": True, "skip_reason": skip_reason},
         )
 
-    instance_ids = [entry["instance"].id for entry in group]
-    indices = _catchup_indices(s, candles, timeframe, instance_ids, instrument.id, started_at)
+    candles = _ensure_candles(s, instrument, timeframe, settings_dict)
+    window_start = candles[0].timestamp if candles else None
+    processed = s.fully_processed_candle_timestamps(
+        instance_ids, instrument.id, since=window_start
+    )
+    if len(candles) < STRATEGY_MIN_CANDLES:
+        return 0, 0, _timeframe_status_from_window(
+            candles, timeframe, processed, started_at
+        )
+
+    indices = _catchup_indices(
+        s,
+        candles,
+        timeframe,
+        instance_ids,
+        instrument.id,
+        started_at,
+        processed_timestamps=processed,
+    )
     if not indices:
-        return 0, 0, s.get_timeframe_execution_status(
-            instrument.id, timeframe, instance_ids, started_at
+        return 0, 0, _timeframe_status_from_window(
+            candles, timeframe, processed, started_at
         )
 
     latest_completed_ts = _latest_completed_timestamp(candles, timeframe, started_at)
@@ -381,8 +422,8 @@ def _process_timeframe_group(
                 )
                 candles_processed += 1
 
-    tf_status = s.get_timeframe_execution_status(
-        instrument.id, timeframe, instance_ids, started_at
+    tf_status = _timeframe_status_from_window(
+        candles, timeframe, processed, started_at
     )
     return candles_processed, total_decisions, tf_status
 

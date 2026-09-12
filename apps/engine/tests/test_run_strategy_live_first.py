@@ -31,6 +31,7 @@ def _mock_group():
 
 def test_live_only_processes_newest_index_not_historical():
     store = MagicMock()
+    store.fully_processed_candle_timestamps.return_value = set()
     store.get_timeframe_execution_status.return_value = {"backlog": 5, "status": "catching_up"}
     candles = [MagicMock(timestamp=datetime(2026, 9, 9, h, m, tzinfo=timezone.utc)) for h, m in [
         (6, 0),
@@ -70,6 +71,7 @@ def test_live_only_processes_newest_index_not_historical():
 
 def test_historical_only_skips_live_index():
     store = MagicMock()
+    store.fully_processed_candle_timestamps.return_value = set()
     store.get_timeframe_execution_status.return_value = {"backlog": 2, "status": "catching_up"}
     candles = [MagicMock() for _ in range(3)]
     for i, c in enumerate(candles):

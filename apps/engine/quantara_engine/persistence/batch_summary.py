@@ -758,6 +758,71 @@ def batch_recent_snapshots(
     return out
 
 
+def batch_latest_portfolio_snapshot_rows(
+    store: TradingStore,
+    portfolio_ids: list[str],
+) -> dict[str, dict[str, Any]]:
+    """Most recent snapshot row per portfolio (for dedupe before insert)."""
+    if not portfolio_ids:
+        return {}
+    from sqlalchemy import desc
+
+    ids = _uuids(portfolio_ids)
+    dialect = store.session.get_bind().dialect.name
+    if dialect == "postgresql":
+        rows = store.session.execute(
+            select(
+                OrmPortfolioSnapshot.portfolio_id,
+                OrmPortfolioSnapshot.timestamp,
+                OrmPortfolioSnapshot.balance,
+                OrmPortfolioSnapshot.equity,
+                OrmPortfolioSnapshot.exposure_notional,
+                OrmPortfolioSnapshot.unrealized_pnl,
+                OrmPortfolioSnapshot.open_positions_count,
+            )
+            .distinct(OrmPortfolioSnapshot.portfolio_id)
+            .where(OrmPortfolioSnapshot.portfolio_id.in_(ids))
+            .order_by(
+                OrmPortfolioSnapshot.portfolio_id,
+                desc(OrmPortfolioSnapshot.timestamp),
+            )
+        ).all()
+    else:
+        subq = (
+            select(
+                OrmPortfolioSnapshot.portfolio_id,
+                OrmPortfolioSnapshot.timestamp,
+                OrmPortfolioSnapshot.balance,
+                OrmPortfolioSnapshot.equity,
+                OrmPortfolioSnapshot.exposure_notional,
+                OrmPortfolioSnapshot.unrealized_pnl,
+                OrmPortfolioSnapshot.open_positions_count,
+                func.row_number()
+                .over(
+                    partition_by=OrmPortfolioSnapshot.portfolio_id,
+                    order_by=desc(OrmPortfolioSnapshot.timestamp),
+                )
+                .label("rn"),
+            )
+            .where(OrmPortfolioSnapshot.portfolio_id.in_(ids))
+            .subquery()
+        )
+        rows = store.session.execute(select(subq).where(subq.c.rn == 1)).all()
+
+    out: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        pid = str(row.portfolio_id)
+        out[pid] = {
+            "timestamp": row.timestamp,
+            "balance": row.balance,
+            "equity": row.equity,
+            "exposure_notional": row.exposure_notional,
+            "unrealized_pnl": row.unrealized_pnl,
+            "open_positions_count": int(row.open_positions_count or 0),
+        }
+    return out
+
+
 def sum_realized_pnl_for_portfolios(store: TradingStore, portfolio_ids: list[str]) -> Decimal:
     if not portfolio_ids:
         return Decimal("0")

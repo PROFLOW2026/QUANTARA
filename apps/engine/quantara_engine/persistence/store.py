@@ -44,6 +44,7 @@ from quantara_engine.competition.constants import (
     PORTFOLIO_DEF_BY_ID,
 )
 from quantara_engine.execution.fill_calculator import FillResult
+from quantara_engine.persistence.egress_metrics import EgressMetrics
 from quantara_engine.models.enums import (
     coerce_worker_run_status,
     BacktestStatus,
@@ -157,6 +158,7 @@ class TradingStore:
         self._competition_entries_cache: (
             tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]] | None
         ) = None
+        self.egress_metrics: EgressMetrics | None = None
 
     def flush(self) -> None:
         self.session.flush()
@@ -1227,6 +1229,37 @@ class TradingStore:
         self.session.execute(stmt)
         return len(candles)
 
+    @staticmethod
+    def _candle_ohlcv_columns():
+        return (
+            OrmCandle.timestamp,
+            OrmCandle.open,
+            OrmCandle.high,
+            OrmCandle.low,
+            OrmCandle.close,
+            OrmCandle.volume,
+            OrmCandle.is_complete,
+        )
+
+    def _candle_row_to_domain(
+        self,
+        row,
+        instrument_id: str,
+        timeframe: str,
+    ) -> DomainCandle:
+        return DomainCandle(
+            instrument_id=instrument_id,
+            timeframe=timeframe,
+            timestamp=row.timestamp,
+            open=row.open,
+            high=row.high,
+            low=row.low,
+            close=row.close,
+            volume=row.volume,
+            source="db",
+            is_complete=row.is_complete,
+        )
+
     def list_candles(
         self,
         instrument_id: str,
@@ -1234,8 +1267,9 @@ class TradingStore:
         limit: int | None = None,
         since: datetime | None = None,
     ) -> list[DomainCandle]:
+        cols = self._candle_ohlcv_columns()
         stmt = (
-            select(OrmCandle)
+            select(*cols)
             .where(
                 OrmCandle.instrument_id == _uuid(instrument_id),
                 OrmCandle.timeframe == timeframe,
@@ -1246,8 +1280,11 @@ class TradingStore:
             stmt = stmt.where(OrmCandle.timestamp >= since)
         if limit is not None:
             stmt = stmt.limit(limit)
-        rows = self.session.scalars(stmt).all()
-        return [self._candle_to_domain(row) for row in rows]
+        rows = self.session.execute(stmt).all()
+        out = [self._candle_row_to_domain(row, instrument_id, timeframe) for row in rows]
+        if self.egress_metrics is not None:
+            self.egress_metrics.note_query("list_candles", candle_rows=len(out))
+        return out
 
     def list_recent_candles(
         self,
@@ -1255,8 +1292,9 @@ class TradingStore:
         timeframe: str,
         limit: int = 50,
     ) -> list[DomainCandle]:
+        cols = self._candle_ohlcv_columns()
         stmt = (
-            select(OrmCandle)
+            select(*cols)
             .where(
                 OrmCandle.instrument_id == _uuid(instrument_id),
                 OrmCandle.timeframe == timeframe,
@@ -1264,8 +1302,41 @@ class TradingStore:
             .order_by(OrmCandle.timestamp.desc())
             .limit(limit)
         )
-        rows = self.session.scalars(stmt).all()
-        return [self._candle_to_domain(row) for row in reversed(rows)]
+        rows = self.session.execute(stmt).all()
+        out = [
+            self._candle_row_to_domain(row, instrument_id, timeframe)
+            for row in reversed(rows)
+        ]
+        if self.egress_metrics is not None:
+            self.egress_metrics.note_query("list_recent_candles", candle_rows=len(out))
+        return out
+
+    def list_candles_after(
+        self,
+        instrument_id: str,
+        timeframe: str,
+        after: datetime,
+        *,
+        limit: int | None = None,
+    ) -> list[DomainCandle]:
+        """Incremental tail fetch — candles strictly newer than ``after``."""
+        cols = self._candle_ohlcv_columns()
+        stmt = (
+            select(*cols)
+            .where(
+                OrmCandle.instrument_id == _uuid(instrument_id),
+                OrmCandle.timeframe == timeframe,
+                OrmCandle.timestamp > after,
+            )
+            .order_by(OrmCandle.timestamp)
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        rows = self.session.execute(stmt).all()
+        out = [self._candle_row_to_domain(row, instrument_id, timeframe) for row in rows]
+        if self.egress_metrics is not None:
+            self.egress_metrics.note_query("list_candles_after", candle_rows=len(out))
+        return out
 
     def count_candles(self, instrument_id: str, timeframe: str) -> int:
         return self.session.scalar(
@@ -2206,6 +2277,13 @@ class TradingStore:
         ).all()
         snapshots = [self._snapshot_to_domain(row) for row in snapshot_rows]
 
+        if self.egress_metrics is not None:
+            self.egress_metrics.note_query(
+                "load_portfolio_state",
+                trade_rows=len(trades),
+                snapshot_rows=len(snapshots),
+            )
+
         return PortfolioState(
             portfolio=portfolio,
             positions=positions,
@@ -2215,6 +2293,10 @@ class TradingStore:
 
     def load_portfolio_for_snapshot(self, portfolio_id: str) -> PortfolioState:
         """Lightweight state for snapshot job — open positions only, no history."""
+        return self.load_portfolio_runtime_state(portfolio_id)
+
+    def load_portfolio_runtime_state(self, portfolio_id: str) -> PortfolioState:
+        """Live runtime state — open positions only, no trade/snapshot history."""
         from quantara_engine.competition.paper_run import position_scope_clause
 
         portfolio_row = self.session.get(OrmPortfolio, _uuid(portfolio_id))
@@ -2230,6 +2312,8 @@ class TradingStore:
             )
         ).all()
         positions = [self._position_to_domain(row) for row in position_rows]
+        self._hydrate_position_strategy_versions(positions)
+        self.hydrate_position_risk_from_intents(positions)
         return PortfolioState(
             portfolio=portfolio,
             positions=positions,
@@ -2265,6 +2349,7 @@ class TradingStore:
             all_positions.append(pos)
             positions_by_portfolio.setdefault(_str_id(row.portfolio_id), []).append(pos)
         self._hydrate_position_strategy_versions(all_positions)
+        self.hydrate_position_risk_from_intents(all_positions)
 
         return {
             pid: PortfolioState(
@@ -2515,12 +2600,14 @@ class TradingStore:
         self,
         instance_ids: list[str],
         instrument_id: str,
+        *,
+        since: datetime | None = None,
     ) -> set[datetime]:
         """All candle timestamps where every instance in the group has a decision."""
         if not instance_ids:
             return set()
         inst_uuids = [_uuid(i) for i in instance_ids]
-        rows = self.session.execute(
+        stmt = (
             select(OrmDecision.candle_timestamp, func.count())
             .where(
                 OrmDecision.strategy_instance_id.in_(inst_uuids),
@@ -2528,8 +2615,14 @@ class TradingStore:
             )
             .group_by(OrmDecision.candle_timestamp)
             .having(func.count() >= len(instance_ids))
-        ).all()
-        return {row[0] for row in rows}
+        )
+        if since is not None:
+            stmt = stmt.where(OrmDecision.candle_timestamp >= since)
+        rows = self.session.execute(stmt).all()
+        out = {row[0] for row in rows}
+        if self.egress_metrics is not None:
+            self.egress_metrics.note_query("fully_processed_candle_timestamps")
+        return out
 
     def list_decision_timestamps_for_group(
         self,
@@ -2551,11 +2644,22 @@ class TradingStore:
         timeframe: str,
         instance_ids: list[str],
         now: datetime,
+        *,
+        candles: list[DomainCandle] | None = None,
+        processed_timestamps: set[datetime] | None = None,
     ) -> dict[str, Any]:
         from quantara_engine.execution.catch_up import compute_backlog_status
 
-        candles = self.list_recent_candles(instrument_id, timeframe, limit=500)
-        last_processed = self.get_timeframe_group_last_processed(instance_ids, instrument_id)
+        if candles is None:
+            candles = self.list_recent_candles(instrument_id, timeframe, limit=500)
+        if processed_timestamps is None:
+            window_start = candles[0].timestamp if candles else None
+            processed_timestamps = self.fully_processed_candle_timestamps(
+                instance_ids,
+                instrument_id,
+                since=window_start,
+            )
+        last_processed = max(processed_timestamps) if processed_timestamps else None
         return compute_backlog_status(
             candles,
             timeframe,

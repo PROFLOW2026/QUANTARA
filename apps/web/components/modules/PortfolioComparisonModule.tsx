@@ -317,10 +317,42 @@ export default function PortfolioComparisonModule({ embedded }: ModuleProps) {
 
   useEffect(() => {
     void fetchData(true);
-    const id = window.setInterval(() => {
-      void fetchData(false);
-    }, POLL_INTERVAL);
-    return () => window.clearInterval(id);
+
+    let intervalId: number | undefined;
+
+    const startPolling = () => {
+      if (intervalId !== undefined) return;
+      intervalId = window.setInterval(() => {
+        if (document.visibilityState === "visible") {
+          void fetchData(false);
+        }
+      }, POLL_INTERVAL);
+    };
+
+    const stopPolling = () => {
+      if (intervalId === undefined) return;
+      window.clearInterval(intervalId);
+      intervalId = undefined;
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void fetchData(false);
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    if (document.visibilityState === "visible") {
+      startPolling();
+    }
+
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [fetchData]);
 
   if (loading && !data) {

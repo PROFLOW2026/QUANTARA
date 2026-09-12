@@ -90,6 +90,7 @@ def test_large_robot_a_backlog_does_not_block_orb_live_pass():
 
 def test_live_pass_processes_only_newest_candle_not_backlog():
     store = MagicMock()
+    store.fully_processed_candle_timestamps.return_value = set()
     store.get_timeframe_execution_status.return_value = {"backlog": 53, "status": "catching_up"}
     base = datetime(2026, 9, 9, 9, 25, tzinfo=timezone.utc)
     candles = [
@@ -130,6 +131,7 @@ def test_live_pass_processes_only_newest_candle_not_backlog():
 
 def test_historical_backlog_cannot_create_live_entries():
     store = MagicMock()
+    store.fully_processed_candle_timestamps.return_value = set()
     store.get_timeframe_execution_status.return_value = {"backlog": 2, "status": "catching_up"}
     candles = [MagicMock() for _ in range(3)]
     for i, c in enumerate(candles):
