@@ -36,5 +36,6 @@ jobs:
       - name: Run broker integration tests
         env:
           BROKER_TEST_DATABASE_URL: postgresql://quantara:quantara@localhost:5432/quantara_broker_test
+          BROKER_TEST_ADMIN_URL: postgresql://quantara:quantara@localhost:5432/postgres
         working-directory: apps/engine
         run: pytest tests/test_broker_execution_integration.py -v --tb=short
