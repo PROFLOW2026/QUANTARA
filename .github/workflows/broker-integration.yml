@@ -15,11 +15,19 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
+        ports:
+          - 5433:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+
+    env:
+      BROKER_TEST_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5433/postgres
+      BROKER_TEST_DATABASE_URL: postgresql://quantara:quantara@127.0.0.1:5433/quantara_broker_test
+      DATABASE_URL: ""
+      DIRECT_URL: ""
 
     steps:
       - uses: actions/checkout@v4
@@ -31,9 +39,20 @@ jobs:
       - name: Install engine dependencies
         run: pip install -e "./apps/engine[dev]"
 
+      - name: Wait for PostgreSQL
+        run: |
+          python -c "import os, time, psycopg2; url=os.environ['BROKER_TEST_ADMIN_URL'];
+          import sys
+          for i in range(30):
+              try:
+                  psycopg2.connect(url).close()
+                  print('postgres ready', url, flush=True)
+                  sys.exit(0)
+              except Exception as exc:
+                  print(f'wait {i}: {exc}', flush=True)
+                  time.sleep(1)
+          raise SystemExit('postgres never became ready')"
+
       - name: Run broker integration tests
-        env:
-          BROKER_TEST_ADMIN_URL: postgresql://postgres:postgres@postgres:5432/postgres
-          BROKER_TEST_DATABASE_URL: postgresql://quantara:quantara@postgres:5432/quantara_broker_test
         working-directory: apps/engine
         run: pytest tests/test_broker_execution_integration.py -v --tb=short
