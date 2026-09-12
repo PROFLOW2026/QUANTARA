@@ -161,8 +161,6 @@ function HomeDashboardContent() {
         <BrokerAccountSummaryCards account={brokerAccount} loading={loading && !brokerAccount} />
       </SectionPanel>
 
-      <RiskConcentrationPanel data={riskConcentration} loading={loading && !riskConcentration} />
-
       <SectionPanel className="mt-6">
         <div className="mb-3">
           <h2 className="text-base font-semibold text-foreground">{t("home.strategy_layer_title")}</h2>
@@ -249,6 +247,10 @@ function HomeDashboardContent() {
 
       <div className="mt-4">
         <LatestDecisionsPanel decisions={assetDecisions} timeframe="5m" />
+      </div>
+
+      <div className="mt-4">
+        <RiskConcentrationPanel data={riskConcentration} loading={loading && !riskConcentration} />
       </div>
 
       <div className="mt-4">
