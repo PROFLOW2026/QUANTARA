@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AssetTradeDrilldownModal } from "@/components/trading/AssetTradeDrilldownModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
@@ -181,7 +182,33 @@ export function ActiveAssetsSummary({
   );
 }
 
+function CountDrilldownButton({
+  count,
+  label,
+  onClick,
+}: {
+  count: number;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-surface-elevated/40 px-2 py-0.5 font-mono text-xs hover:bg-surface-elevated disabled:cursor-default disabled:opacity-70"
+      onClick={onClick}
+      aria-label={label}
+    >
+      [{count}]
+    </button>
+  );
+}
+
 export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
+  const [drilldown, setDrilldown] = useState<{
+    asset: AssetAnalyticsRow;
+    mode: "open" | "closed";
+  } | null>(null);
+
   return (
     <Card>
       <CardHeader>
@@ -203,11 +230,21 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
               </p>
               <div className="mt-2">{statusBadge(asset.data_status, asset.stale)}</div>
               <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                <p>
-                  {t("home.open_positions")}: {asset.open_positions}
+                <p className="flex items-center gap-2">
+                  {t("home.open_positions")}:
+                  <CountDrilldownButton
+                    count={asset.open_positions}
+                    label={t("home.open_positions_modal_title", { asset: asset.symbol })}
+                    onClick={() => setDrilldown({ asset, mode: "open" })}
+                  />
                 </p>
-                <p>
-                  {t("home.closed_trades")}: {asset.closed_trades}
+                <p className="flex items-center gap-2">
+                  {t("home.closed_trades")}:
+                  <CountDrilldownButton
+                    count={asset.closed_trades}
+                    label={t("home.closed_trades_modal_title", { asset: asset.symbol })}
+                    onClick={() => setDrilldown({ asset, mode: "closed" })}
+                  />
                 </p>
                 <p>
                   {t("home.realized_pnl")}: <PnLDisplay value={asset.realized_pnl} size="sm" />
@@ -281,8 +318,20 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
                     <div className="text-muted text-xs">{t("home.session_closed_data_ok")}</div>
                   ) : null}
                 </td>
-                <td className="px-1 py-2 text-right">{asset.open_positions}</td>
-                <td className="px-1 py-2 text-right">{asset.closed_trades}</td>
+                <td className="px-1 py-2 text-right">
+                  <CountDrilldownButton
+                    count={asset.open_positions}
+                    label={t("home.open_positions_modal_title", { asset: asset.symbol })}
+                    onClick={() => setDrilldown({ asset, mode: "open" })}
+                  />
+                </td>
+                <td className="px-1 py-2 text-right">
+                  <CountDrilldownButton
+                    count={asset.closed_trades}
+                    label={t("home.closed_trades_modal_title", { asset: asset.symbol })}
+                    onClick={() => setDrilldown({ asset, mode: "closed" })}
+                  />
+                </td>
                 <td className="px-1 py-2 text-right">
                   <PnLDisplay value={asset.realized_pnl} size="sm" />
                 </td>
@@ -304,6 +353,12 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
           </tbody>
         </table>
       </CardContent>
+      <AssetTradeDrilldownModal
+        open={drilldown != null}
+        mode={drilldown?.mode ?? "open"}
+        asset={drilldown?.asset ?? null}
+        onClose={() => setDrilldown(null)}
+      />
     </Card>
   );
 }

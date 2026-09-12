@@ -310,7 +310,12 @@
     "strategy_legs": "פוזיציות אסטרטגיה",
     "strategy_legs_hint": "פוזיציות אסטרטגיה מיוחסות מכל הרובוטים",
     "broker_positions": "פוזיציות ברוקר",
-    "broker_positions_hint": "אחזקות נטו בפועל בחשבון הברוקר המדומה"
+    "broker_positions_hint": "אחזקות נטו בפועל בחשבון הברוקר המדומה",
+    "open_positions_modal_title": "פוזיציות פתוחות — {asset}",
+    "closed_trades_modal_title": "עסקאות שנסגרו — {asset}",
+    "open_positions_empty": "אין פוזיציות פתוחות בנכס זה",
+    "closed_trades_empty": "אין עסקאות סגורות בנכס זה",
+    "closed_at": "נסגר ב"
   },
   "portfolio": {
     "title": "תיק",
@@ -577,7 +582,15 @@
     "load_error_api": "שגיאה בחיבור למנוע הנתונים",
     "load_error_timeout": "תם הזמן לטעינת נתוני ההשוואה — בדוק חיבור למנוע",
     "load_error_inactive": "ניסוי ההשוואה לא פעיל או לא הוגדר",
-    "load_error_empty": "לא נמצאו תיקי ניסוי להשוואה"
+    "load_error_empty": "לא נמצאו תיקי ניסוי להשוואה",
+    "hierarchy_hint": "פתח נכס → רובוט → טווח זמן כדי לראות את התיקים הרלוונטיים",
+    "expand_group": "פתח",
+    "collapse_group": "סגור",
+    "group_portfolios": "{count} תיקים",
+    "group_equity": "שווי {value}",
+    "group_pnl": "רווח/הפסד",
+    "group_open_positions": "{count} פוזיציות פתוחות",
+    "total_portfolios_reachable": "סה״כ {count} תיקים נגישים בהיררכיה"
   },
   "settings": {
     "title": "הגדרות",

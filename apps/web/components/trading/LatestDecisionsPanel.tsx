@@ -2,7 +2,6 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ExpandableText } from "@/components/ui/ExpandableText";
 import { DecisionTypeBadge } from "@/components/trading/DecisionTypeBadge";
 import {
   isEntrySignalDecision,
@@ -78,9 +77,9 @@ export function LatestDecisionsPanel({
                   <p className="mt-2 text-xs text-muted">
                     {formatRelativeTime(row.timestamp)} · {translateTimeframe(row.timeframe ?? timeframe)}
                   </p>
-                  <div className="mt-2">
-                    <ExpandableText text={translateSignalReason(row.message)} />
-                  </div>
+                  <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed">
+                    {translateSignalReason(row.message)}
+                  </p>
                   <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                     <p>{t("home.entry_signal")}: {yesNo(entrySignal)}</p>
                     <p>{t("home.position_open_now")}: {yesNo(row.position_open)}</p>
@@ -96,10 +95,10 @@ export function LatestDecisionsPanel({
               <col className="w-[6%]" />
               <col className="w-[10%]" />
               <col className="w-[10%]" />
-              <col className="w-[8%]" />
-              <col className="w-[29%]" />
-              <col className="w-[8%]" />
-              <col className="w-[10%]" />
+              <col className="w-[7%]" />
+              <col className="w-[34%]" />
+              <col className="w-[7%]" />
+              <col className="w-[9%]" />
             </colgroup>
             <thead>
               <tr className="border-b border-border text-muted">
@@ -138,8 +137,8 @@ export function LatestDecisionsPanel({
                     </td>
                     <td className="py-2 px-1 text-muted">{formatRelativeTime(row.timestamp)}</td>
                     <td className="py-2 px-1">{freshnessBadge(row.fresh)}</td>
-                    <td className="py-2 px-2">
-                      <ExpandableText text={translateSignalReason(row.message)} />
+                    <td className="py-2 px-2 whitespace-pre-wrap break-words leading-relaxed">
+                      {translateSignalReason(row.message)}
                     </td>
                     <td className="py-2 px-1">{yesNo(entrySignal)}</td>
                     <td className="py-2 ps-1">{yesNo(row.position_open)}</td>

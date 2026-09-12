@@ -2,8 +2,8 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
-import { ModalLink } from "@/components/layout/ModalLink";
 import type { ModuleProps } from "@/lib/modal-workspace/types";
+import { PortfolioHierarchyAccordion } from "@/components/trading/PortfolioHierarchyAccordion";
 import {
   PageHeader,
   ErrorBanner,
@@ -16,15 +16,12 @@ import {
   ApiError,
   isEngineConnectionError,
   type CompetitionLeaderboardRow,
-  type CompetitionPortfolioSummary,
   type CompetitionResponse,
-  type CompetitionTimeframeGroup,
 } from "@/lib/api-client";
 import {
   loadCompetitionFull,
   loadCompetitionView,
 } from "@/lib/competition-client";
-import { translateRiskProfile } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
 import {
   formatCurrency,
@@ -50,11 +47,6 @@ const MultiEquityCurveChart = dynamic(
 
 const POLL_INTERVAL = 60_000;
 const TIMEFRAME_ORDER = ["1h", "15m", "5m"] as const;
-
-function portfolioRiskLabel(p: CompetitionPortfolioSummary): string {
-  const pct = Number(p.risk_per_trade_pct ?? p.target_risk_pct ?? 0);
-  return `${pct.toFixed(2)}%`;
-}
 
 function LeaderboardTable({ rows }: { rows: CompetitionLeaderboardRow[] }) {
   if (!rows.length) {
@@ -103,111 +95,6 @@ function portfolioDirectionLabel(direction?: string | null): string {
   if (lower === "long") return t("common.long");
   if (lower === "short") return t("common.short");
   return direction;
-}
-
-function PortfolioCard({ p }: { p: CompetitionPortfolioSummary }) {
-  return (
-    <Card className="flex flex-col">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">{p.name}</CardTitle>
-        <p className="text-xs text-muted">
-          {p.timeframe_he ?? p.timeframe} · {translateRiskProfile(p.risk_slug)} ·{" "}
-          {t("competition.risk_per_trade")}: {portfolioRiskLabel(p)}
-        </p>
-      </CardHeader>
-      <CardContent className="flex flex-1 flex-col gap-2 text-sm">
-        <div className="flex justify-between">
-          <span className="text-muted">{t("competition.current_equity")}</span>
-          <span className="font-mono">{formatCurrency(Number(p.equity ?? 0))}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted">{t("portfolio.initial_capital")}</span>
-          <span className="font-mono">
-            {formatCurrency(Number(p.initial_capital ?? 2000))}
-          </span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted">{t("competition.pnl")}</span>
-          <PnLDisplay value={Number(p.total_pnl ?? 0)} size="sm" />
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted">{t("competition.return_pct")}</span>
-          <span className={(p.return_pct ?? 0) >= 0 ? "text-profit" : "text-loss"}>
-            {formatPercent(Number(p.return_pct ?? 0))}
-          </span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted">{t("competition.open_position_label")}</span>
-          <span>
-            {p.open_position
-              ? t("competition.open_position_yes")
-              : t("competition.open_position_no")}
-          </span>
-        </div>
-        {p.open_position ? (
-          <div className="flex justify-between">
-            <span className="text-muted">{t("competition.open_direction")}</span>
-            <span>{portfolioDirectionLabel(p.open_direction)}</span>
-          </div>
-        ) : null}
-        <div className="flex justify-between">
-          <span className="text-muted">{t("competition.unrealized_pnl")}</span>
-          <PnLDisplay value={Number(p.unrealized_pnl ?? 0)} size="sm" />
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted">{t("competition.closed_trades")}</span>
-          <span>{p.trades_count ?? 0}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted">{t("competition.win_rate")}</span>
-          <span>
-            {p.win_rate != null ? `${Number(p.win_rate).toFixed(1)}%` : "—"}
-          </span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted">{t("competition.max_drawdown")}</span>
-          <span className="text-loss">
-            {formatPercent(-Number(p.max_drawdown_pct ?? 0))}
-          </span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted">{t("competition.exposure")}</span>
-          <span>{Number(p.exposure_pct ?? 0).toFixed(1)}%</span>
-        </div>
-        {p.virtual_leverage != null && p.virtual_leverage > 1 ? (
-          <div className="flex justify-between">
-            <span className="text-muted">{t("competition.virtual_leverage")}</span>
-            <span>{Number(p.virtual_leverage).toFixed(2)}×</span>
-          </div>
-        ) : null}
-        {p.actual_risk_pct != null ? (
-          <div className="flex justify-between">
-            <span className="text-muted">{t("competition.actual_risk_label")}</span>
-            <span>{Number(p.actual_risk_pct).toFixed(2)}%</span>
-          </div>
-        ) : null}
-        <ModalLink
-          href={`/portfolio?portfolio_id=${encodeURIComponent(p.id)}`}
-          className="mt-auto pt-2 text-sm text-accent hover:underline"
-        >
-          {t("competition.view_portfolio")} →
-        </ModalLink>
-      </CardContent>
-    </Card>
-  );
-}
-
-function TimeframeSection({ group }: { group: CompetitionTimeframeGroup }) {
-  return (
-    <section className="mb-6">
-      <h2 className="mb-3 text-lg font-semibold">{group.title_he}</h2>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
-        {group.portfolios.map((p) => (
-          <PortfolioCard key={p.id} p={p} />
-        ))}
-      </div>
-    </section>
-  );
 }
 
 export default function PortfolioComparisonModule({ embedded }: ModuleProps) {
@@ -383,15 +270,6 @@ export default function PortfolioComparisonModule({ embedded }: ModuleProps) {
     data: data.equity_curves?.[p.id] ?? [],
   }));
 
-  const timeframeGroups =
-    data.timeframe_groups ??
-    TIMEFRAME_ORDER.map((timeframe) => ({
-      timeframe,
-      timeframe_he: timeframe,
-      title_he: timeframe,
-      portfolios: data.portfolios?.filter((p) => p.timeframe === timeframe) ?? [],
-    })).filter((group) => group.portfolios.length > 0);
-
   const secondaryUnavailable =
     enrichmentFailed && !enrichmentLoading ? t("common.section_unavailable") : null;
 
@@ -444,9 +322,7 @@ export default function PortfolioComparisonModule({ embedded }: ModuleProps) {
         </CardContent>
       </Card>
 
-      {timeframeGroups.map((group) => (
-        <TimeframeSection key={group.timeframe} group={group} />
-      ))}
+      <PortfolioHierarchyAccordion portfolios={data.portfolios} />
 
       <Card className="mb-4">
         <CardHeader>

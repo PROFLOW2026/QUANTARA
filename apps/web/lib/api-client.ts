@@ -772,6 +772,8 @@ export interface CompetitionResponse {
   open_positions?: Array<{
     portfolio_id: string;
     portfolio_name: string;
+    robot_label?: string;
+    strategy_slug?: string;
     timeframe_he: string;
     direction: string;
     entry_price: number;
