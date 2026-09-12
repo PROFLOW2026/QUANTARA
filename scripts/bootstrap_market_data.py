@@ -22,7 +22,12 @@ from quantara_engine.market_data.polling import STRATEGY_MIN_CANDLES  # noqa: E4
 from quantara_engine.market_data.provider_resolver import is_provider_configured  # noqa: E402
 from quantara_engine.market_data.registry import ProviderName, list_target_assets  # noqa: E402
 from quantara_engine.persistence.store import TradingStore  # noqa: E402
-from quantara_workers.jobs.fetch_data import _bootstrap_asset_isolated  # noqa: E402
+from quantara_workers.jobs.fetch_data import (  # noqa: E402
+    _bootstrap_asset_isolated,
+    bootstrap_coverage,
+    bootstrap_is_complete,
+)
+from quantara_workers.jobs.fetch_data import bootstrap_missing_timeframes  # noqa: E402
 
 
 def _asset_has_live_provider(asset) -> tuple[bool, str | None]:
@@ -51,6 +56,14 @@ def missing_credentials_report() -> list[str]:
     return missing
 
 
+def _format_coverage(coverage: dict[str, int]) -> str:
+    return (
+        f"5m={coverage.get('5m', 0)} "
+        f"15m={coverage.get('15m', 0)} "
+        f"1h={coverage.get('1h', 0)}"
+    )
+
+
 def _coverage_gaps() -> list[str]:
     gaps: list[str] = []
     with session_scope() as session:
@@ -60,15 +73,15 @@ def _coverage_gaps() -> list[str]:
             if not inst:
                 gaps.append(f"{symbol}: instrument missing")
                 continue
-            for tf in ("5m", "15m", "1h"):
-                if store.count_candles(inst.id, tf) < STRATEGY_MIN_CANDLES:
-                    gaps.append(f"{symbol}/{tf}")
+            missing = bootstrap_missing_timeframes(bootstrap_coverage(store, inst.id))
+            for tf in missing:
+                gaps.append(f"{symbol}/{tf}")
     return gaps
 
 
 def main() -> int:
     if not settings.database_configured:
-        print("DATABASE_URL not configured.")
+        print("DATABASE_URL not configured.", flush=True)
         return 1
 
     settings.validate_runtime_database()
@@ -80,41 +93,77 @@ def main() -> int:
                 settings.market_data_provider,
             )
         except RuntimeError as exc:
-            print(f"FAIL  {exc}")
+            print(f"FAIL  {exc}", flush=True)
             return 1
 
     if settings.market_data_provider.strip().lower() == "mock":
-        print("FAIL  MARKET_DATA_PROVIDER=mock refused on quantara_prod.")
+        print("FAIL  MARKET_DATA_PROVIDER=mock refused on quantara_prod.", flush=True)
         return 1
 
     missing = missing_credentials_report()
     if missing:
-        print("STOP  Missing provider credentials (no mock fallback):")
+        print("STOP  Missing provider credentials (no mock fallback):", flush=True)
         for line in missing:
-            print(f"  - {line}")
-        print("")
-        print("Add keys to repo root .env, then re-run: npm run db:bootstrap")
+            print(f"  - {line}", flush=True)
+        print("", flush=True)
+        print("Add keys to repo root .env, then re-run: npm run db:bootstrap", flush=True)
         return 1
 
-    print("Live bootstrap via fetch_bulk asset isolation (existing provider registry)")
+    print("Live bootstrap via fetch_bulk asset isolation (existing provider registry)", flush=True)
+    had_errors = False
+
     for asset in list_target_assets():
-        count, derived, error = _bootstrap_asset_isolated(asset)
+        symbol = asset.db_symbol
+        print(f"START {symbol}", flush=True)
+
+        with session_scope() as session:
+            store = TradingStore(session)
+            inst = store.get_instrument_by_symbol(symbol)
+            if not inst:
+                print(f"  {symbol}: ERROR — instrument missing", flush=True)
+                had_errors = True
+                continue
+            before = bootstrap_coverage(store, inst.id)
+            print(f"  {symbol} existing: {_format_coverage(before)}", flush=True)
+
+        if bootstrap_is_complete(before):
+            print(f"  {symbol} final: {_format_coverage(before)} PASS (no-op)", flush=True)
+            continue
+
+        print(f"  {symbol} fetching/deriving...", flush=True)
+        try:
+            count, derived, error = _bootstrap_asset_isolated(asset)
+        except Exception as exc:
+            print(f"  {symbol}: ERROR — {exc}", flush=True)
+            had_errors = True
+            continue
+
         if error:
-            print(f"  {asset.db_symbol}: ERROR — {error}")
+            print(f"  {symbol}: ERROR — {error}", flush=True)
+            had_errors = True
         elif count or derived:
-            print(f"  {asset.db_symbol}: upserted {count} 5m, derived {derived}")
-        else:
-            print(f"  {asset.db_symbol}: already sufficient or deferred")
+            print(f"  {symbol}: upserted {count} 5m, derived {derived}", flush=True)
+
+        with session_scope() as session:
+            store = TradingStore(session)
+            inst = store.get_instrument_by_symbol(symbol)
+            if not inst:
+                continue
+            after = bootstrap_coverage(store, inst.id)
+            status = "PASS" if bootstrap_is_complete(after) else "FAIL"
+            print(f"  {symbol} final: {_format_coverage(after)} {status}", flush=True)
+            if status == "FAIL":
+                had_errors = True
 
     gaps = _coverage_gaps()
-    if gaps:
-        print("FAIL  Coverage gaps remain:")
+    if gaps or had_errors:
+        print("FAIL  Coverage gaps remain:", flush=True)
         for gap in gaps:
-            print(f"  - {gap}")
+            print(f"  - {gap}", flush=True)
         return 1
 
-    print("PASS  Real market data bootstrap")
-    print("Run: python scripts/report_market_data_coverage.py")
+    print("PASS  Real market data bootstrap", flush=True)
+    print("Run: python scripts/report_market_data_coverage.py", flush=True)
     return 0
 
 

@@ -103,6 +103,57 @@ def _aggregation_mode(asset) -> str:
     return "utc"
 
 
+_BOOTSTRAP_TIMEFRAMES: tuple[str, ...] = ("5m", "15m", "1h")
+
+
+def bootstrap_coverage(store: TradingStore, instrument_id: str) -> dict[str, int]:
+    """Per-timeframe candle counts used for bootstrap completeness."""
+    return {tf: store.count_candles(instrument_id, tf) for tf in _BOOTSTRAP_TIMEFRAMES}
+
+
+def bootstrap_is_complete(coverage: dict[str, int]) -> bool:
+    return all(coverage.get(tf, 0) >= STRATEGY_MIN_CANDLES for tf in _BOOTSTRAP_TIMEFRAMES)
+
+
+def bootstrap_missing_timeframes(coverage: dict[str, int]) -> tuple[str, ...]:
+    return tuple(tf for tf in _BOOTSTRAP_TIMEFRAMES if coverage.get(tf, 0) < STRATEGY_MIN_CANDLES)
+
+
+def _resume_derived_from_stored_5m(
+    store: TradingStore,
+    instrument,
+    asset,
+) -> tuple[int, int]:
+    """Derive missing 15m/1h from stored real 5m; deepen provider 5m only if 1h still thin."""
+    coverage = bootstrap_coverage(store, instrument.id)
+    missing_derived = tuple(
+        tf for tf in DERIVED_FROM_5M if coverage.get(tf, 0) < STRATEGY_MIN_CANDLES
+    )
+    derived = 0
+    count = 0
+
+    if missing_derived:
+        derived = _derive_full(
+            store,
+            instrument.id,
+            session_mode=_aggregation_mode(asset),
+            timeframes=missing_derived,
+        )
+        if asset.db_symbol == "XAUUSD":
+            update_spot_from_latest_5m(store, instrument.id)
+
+    coverage = bootstrap_coverage(store, instrument.id)
+    if (
+        coverage.get("5m", 0) >= STRATEGY_MIN_CANDLES
+        and coverage.get("1h", 0) < STRATEGY_MIN_CANDLES
+    ):
+        deepen_count, deepen_derived = _deepen_history_for_1h(asset)
+        count += deepen_count
+        derived += deepen_derived
+
+    return count, derived
+
+
 def _should_poll_asset(
     store: TradingStore,
     asset,
@@ -570,7 +621,15 @@ def _bootstrap_asset_isolated(asset) -> tuple[int, int, str | None]:
         instrument = store.get_instrument_by_symbol(asset.db_symbol)
         if not instrument:
             return 0, 0, f"{asset.db_symbol}: instrument missing — run seed_8_assets.py"
-        now = datetime.now(timezone.utc)
+        if bootstrap_is_complete(bootstrap_coverage(store, instrument.id)):
+            return 0, 0, None
+
+    now = datetime.now(timezone.utc)
+    with session_scope() as session:
+        store = TradingStore(session)
+        instrument = store.get_instrument_by_symbol(asset.db_symbol)
+        if not instrument:
+            return 0, 0, f"{asset.db_symbol}: instrument missing — run seed_8_assets.py"
         return _fetch_asset_bulk(store, instrument, asset, now)
 
 
@@ -581,9 +640,14 @@ def _fetch_asset_bulk(
     now: datetime,
 ) -> tuple[int, int, str | None]:
     timeframe = PROVIDER_TIMEFRAME
-    stored = store.count_candles(instrument.id, timeframe)
-    if stored >= STRATEGY_MIN_CANDLES:
+    coverage = bootstrap_coverage(store, instrument.id)
+    if bootstrap_is_complete(coverage):
         return 0, 0, None
+
+    stored = coverage.get("5m", 0)
+    if stored >= STRATEGY_MIN_CANDLES:
+        count, derived = _resume_derived_from_stored_5m(store, instrument, asset)
+        return count, derived, None
 
     if asset.primary_provider == ProviderName.ALPACA and not can_request(store, "alpaca"):
         return 0, 0, "deferred (Alpaca budget)"
@@ -608,8 +672,10 @@ def _fetch_asset_bulk(
             return provider.fetch_bootstrap(instrument.id, timeframe)  # type: ignore[attr-defined]
         return provider.fetch_latest(instrument.id, timeframe, since=None)
 
+    # Provider HTTP must not share the caller's SQLAlchemy session — credit ledger
+    # flushes during _request would block chunked persist on the same connection.
     outcome = fetch_with_failover(
-        store,
+        None,
         asset,
         caller="fetch_bulk_job:bootstrap",
         priority=FetchPriority.CATCH_UP,
@@ -669,14 +735,22 @@ def _fetch_asset_bulk(
                 logger.warning("Secondary bootstrap failed for %s — %s", asset.db_symbol, exc)
 
     derived = 0
-    if count:
-        with session_scope() as derive_session:
-            derive_store = TradingStore(derive_session)
+    with session_scope() as derive_session:
+        derive_store = TradingStore(derive_session)
+        if count:
             derived = _derive_full(
                 derive_store, instrument.id, session_mode=_aggregation_mode(asset)
             )
             if asset.db_symbol == "XAUUSD":
                 update_spot_from_latest_5m(derive_store, instrument.id)
+        elif bootstrap_coverage(derive_store, instrument.id).get("5m", 0) >= STRATEGY_MIN_CANDLES:
+            resume_count, resume_derived = _resume_derived_from_stored_5m(
+                derive_store, instrument, asset
+            )
+            count += resume_count
+            derived += resume_derived
+
+    if count:
         from quantara_engine.market_data.registry import provider_symbol
 
         if asset.primary_provider == ProviderName.TWELVE_DATA:
@@ -1042,7 +1116,9 @@ def fetch_bulk_job(store: TradingStore | None = None) -> None:
                     errors.append(f"{asset.db_symbol}: instrument missing — run seed_8_assets.py")
                     asset_status[asset.db_symbol] = {"status": "error", "error": "missing instrument"}
                     continue
-                stored_before = s.count_candles(instrument.id, PROVIDER_TIMEFRAME)
+                if bootstrap_is_complete(bootstrap_coverage(s, instrument.id)):
+                    continue
+                count, derived, error = _fetch_asset_bulk(s, instrument, asset, now)
             else:
                 with session_scope() as check_session:
                     check_store = TradingStore(check_session)
@@ -1051,14 +1127,8 @@ def fetch_bulk_job(store: TradingStore | None = None) -> None:
                         errors.append(f"{asset.db_symbol}: instrument missing — run seed_8_assets.py")
                         asset_status[asset.db_symbol] = {"status": "error", "error": "missing instrument"}
                         continue
-                    stored_before = check_store.count_candles(instrument.id, PROVIDER_TIMEFRAME)
-
-            if stored_before >= STRATEGY_MIN_CANDLES:
-                continue
-
-            if s is not None:
-                count, derived, error = _fetch_asset_bulk(s, instrument, asset, now)
-            else:
+                    if bootstrap_is_complete(bootstrap_coverage(check_store, instrument.id)):
+                        continue
                 count, derived, error = _bootstrap_asset_isolated(asset)
             if count or derived:
                 total_count += count
