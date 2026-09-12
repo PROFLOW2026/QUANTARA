@@ -141,6 +141,93 @@ def test_intent_idempotency_uses_canonical_not_legacy():
     assert canonical != legacy
 
 
+def test_orb_repeat_long_candle_returns_already_consumed():
+    from quantara_engine.domain.types import StrategyContext
+    from quantara_engine.strategies.opening_range_breakout.v1_0_0 import OpeningRangeBreakoutV1
+    from tests.test_orb_strategy import (
+        ET,
+        _atr_warmup,
+        _opening_range_candles,
+        _orb_candle,
+        _session_date,
+    )
+
+    strategy = OpeningRangeBreakoutV1()
+    session = _session_date(2026, 3, 10)
+    base = _atr_warmup(session) + _opening_range_candles(session, high="500", low="498")
+    c1 = _orb_candle(datetime(2026, 3, 10, 10, 0, tzinfo=ET), "500", "501.5", "499.8", "501.2")
+    c2 = _orb_candle(datetime(2026, 3, 10, 10, 5, tzinfo=ET), "501.2", "502", "501", "501.8")
+    c3 = _orb_candle(datetime(2026, 3, 10, 10, 10, tzinfo=ET), "501.8", "502.5", "501.5", "502.0")
+
+    ctx_fresh = StrategyContext("spy-id", "5m", {}, runtime={"db_symbol": "NVDA"})
+    first = strategy.evaluate(base + [c1], ctx_fresh)
+    assert first.action == SignalAction.BUY
+    assert first.reason == "breakout_long_confirmed"
+    consumed_key = first.metadata["opportunity_key"]
+
+    ctx_consumed = StrategyContext(
+        "spy-id",
+        "5m",
+        {},
+        runtime={"db_symbol": "NVDA", "consumed_opportunity_keys": [consumed_key]},
+    )
+    second = strategy.evaluate(base + [c1, c2], ctx_consumed)
+    assert second.action == SignalAction.HOLD
+    assert second.reason == "breakout_already_consumed"
+
+    third = strategy.evaluate(base + [c1, c2, c3], ctx_consumed)
+    assert third.action == SignalAction.HOLD
+    assert third.reason == "breakout_already_consumed"
+
+
+def test_orb_repeat_short_candle_returns_already_consumed():
+    from quantara_engine.domain.types import StrategyContext
+    from quantara_engine.strategies.opening_range_breakout.v1_0_0 import OpeningRangeBreakoutV1
+    from tests.test_orb_strategy import (
+        ET,
+        _atr_warmup,
+        _opening_range_candles,
+        _orb_candle,
+        _session_date,
+    )
+
+    strategy = OpeningRangeBreakoutV1()
+    session = _session_date(2026, 3, 10)
+    base = _atr_warmup(session) + _opening_range_candles(session, high="500", low="498")
+    c1 = _orb_candle(datetime(2026, 3, 10, 10, 0, tzinfo=ET), "498.5", "499", "497.2", "497.5")
+    c2 = _orb_candle(datetime(2026, 3, 10, 10, 5, tzinfo=ET), "497.5", "498", "496.8", "497.0")
+
+    ctx_fresh = StrategyContext("spy-id", "5m", {}, runtime={"db_symbol": "NVDA"})
+    first = strategy.evaluate(base + [c1], ctx_fresh)
+    assert first.action == SignalAction.SELL
+    assert first.reason == "breakout_short_confirmed"
+    consumed_key = first.metadata["opportunity_key"]
+
+    ctx_consumed = StrategyContext(
+        "spy-id",
+        "5m",
+        {},
+        runtime={"db_symbol": "NVDA", "consumed_opportunity_keys": [consumed_key]},
+    )
+    second = strategy.evaluate(base + [c1, c2], ctx_consumed)
+    assert second.action == SignalAction.HOLD
+    assert second.reason == "breakout_already_consumed"
+
+
+def test_list_consumed_opportunity_keys_matches_opportunity_consumed_semantics():
+    from pathlib import Path
+
+    store_path = Path(__file__).resolve().parents[1] / "quantara_engine" / "persistence" / "store.py"
+    src = store_path.read_text(encoding="utf-8")
+    assert "def list_consumed_opportunity_keys" in src
+    assert "'pending_execution', 'expired', 'rejected'" in src
+    assert "oi.status = 'executed' AND f.id IS NOT NULL" in src
+    consumed_block = src.split("def opportunity_consumed", 1)[1].split("def resolve_entry_opportunity_key", 1)[0]
+    assert "OrmIntentStatus.EXPIRED" in consumed_block
+    assert "OrmIntentStatus.REJECTED" in consumed_block
+    assert "CANCELLED" not in consumed_block
+
+
 def test_opposite_direction_breakout_allowed():
     engine = RiskEngine()
     store = MagicMock()

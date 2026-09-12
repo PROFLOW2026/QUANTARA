@@ -1505,7 +1505,7 @@ class TradingStore:
         stamp_paper_run_id(self, table="decisions", row_id=entry.id)
 
     def list_consumed_opportunity_keys(self, strategy_instance_id: str) -> list[str]:
-        """Opportunity keys with pending or filled entry intents (restart-safe)."""
+        """Opportunity keys consumed for strategy suppression — aligned with opportunity_consumed()."""
         rows = self.session.execute(
             text(
                 """
@@ -1518,8 +1518,8 @@ class TradingStore:
                   AND oi.backtest_run_id IS NULL
                   AND s.metadata->>'opportunity_key' IS NOT NULL
                   AND (
-                    oi.status = 'pending_execution'
-                    OR f.id IS NOT NULL
+                    oi.status IN ('pending_execution', 'expired', 'rejected')
+                    OR (oi.status = 'executed' AND f.id IS NOT NULL)
                   )
                 """
             ),
