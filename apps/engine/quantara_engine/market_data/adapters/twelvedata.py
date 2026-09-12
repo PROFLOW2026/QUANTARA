@@ -65,6 +65,7 @@ class TwelveDataMarketDataProvider:
         priority: FetchPriority = FetchPriority.SCHEDULED,
         allow_non_canonical_timeframes: bool = False,
         asset: AssetDefinition | None = None,
+        http_timeout: float = 30,
     ) -> None:
         self.api_key = (api_key or settings.market_data_api_key).strip()
         if not self.api_key:
@@ -74,6 +75,7 @@ class TwelveDataMarketDataProvider:
         self._priority = priority
         self._allow_non_canonical_timeframes = allow_non_canonical_timeframes
         self._asset = asset
+        self._http_timeout = http_timeout
         if asset is not None:
             self.provider_symbol = provider_symbol(asset, ProviderName.TWELVE_DATA)
         else:
@@ -123,7 +125,7 @@ class TwelveDataMarketDataProvider:
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=self._http_timeout) as resp:
                 payload = json.loads(resp.read().decode())
         except urllib.error.HTTPError as exc:
             body = exc.read().decode(errors="replace")
