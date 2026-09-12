@@ -29,7 +29,7 @@ const TIMEFRAMES = [
   { id: "1h", labelKey: "market.timeframe_1h" },
 ] as const;
 
-const CANDLE_LIMIT = "250";
+const CHART_CANDLE_LIMIT = 120;
 
 let competitionCache: CompetitionResponse | null = null;
 let competitionPromise: Promise<CompetitionResponse> | null = null;
@@ -156,7 +156,7 @@ export function AssetChartModal({
       const rows = await api.getCandles({
         instrument_id: asset.db_symbol,
         timeframe,
-        limit: CANDLE_LIMIT,
+        limit: String(CHART_CANDLE_LIMIT),
       });
       candleCache.current.set(cacheKey, rows);
       setCandles(rows);
@@ -293,7 +293,7 @@ export function AssetChartModal({
                 <p className="text-sm text-muted">{t("home.asset_chart_no_data")}</p>
               </div>
             ) : (
-              <CandlestickChart candles={candles} height={chartHeight} />
+              <CandlestickChart candles={candles} height={chartHeight} timeframe={timeframe} />
             )}
           </div>
 

@@ -138,6 +138,15 @@ def test_asset_chart_modal_hebrew_strings_and_canonical_candles():
         REPO_ROOT / "apps" / "web" / "components" / "charts" / "chart-types.ts"
     ).read_text(encoding="utf-8")
     assert "candleCache.current.clear()" in modal
+    assert "CHART_CANDLE_LIMIT = 120" in modal
+    assert "timeframe={timeframe}" in modal
+
+    chart = (
+        REPO_ROOT / "apps" / "web" / "components" / "charts" / "CandlestickChart.tsx"
+    ).read_text(encoding="utf-8")
+    assert "formatChartAxisTick" in chart
+    assert "buildDayBoundaryTimes" in chart
+    assert "he-IL" not in chart or "Intl.DateTimeFormat" not in chart
 
 
 def test_candles_route_uses_list_recent_candles():

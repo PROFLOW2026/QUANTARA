@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import {
   ComposedChart,
   XAxis,
@@ -26,6 +26,7 @@ import {
 interface CandlestickChartProps {
   candles: Candle[];
   height?: number;
+  timeframe?: string;
   /** Reserved for future fill-based execution markers. */
   markers?: ChartExecutionMarker[];
 }
@@ -39,33 +40,62 @@ interface CandleChartPoint {
   isUp: boolean;
 }
 
-function formatAxisTime(iso: string): string {
-  try {
-    return new Intl.DateTimeFormat("he-IL", {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
 }
 
-/** Narrower bodies when many candles are visible; always leave side gaps in each slot. */
+function dayKey(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function buildDayBoundaryTimes(times: string[]): Set<string> {
+  const boundaries = new Set<string>();
+  let lastDay: string | null = null;
+  for (const time of times) {
+    const currentDay = dayKey(time);
+    if (currentDay !== lastDay) {
+      boundaries.add(time);
+      lastDay = currentDay;
+    }
+  }
+  return boundaries;
+}
+
+function formatChartAxisTick(
+  iso: string,
+  timeframe: string,
+  dayBoundaries: Set<string>
+): string {
+  const d = new Date(iso);
+  const dd = pad2(d.getDate());
+  const mm = pad2(d.getMonth() + 1);
+  const hh = pad2(d.getHours());
+  const min = pad2(d.getMinutes());
+
+  if (timeframe === "1h") {
+    return `${dd}/${mm} ${hh}:00`;
+  }
+
+  if (dayBoundaries.has(iso)) {
+    return `${dd}/${mm} ${hh}:${min}`;
+  }
+
+  return `${hh}:${min}`;
+}
+
+/** Moderate body width for ~100–120 candle windows with visible gaps. */
 function resolveCandleBodyWidth(bandwidth: number, candleCount: number): number {
   const bodyFillRatio =
-    candleCount >= 200
-      ? 0.3
-      : candleCount >= 150
-        ? 0.34
-        : candleCount >= 100
-          ? 0.38
-          : candleCount >= 60
-            ? 0.42
-            : 0.46;
-  const minBody = candleCount >= 180 ? 1.5 : candleCount >= 120 ? 2 : 3;
-  const maxBody = bandwidth * (candleCount >= 150 ? 0.46 : 0.5);
+    candleCount >= 140
+      ? 0.38
+      : candleCount >= 100
+        ? 0.42
+        : candleCount >= 60
+          ? 0.44
+          : 0.48;
+  const minBody = 3;
+  const maxBody = bandwidth * 0.5;
   return Math.min(Math.max(bandwidth * bodyFillRatio, minBody), maxBody);
 }
 
@@ -124,6 +154,7 @@ function CandlestickLayer(props: {
 export function CandlestickChart({
   candles,
   height = 280,
+  timeframe = "15m",
   markers: _markers,
 }: CandlestickChartProps) {
   const chartData = useMemo<CandleChartPoint[]>(
@@ -141,6 +172,16 @@ export function CandlestickChart({
     [candles]
   );
 
+  const dayBoundaries = useMemo(
+    () => buildDayBoundaryTimes(chartData.map((c) => c.time)),
+    [chartData]
+  );
+
+  const tickFormatter = useCallback(
+    (iso: string) => formatChartAxisTick(iso, timeframe, dayBoundaries),
+    [timeframe, dayBoundaries]
+  );
+
   if (!chartData.length) {
     return (
       <div className="flex items-center justify-center rounded-lg border border-dashed border-border bg-surface-elevated/30" style={{ height }}>
@@ -154,21 +195,23 @@ export function CandlestickChart({
     Math.max(...chartData.map((c) => c.high)) * 1.0005,
   ] as [number, number];
 
+  const minTickGap = timeframe === "1h" ? 48 : timeframe === "15m" ? 44 : 36;
+
   return (
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart
         data={chartData}
         margin={{ ...CHART_DEFAULTS.margin, bottom: 4 }}
-        barCategoryGap="28%"
+        barCategoryGap="24%"
       >
         <CartesianGrid {...gridStyle} />
         <XAxis
           dataKey="time"
-          tickFormatter={formatAxisTime}
+          tickFormatter={tickFormatter}
           tick={axisStyle.tick}
           axisLine={axisStyle.axisLine}
           tickLine={axisStyle.tickLine}
-          minTickGap={40}
+          minTickGap={minTickGap}
         />
         <YAxis
           domain={yDomain}
