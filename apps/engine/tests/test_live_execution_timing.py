@@ -96,22 +96,28 @@ def test_orb_uses_shared_signal_not_per_portfolio_eval():
     empty = (0, 0, 0, {}, {}, [])
     with patch.object(rs, "_process_experiment", return_value=empty) as process_a:
         with patch.object(rs, "_process_orb_live_sweep", return_value=empty) as process_b:
-            store = MagicMock()
-            store.get_settings_dict.return_value = {
-                "paper_trading_enabled": True,
-                "trading_control_state": {"state": "running"},
-            }
-            store.list_competition_entries.return_value = [MagicMock()]
-            store.list_orb_competition_entries.return_value = [MagicMock()]
-            store.cancel_stale_pending_intents.return_value = 0
-            rs._execute_strategy_cycle(
-                live_only=True,
-                historical_only=False,
-                time_budget_sec=300,
-                store=store,
-            )
+            with patch(
+                "quantara_engine.live_sim.allocator.resume_all_pending_live_sim_allocations",
+                return_value={"resumed": 0, "expired": 0},
+            ):
+                store = MagicMock()
+                store.get_settings_dict.return_value = {
+                    "paper_trading_enabled": True,
+                    "trading_control_state": {"state": "running"},
+                }
+                store.list_competition_entries.return_value = [MagicMock()]
+                store.list_orb_competition_entries.return_value = [MagicMock()]
+                store.list_multi_strategy_competition_entries.return_value = []
+                store.cancel_stale_pending_intents.return_value = 0
+                rs._execute_strategy_cycle(
+                    live_only=True,
+                    historical_only=False,
+                    time_budget_sec=300,
+                    store=store,
+                )
 
-    assert process_a.call_count == 1
+    # Live cycle: Robot A + Robot C/D/E each invoke _process_experiment; ORB uses dedicated sweep.
+    assert process_a.call_count == 2
     assert process_b.call_count == 1
 
 

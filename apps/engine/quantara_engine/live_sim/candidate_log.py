@@ -112,17 +112,133 @@ def update_allocation_execution(
     *,
     broker_order_id: str,
     live_sim_position_id: str,
+    metadata_patch: dict[str, Any] | None = None,
+) -> None:
+    if metadata_patch:
+        store.session.execute(
+            text(
+                """
+                UPDATE live_sim_allocation_log
+                SET broker_order_id = :oid,
+                    live_sim_position_id = :pid,
+                    metadata = metadata || CAST(:meta AS jsonb)
+                WHERE id = :id
+                """
+            ),
+            {
+                "id": log_id,
+                "oid": broker_order_id,
+                "pid": live_sim_position_id,
+                "meta": json.dumps(metadata_patch),
+            },
+        )
+    else:
+        store.session.execute(
+            text(
+                """
+                UPDATE live_sim_allocation_log
+                SET broker_order_id = :oid, live_sim_position_id = :pid
+                WHERE id = :id
+                """
+            ),
+            {"id": log_id, "oid": broker_order_id, "pid": live_sim_position_id},
+        )
+
+
+def find_allocation_by_canonical(
+    store: TradingStore,
+    account_id: str,
+    canonical_key: str,
+) -> dict | None:
+    row = store.session.execute(
+        text(
+            """
+            SELECT id::text, accepted, broker_order_id::text, live_sim_position_id::text,
+                   metadata, signal_candle_timestamp, symbol, timeframe, direction::text,
+                   proposed_entry, stop_loss, take_profit, calculated_risk_usd,
+                   calculated_quantity, strategy_slug, strategy_version, robot_label,
+                   opportunity_key, canonical_opportunity_key, created_at
+            FROM live_sim_allocation_log
+            WHERE broker_account_id = :aid AND canonical_opportunity_key = :key
+            LIMIT 1
+            """
+        ),
+        {"aid": account_id, "key": canonical_key},
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+def allocation_lifecycle_state(row: dict) -> str:
+    if row.get("live_sim_position_id") or row.get("broker_order_id"):
+        return "filled"
+    meta = row.get("metadata") or {}
+    if meta.get("expired"):
+        return "expired"
+    if not row.get("accepted"):
+        return "rejected"
+    if meta.get("pending_execution"):
+        return "pending_execution"
+    return "accepted"
+
+
+def update_allocation_metadata(
+    store: TradingStore,
+    log_id: str,
+    metadata_patch: dict[str, Any],
 ) -> None:
     store.session.execute(
         text(
             """
             UPDATE live_sim_allocation_log
-            SET broker_order_id = :oid, live_sim_position_id = :pid
+            SET metadata = metadata || CAST(:meta AS jsonb)
             WHERE id = :id
             """
         ),
-        {"id": log_id, "oid": broker_order_id, "pid": live_sim_position_id},
+        {"id": log_id, "meta": json.dumps(metadata_patch)},
     )
+
+
+def mark_allocation_expired(store: TradingStore, log_id: str, *, reason: str) -> None:
+    update_allocation_metadata(
+        store,
+        log_id,
+        {"pending_execution": False, "expired": True, "expiry_reason": reason},
+    )
+
+
+def expire_stale_live_sim_allocations(store: TradingStore, now: datetime) -> int:
+    from quantara_engine.execution.timing import intent_past_execution_window
+
+    rows = store.session.execute(
+        text(
+            """
+            SELECT id::text, signal_candle_timestamp, timeframe, created_at, metadata
+            FROM live_sim_allocation_log
+            WHERE accepted = TRUE
+              AND broker_order_id IS NULL
+              AND live_sim_position_id IS NULL
+              AND (metadata->>'pending_execution')::boolean IS TRUE
+              AND COALESCE((metadata->>'expired')::boolean, FALSE) = FALSE
+            """
+        )
+    ).mappings().all()
+    expired = 0
+    for row in rows:
+        exec_ts = row["signal_candle_timestamp"]
+        tf = str(row["timeframe"])
+        from quantara_engine.execution.timing import next_execution_timestamp
+
+        execution_ts = next_execution_timestamp(exec_ts, tf)
+        if intent_past_execution_window(
+            signal_candle_timestamp=exec_ts,
+            execution_candle_timestamp=execution_ts,
+            intent_created_at=row["created_at"],
+            timeframe=tf,
+            now=now,
+        ):
+            mark_allocation_expired(store, row["id"], reason="execution_window_passed")
+            expired += 1
+    return expired
 
 
 def list_recent_allocations(
@@ -138,7 +254,8 @@ def list_recent_allocations(
                    direction::text, signal_candle_timestamp, proposed_entry, stop_loss, take_profit,
                    calculated_risk_usd, calculated_quantity, accepted,
                    rejection_reason, rejection_detail, resulting_open_sl_risk_usd,
-                   symbol_sl_risk_pct, group_sl_risk_pct, group_name, created_at
+                   symbol_sl_risk_pct, group_sl_risk_pct, group_name,
+                   broker_order_id::text, live_sim_position_id::text, metadata, created_at
             FROM live_sim_allocation_log
             WHERE broker_account_id = :aid
             ORDER BY created_at DESC
@@ -150,11 +267,15 @@ def list_recent_allocations(
     out = []
     for r in rows:
         reason = r.get("rejection_reason")
+        meta = r.get("metadata") or {}
+        lifecycle = allocation_lifecycle_state(dict(r))
         out.append(
             {
                 **dict(r),
                 "rejection_reason_he": rejection_label_he(reason),
                 "direction": str(r["direction"]),
+                "lifecycle_state": lifecycle,
+                "metadata": meta,
             }
         )
     return out

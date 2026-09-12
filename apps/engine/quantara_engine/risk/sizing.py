@@ -167,10 +167,18 @@ def select_quantity_for_risk_budget(
     if min_qty_risk > max_risk:
         return Decimal("0"), min_qty_risk, "MIN_QUANTITY_EXCEEDS_RISK_BUDGET"
 
-    valid: list[tuple[Decimal, Decimal]] = []
-    for qty in generate_quantity_candidates(desired_quantity, step, min_qty):
+    floor_q = round_quantity(desired_quantity, step)
+    if floor_q < min_qty:
+        floor_q = min_qty
+
+    # Walk down from risk-sized floor — spread-aware risk rises with quantity, so the
+    # largest valid stepped qty under budget is typically below floor, not min_qty.
+    best_qty = Decimal("0")
+    best_risk = min_qty_risk
+    q = floor_q
+    while q >= min_qty:
         risk = _expected_risk_at_quantity(
-            qty,
+            q,
             direction=direction,
             entry_reference=entry_reference,
             stop_loss=stop_loss,
@@ -179,13 +187,13 @@ def select_quantity_for_risk_budget(
             execution_assumptions=execution_assumptions,
         )
         if risk <= max_risk:
-            valid.append((qty, risk))
+            best_qty, best_risk = q, risk
+            break
+        q -= step
 
-    if not valid:
+    if best_qty <= 0:
         return Decimal("0"), min_qty_risk, "MIN_QUANTITY_EXCEEDS_RISK_BUDGET"
 
-    # Closest to target; prefer lower risk when equally close (stay inside budget).
-    best_qty, best_risk = min(valid, key=lambda item: (abs(item[1] - target_risk), item[1]))
     return best_qty, best_risk, None
 
 

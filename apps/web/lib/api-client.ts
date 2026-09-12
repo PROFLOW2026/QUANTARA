@@ -939,6 +939,10 @@ export interface LiveSimAllocation {
   rejection_reason_he?: string;
   rejection_detail?: string | null;
   resulting_open_sl_risk_usd?: number | null;
+  broker_order_id?: string | null;
+  live_sim_position_id?: string | null;
+  lifecycle_state?: string | null;
+  metadata?: Record<string, unknown> | null;
   created_at: string;
 }
 

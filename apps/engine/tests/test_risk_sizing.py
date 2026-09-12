@@ -156,7 +156,7 @@ def test_rounding_tolerance_allows_slight_excess():
         risk_rounding_tolerance_pct=Decimal("2"),
     )
     assert deny is None
-    assert qty == Decimal("3000")
+    assert qty == Decimal("2000")
     assert target == Decimal("40.00")
     assert actual <= target * Decimal("1.02")
 

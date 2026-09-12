@@ -943,6 +943,16 @@ def _execute_strategy_cycle(
         if expired_intents:
             logger.info("Expired %d stale pending_execution intent(s)", expired_intents)
             _commit_progress(s)
+        if live_only and not historical_only:
+            from quantara_engine.live_sim.allocator import resume_all_pending_live_sim_allocations
+
+            live_sim_resume = resume_all_pending_live_sim_allocations(s, started_at)
+            if live_sim_resume.get("resumed") or live_sim_resume.get("expired"):
+                logger.info(
+                    "Live-sim pending resume: %s",
+                    live_sim_resume,
+                )
+                _commit_progress(s)
         if not s.list_competition_entries():
             logger.warning("No active competition portfolios — strategy runner idle")
             s.update_worker_status(

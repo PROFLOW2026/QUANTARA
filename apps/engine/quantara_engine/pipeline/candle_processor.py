@@ -99,6 +99,7 @@ class CandleProcessor:
         execution_now: datetime | None = None,
         manage_exits: bool = True,
         execute_pending_in_process: bool = False,
+        enforce_catchup_stale_guard: bool = True,
     ) -> None:
         self.state = portfolio_state
         self.instance = strategy_instance
@@ -115,6 +116,7 @@ class CandleProcessor:
         self.execution_now = execution_now or datetime.now(timezone.utc)
         self.manage_exits = manage_exits
         self.execute_pending_in_process = execute_pending_in_process
+        self.enforce_catchup_stale_guard = enforce_catchup_stale_guard
         if store is not None:
             store.mode = mode
             store.backtest_run_id = backtest_run_id
@@ -185,12 +187,17 @@ class CandleProcessor:
         )
         self._flush_store()
 
-    def _persist_intent(self, intent: OrderIntent, *, opportunity_key: str | None = None) -> None:
-        if not self.store or intent.id in self._persisted_intents:
-            return
-        self.store.save_order_intent(intent, opportunity_key=opportunity_key)
-        self._persisted_intents.add(intent.id)
+    def _persist_intent(
+        self, intent: OrderIntent, *, opportunity_key: str | None = None
+    ) -> OrderIntent | None:
+        if not self.store:
+            return intent
+        if intent.id in self._persisted_intents:
+            return intent
+        persisted = self.store.save_order_intent(intent, opportunity_key=opportunity_key)
+        self._persisted_intents.add(persisted.id)
         self._flush_store()
+        return persisted
 
     def _persist_execution(
         self,
@@ -580,7 +587,8 @@ class CandleProcessor:
                 )
                 continue
             if (
-                self.latest_completed_timestamp is not None
+                self.enforce_catchup_stale_guard
+                and self.latest_completed_timestamp is not None
                 and intent.execution_candle_timestamp is not None
                 and intent.execution_candle_timestamp < self.latest_completed_timestamp
             ):
@@ -685,6 +693,8 @@ class CandleProcessor:
                         candle.timestamp,
                     )
                 if self.store and getattr(self, "_broker_last_fill_id", None):
+                    from quantara_engine.broker.attribution import link_strategy_position_to_fill
+
                     link_strategy_position_to_fill(
                         self.store,
                         broker_fill_id=self._broker_last_fill_id,
@@ -815,6 +825,20 @@ class CandleProcessor:
         ):
             return
 
+        opportunity_key = opportunity_key_from_signal(
+            signal,
+            symbol=self.instrument.symbol,
+            timeframe=self.instance.timeframe,
+            strategy_slug=self.instance.strategy_slug,
+            setup_candle_timestamp=candle.timestamp,
+        )
+        if (
+            opportunity_key
+            and self.store
+            and self.store.opportunity_consumed(self.instance.id, opportunity_key)
+        ):
+            return
+
         asset = get_asset(self.instrument.symbol)
         if asset and signal.action in (SignalAction.BUY, SignalAction.SELL):
             if not session_allows_entries(asset.trading_sessions, candle.timestamp):
@@ -832,13 +856,6 @@ class CandleProcessor:
 
         ctx = self._currency_context()
         assumptions = execution_assumptions_for(self.instrument, candle.close)
-        opportunity_key = opportunity_key_from_signal(
-            signal,
-            symbol=self.instrument.symbol,
-            timeframe=self.instance.timeframe,
-            strategy_slug=self.instance.strategy_slug,
-            setup_candle_timestamp=candle.timestamp,
-        )
         decision = self.risk_engine.evaluate(
             RiskEvaluationInput(
                 signal=signal,
@@ -888,8 +905,11 @@ class CandleProcessor:
         intent.execution_candle_timestamp = self._next_execution_timestamp(
             candle, candle_index
         )
+        persisted = self._persist_intent(intent, opportunity_key=opportunity_key)
+        if persisted is None or persisted.status != IntentStatus.PENDING_EXECUTION:
+            return
+        intent = persisted
         self.pending_intents.append(intent)
-        self._persist_intent(intent, opportunity_key=opportunity_key)
         from quantara_engine.competition.leverage import compute_sizing_metrics, is_competition_portfolio
 
         metrics = compute_sizing_metrics(

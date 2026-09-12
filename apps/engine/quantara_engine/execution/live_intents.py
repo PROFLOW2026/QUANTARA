@@ -143,6 +143,7 @@ def execute_pending_intents_live(store: TradingStore, now: datetime | None = Non
                 allow_live_execution=True,
                 execution_now=now,
                 manage_exits=False,
+                enforce_catchup_stale_guard=False,
             )
             processor.all_candles = candles
             pending = store.list_pending_order_intents(portfolio.id, instance.id)
@@ -160,6 +161,8 @@ def execute_pending_intents_live(store: TradingStore, now: datetime | None = Non
             None,
         )
         if candle is None:
+            continue
+        if not is_bar_complete(candle.timestamp, instance.timeframe, now):
             continue
         candle_index = next(
             (idx for idx, row in enumerate(processor.all_candles) if row.timestamp == item.exec_ts),

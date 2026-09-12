@@ -12,6 +12,25 @@ type Props = {
   loading: boolean;
 };
 
+function liveSimAllocationStatusLabel(row: NonNullable<LiveSimAccountSummary["recent_decisions"]>[number]): string {
+  if (row.live_sim_position_id || row.lifecycle_state === "filled") {
+    return t("home.live_sim_state_filled");
+  }
+  if (row.broker_order_id) {
+    return t("home.live_sim_state_order_created");
+  }
+  if (row.lifecycle_state === "expired" || row.metadata?.expired === true) {
+    return t("home.live_sim_state_expired");
+  }
+  if (!row.accepted) {
+    return t("home.decision_rejected");
+  }
+  if (row.lifecycle_state === "pending_execution" || row.metadata?.pending_execution === true) {
+    return t("home.live_sim_state_pending");
+  }
+  return t("home.live_sim_state_accepted");
+}
+
 export function LiveSimDashboard({ data, loading }: Props) {
   if (loading && !data) {
     return <p className="text-muted">{t("common.loading")}</p>;
@@ -130,8 +149,8 @@ export function LiveSimDashboard({ data, loading }: Props) {
                 <p className="font-medium">
                   {row.robot_label ?? row.strategy_slug} — {row.symbol} ({row.timeframe})
                 </p>
-                <p className={row.accepted ? "text-success" : "text-warning"}>
-                  {row.accepted ? t("home.decision_accepted") : t("home.decision_rejected")}
+                <p className={row.accepted && row.lifecycle_state !== "expired" ? "text-success" : "text-warning"}>
+                  {liveSimAllocationStatusLabel(row)}
                   {row.calculated_risk_usd != null ? ` · סיכון: $${row.calculated_risk_usd.toFixed(2)}` : ""}
                 </p>
                 {!row.accepted && row.rejection_reason_he ? (
