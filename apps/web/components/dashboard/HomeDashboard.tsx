@@ -15,7 +15,10 @@ import {
   ProviderHealthPanel,
 } from "@/components/trading/ActiveAssetsPanel";
 import { BrokerAccountSummaryCards } from "@/components/trading/BrokerAccountSummaryCards";
-import { ExposureRiskSummaryCards } from "@/components/trading/ExposureRiskSummaryCards";
+import {
+  CombinedRiskRewardSummaryCard,
+  ExposureRiskSummaryCards,
+} from "@/components/trading/ExposureRiskSummaryCards";
 import { RiskConcentrationPanel } from "@/components/trading/RiskConcentrationPanel";
 import { Card, CardContent, CardHeader, CardTitle, SectionPanel } from "@/components/ui/card";
 import { useHomeDashboardPoll } from "@/hooks/useHomeDashboardPoll";
@@ -167,10 +170,10 @@ function HomeDashboardContent() {
           <p className="text-xs text-muted">{t("home.strategy_layer_hint")}</p>
         </div>
         <ExposureRiskSummaryCards summary={exposureSummary} loading={loading && !exposureSummary} />
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Card>
-            <CardHeader><CardTitle>{t("home.realized_pnl")}</CardTitle></CardHeader>
-            <CardContent>
+        <div className="mt-4 grid auto-rows-fr gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Card className="flex min-h-[7.25rem] flex-col">
+            <CardHeader className="mb-2 shrink-0"><CardTitle>{t("home.realized_pnl")}</CardTitle></CardHeader>
+            <CardContent className="mt-auto flex min-h-[2.25rem] items-end pb-0.5">
               {loading ? (
                 <span className="text-muted">{t("common.loading")}</span>
               ) : competitionUnavailable || combinedRealized == null ? (
@@ -180,9 +183,9 @@ function HomeDashboardContent() {
               )}
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader><CardTitle>{t("home.unrealized_pnl")}</CardTitle></CardHeader>
-            <CardContent>
+          <Card className="flex min-h-[7.25rem] flex-col">
+            <CardHeader className="mb-2 shrink-0"><CardTitle>{t("home.unrealized_pnl")}</CardTitle></CardHeader>
+            <CardContent className="mt-auto flex min-h-[2.25rem] items-end pb-0.5">
               {loading ? (
                 <span className="text-muted">{t("common.loading")}</span>
               ) : competitionUnavailable || combinedUnrealized == null ? (
@@ -192,9 +195,9 @@ function HomeDashboardContent() {
               )}
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader><CardTitle>{t("home.total_pnl")}</CardTitle></CardHeader>
-            <CardContent>
+          <Card className="flex min-h-[7.25rem] flex-col">
+            <CardHeader className="mb-2 shrink-0"><CardTitle>{t("home.total_pnl")}</CardTitle></CardHeader>
+            <CardContent className="mt-auto flex min-h-[2.25rem] items-end pb-0.5">
               {loading ? (
                 <span className="text-muted">{t("common.loading")}</span>
               ) : competitionUnavailable || combinedTotalPnl == null ? (
@@ -204,6 +207,10 @@ function HomeDashboardContent() {
               )}
             </CardContent>
           </Card>
+          <CombinedRiskRewardSummaryCard
+            summary={exposureSummary}
+            loading={loading && !exposureSummary}
+          />
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Card>

@@ -81,6 +81,34 @@ function SummaryMetricCard({
   );
 }
 
+export function CombinedRiskRewardSummaryCard({
+  summary,
+  loading,
+}: {
+  summary: AssetAnalyticsSummary | null | undefined;
+  loading?: boolean;
+}) {
+  const hasOpenPositions = (summary?.open_position_count ?? 0) > 0;
+  const combinedRrLabel =
+    summary?.combined_risk_reward != null
+      ? formatRiskRewardLabel(summary.combined_risk_reward)
+      : hasOpenPositions
+        ? t("home.risk_reward_unavailable")
+        : "—";
+
+  return (
+    <SummaryMetricCard title={t("home.combined_risk_reward_title")} loading={loading}>
+      {hasOpenPositions && summary?.combined_risk_reward == null ? (
+        <p className="text-[clamp(0.6875rem,0.75vw+0.4rem,0.8125rem)] leading-snug text-financial">
+          {combinedRrLabel}
+        </p>
+      ) : (
+        <FinancialValue className="w-full">{combinedRrLabel}</FinancialValue>
+      )}
+    </SummaryMetricCard>
+  );
+}
+
 export function ExposureRiskSummaryCards({
   summary,
   loading,
@@ -95,15 +123,9 @@ export function ExposureRiskSummaryCards({
       : hasOpenPositions
         ? t("home.target_profit_partial")
         : formatTargetProfitOrUnavailable(0);
-  const combinedRrLabel =
-    summary?.combined_risk_reward != null
-      ? formatRiskRewardLabel(summary.combined_risk_reward)
-      : hasOpenPositions
-        ? t("home.risk_reward_unavailable")
-        : "—";
 
   return (
-    <div className="grid auto-rows-fr gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+    <div className="grid auto-rows-fr gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       <SummaryMetricCard
         highlight
         title={t("home.open_exposure_title")}
@@ -141,15 +163,6 @@ export function ExposureRiskSummaryCards({
           </p>
         ) : (
           <FinancialValue className="w-full">{targetProfitLabel}</FinancialValue>
-        )}
-      </SummaryMetricCard>
-      <SummaryMetricCard title={t("home.combined_risk_reward_title")} loading={loading}>
-        {hasOpenPositions && summary?.combined_risk_reward == null ? (
-          <p className="text-[clamp(0.6875rem,0.75vw+0.4rem,0.8125rem)] leading-snug text-financial">
-            {combinedRrLabel}
-          </p>
-        ) : (
-          <FinancialValue className="w-full">{combinedRrLabel}</FinancialValue>
         )}
       </SummaryMetricCard>
     </div>
