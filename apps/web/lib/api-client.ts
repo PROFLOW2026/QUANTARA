@@ -921,8 +921,131 @@ export interface BrokerRejection {
   portfolio_id?: string | null;
 }
 
+export interface LiveSimAllocation {
+  id: string;
+  strategy_slug: string;
+  robot_label?: string | null;
+  symbol: string;
+  timeframe: string;
+  direction: string;
+  signal_candle_timestamp: string;
+  proposed_entry?: number | null;
+  stop_loss?: number | null;
+  take_profit?: number | null;
+  calculated_risk_usd?: number | null;
+  calculated_quantity?: number | null;
+  accepted: boolean;
+  rejection_reason?: string | null;
+  rejection_reason_he?: string;
+  rejection_detail?: string | null;
+  resulting_open_sl_risk_usd?: number | null;
+  created_at: string;
+}
+
+export interface LiveSimAccountSummary {
+  available: boolean;
+  slug?: string;
+  label_he?: string;
+  starting_capital?: number;
+  equity?: number;
+  cash?: number;
+  balance?: number;
+  available_margin?: number;
+  realized_pnl?: number;
+  unrealized_pnl?: number;
+  daily_pnl?: number;
+  total_return_pct?: number;
+  high_water_mark?: number;
+  current_drawdown_pct?: number;
+  max_drawdown_pct?: number;
+  open_sl_risk_usd?: number;
+  open_sl_risk_pct?: number;
+  gross_exposure?: number;
+  net_exposure?: number;
+  fees_paid?: number;
+  started_at?: string | null;
+  runtime_duration_he?: string | null;
+  closed_trades_count?: number;
+  win_rate_pct?: number;
+  open_positions?: Array<{
+    id: string;
+    symbol: string;
+    direction: string;
+    robot?: string | null;
+    strategy_slug: string;
+    timeframe: string;
+    quantity: number;
+    entry_price: number;
+    current_price: number;
+    stop_loss: number;
+    take_profit?: number | null;
+    planned_sl_risk_usd: number;
+    unrealized_pnl: number;
+    opened_at?: string | null;
+  }>;
+  candidates?: {
+    total: number;
+    accepted: number;
+    rejected: number;
+    acceptance_rate_pct: number;
+  };
+  recent_decisions?: LiveSimAllocation[];
+  risk_settings?: {
+    risk_per_trade_pct: number;
+    max_total_open_sl_risk_pct: number;
+    max_symbol_sl_risk_pct: number;
+    max_group_sl_risk_pct: number;
+    daily_loss_gate_pct: number;
+    max_drawdown_gate_pct: number;
+    concentration_mode: string;
+    risk_per_trade_usd_approx: number;
+  };
+}
+
+export interface LiveSimCompareSummary {
+  available: boolean;
+  research?: {
+    label_he: string;
+    return_pct: number;
+    current_drawdown_pct: number;
+    max_drawdown_pct: number;
+    win_rate_pct: number;
+    closed_trades: number;
+    open_positions: number;
+    sl_risk_pct: number;
+    gross_exposure_pct: number;
+    realized_pnl: number;
+    unrealized_pnl: number;
+    fees_paid: number;
+    equity: number;
+    starting_capital: number;
+  };
+  live_sim?: {
+    label_he: string;
+    return_pct: number;
+    current_drawdown_pct: number;
+    max_drawdown_pct: number;
+    win_rate_pct: number;
+    closed_trades: number;
+    open_positions: number;
+    sl_risk_pct: number;
+    gross_exposure_pct: number;
+    realized_pnl: number;
+    unrealized_pnl: number;
+    fees_paid: number;
+    equity: number;
+    starting_capital: number;
+    candidates_total?: number;
+    candidates_accepted?: number;
+    candidates_rejected?: number;
+    acceptance_rate_pct?: number;
+  };
+}
+
 export const api = {
   getBrokerAccount: () => apiFetch<BrokerAccountSummary>("/broker/account"),
+  getLiveSimAccount: () => apiFetch<LiveSimAccountSummary>("/live-sim/account"),
+  getLiveSimCompare: () => apiFetch<LiveSimCompareSummary>("/live-sim/compare"),
   getBrokerRejections: (limit = 100) =>
     apiFetch<{ available: boolean; rejections: BrokerRejection[] }>(
       `/broker/rejections?limit=${limit}`

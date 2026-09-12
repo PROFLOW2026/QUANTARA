@@ -6,6 +6,8 @@ import {
   isEngineConnectionError,
   type AssetAnalyticsResponse,
   type BrokerAccountSummary,
+  type LiveSimAccountSummary,
+  type LiveSimCompareSummary,
   type RiskConcentrationResponse,
   type Decision,
   type MarketProviderStatus,
@@ -39,6 +41,8 @@ export function useHomeDashboardPoll() {
   );
   const [marketStatus, setMarketStatus] = useState<MarketProviderStatus | null>(null);
   const [brokerAccount, setBrokerAccount] = useState<BrokerAccountSummary | null>(null);
+  const [liveSimAccount, setLiveSimAccount] = useState<LiveSimAccountSummary | null>(null);
+  const [liveSimCompare, setLiveSimCompare] = useState<LiveSimCompareSummary | null>(null);
   const [riskConcentration, setRiskConcentration] = useState<RiskConcentrationResponse | null>(
     null
   );
@@ -116,6 +120,20 @@ export function useHomeDashboardPoll() {
       const brokerResult = await settle(api.getBrokerAccount());
       if (brokerResult.ok) {
         setBrokerAccount(brokerResult.value);
+      } else {
+        partialFailure = true;
+      }
+
+      const liveSimResult = await settle(api.getLiveSimAccount());
+      if (liveSimResult.ok) {
+        setLiveSimAccount(liveSimResult.value);
+      } else {
+        partialFailure = true;
+      }
+
+      const compareResult = await settle(api.getLiveSimCompare());
+      if (compareResult.ok) {
+        setLiveSimCompare(compareResult.value);
       } else {
         partialFailure = true;
       }
@@ -216,6 +234,8 @@ export function useHomeDashboardPoll() {
     competition,
     assetAnalytics,
     brokerAccount,
+    liveSimAccount,
+    liveSimCompare,
     riskConcentration,
     marketStatus,
     engineHealthy,

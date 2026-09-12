@@ -1,6 +1,11 @@
 "use client";
 
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { PageHeader, WorkerIndicator, EngineConnectionError } from "@/components/layout/PageHeader";
+import { CompareDashboard } from "@/components/dashboard/CompareDashboard";
+import { HomeViewSwitcher, parseHomeView } from "@/components/dashboard/HomeViewSwitcher";
+import { LiveSimDashboard } from "@/components/dashboard/LiveSimDashboard";
 import { MetricCardCurrency } from "@/components/trading/MetricCard";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import { LatestDecisionsPanel } from "@/components/trading/LatestDecisionsPanel";
@@ -17,7 +22,9 @@ import { useHomeDashboardPoll } from "@/hooks/useHomeDashboardPoll";
 import { t } from "@/lib/i18n";
 import { formatPercent } from "@/lib/utils";
 
-export function HomeDashboard() {
+function HomeDashboardContent() {
+  const searchParams = useSearchParams();
+  const view = parseHomeView(searchParams.get("view"));
   const {
     assetDecisions,
     today,
@@ -25,6 +32,8 @@ export function HomeDashboard() {
     competition,
     assetAnalytics,
     brokerAccount,
+    liveSimAccount,
+    liveSimCompare,
     riskConcentration,
     marketStatus,
     engineHealthy,
@@ -71,9 +80,46 @@ export function HomeDashboard() {
   const freshness = workers?.strategy_freshness ?? strategyRunner?.freshness;
   const engineStatusHealthy = engineHealthy === true;
 
+  if (view === "live-sim") {
+    return (
+      <>
+        <PageHeader titleKey="home.title" />
+        <Suspense fallback={null}>
+          <HomeViewSwitcher />
+        </Suspense>
+        {engineConnectionError ? (
+          <div className="mb-4">
+            <EngineConnectionError onRetry={() => void refresh()} />
+          </div>
+        ) : null}
+        <LiveSimDashboard data={liveSimAccount} loading={loading} />
+      </>
+    );
+  }
+
+  if (view === "compare") {
+    return (
+      <>
+        <PageHeader titleKey="home.title" />
+        <Suspense fallback={null}>
+          <HomeViewSwitcher />
+        </Suspense>
+        {engineConnectionError ? (
+          <div className="mb-4">
+            <EngineConnectionError onRetry={() => void refresh()} />
+          </div>
+        ) : null}
+        <CompareDashboard data={liveSimCompare} loading={loading} />
+      </>
+    );
+  }
+
   return (
     <>
       <PageHeader titleKey="home.title" />
+      <Suspense fallback={null}>
+        <HomeViewSwitcher />
+      </Suspense>
 
       {engineConnectionError ? (
         <div className="mb-4">
@@ -329,5 +375,13 @@ export function HomeDashboard() {
         </Card>
       ) : null}
     </>
+  );
+}
+
+export function HomeDashboard() {
+  return (
+    <Suspense fallback={<p className="text-muted">{t("common.loading")}</p>}>
+      <HomeDashboardContent />
+    </Suspense>
   );
 }

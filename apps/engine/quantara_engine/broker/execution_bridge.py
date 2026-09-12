@@ -48,6 +48,7 @@ def execute_through_broker(
     order_purpose: str = "entry",
     is_liquidation: bool = False,
     skip_if_not_competition: bool = True,
+    account_slug: str | None = None,
 ) -> BrokerExecutionResult | None:
     """
     Canonical broker gate + fill persistence.
@@ -57,7 +58,7 @@ def execute_through_broker(
     if skip_if_not_competition and not should_use_broker_realism(portfolio_id):
         return None
 
-    svc = BrokerExecutionService(store)
+    svc = BrokerExecutionService(store, account_slug=account_slug)
     account_id = svc.get_account_id()
     if is_close and account_id:
         physical_qty = resolve_physical_exit_quantity(

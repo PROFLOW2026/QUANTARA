@@ -269,6 +269,20 @@ def _process_candle_batch(
             processor.process_candle(candle_index, shared_signal=effective_signal)
         total_decisions += len(processor.decisions)
 
+    if allow_live_execution and shared_signal is not None:
+        from quantara_engine.live_sim.allocator import maybe_allocate_live_sim
+
+        maybe_allocate_live_sim(
+            s,
+            entry=group[0],
+            instrument=instrument,
+            candle=candle,
+            candles=candles,
+            candle_index=candle_index,
+            signal=shared_signal,
+            execution_now=started_at,
+        )
+
     if allow_live_execution:
         s.flush()
 

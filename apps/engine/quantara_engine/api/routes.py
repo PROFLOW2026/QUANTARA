@@ -677,6 +677,39 @@ def broker_account_summary(store: StoreDep):
     }
 
 
+@router.get("/live-sim/account")
+def live_sim_account_summary(store: StoreDep):
+    from quantara_engine.live_sim.analytics import build_live_sim_summary
+
+    return build_live_sim_summary(store)
+
+
+@router.get("/live-sim/allocations")
+def live_sim_allocations(store: StoreDep, limit: int = 50):
+    from quantara_engine.broker.accounts import LIVE_SIM_10K_ACCOUNT_SLUG
+    from quantara_engine.live_sim.candidate_log import list_recent_allocations
+
+    row = store.session.execute(
+        __import__("sqlalchemy").text(
+            "SELECT id::text FROM broker_accounts WHERE slug = :slug"
+        ),
+        {"slug": LIVE_SIM_10K_ACCOUNT_SLUG},
+    ).first()
+    if not row:
+        return {"available": False, "allocations": []}
+    return {
+        "available": True,
+        "allocations": list_recent_allocations(store, row[0], limit=min(limit, 200)),
+    }
+
+
+@router.get("/live-sim/compare")
+def live_sim_compare(store: StoreDep):
+    from quantara_engine.live_sim.analytics import build_comparison_summary
+
+    return build_comparison_summary(store)
+
+
 @router.get("/portfolio/risk-status")
 def portfolio_risk_status(store: StoreDep, portfolio_id: str = "competition"):
     portfolio = _resolve_portfolio(store, portfolio_id)

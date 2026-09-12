@@ -34,9 +34,8 @@ from quantara_engine.broker.types import (
 from quantara_engine.domain.types import Direction, Instrument, IntentStatus, OrderIntent
 from quantara_engine.execution.fill_calculator import FillResult
 from quantara_engine.persistence.store import TradingStore
+from quantara_engine.broker.accounts import PAPER_ACCOUNT_SLUG, RESEARCH_PAPER_ACCOUNT_SLUG
 from quantara_engine.portfolio.currency import quote_currencies_for_instruments, resolve_dashboard_fx_rates
-
-PAPER_ACCOUNT_SLUG = "quantara_paper_competition"
 
 
 @dataclass
@@ -62,9 +61,12 @@ class BrokerExecutionResult:
 class BrokerExecutionService:
     """Persisted paper broker — NETTING mode only."""
 
-    def __init__(self, store: TradingStore) -> None:
+    def __init__(self, store: TradingStore, *, account_slug: str | None = None) -> None:
         self.store = store
-        self.profile = QUANTARA_STANDARD_PAPER
+        self.account_slug = account_slug or PAPER_ACCOUNT_SLUG
+        from quantara_engine.broker.profile import profile_for_account_slug
+
+        self.profile = profile_for_account_slug(self.account_slug)
 
     def _tables_ready(self) -> bool:
         try:
@@ -85,7 +87,7 @@ class BrokerExecutionService:
                     FROM broker_accounts WHERE slug = :slug
                     """
                 ),
-                {"slug": PAPER_ACCOUNT_SLUG},
+                {"slug": self.account_slug},
             ).mappings().first()
         except Exception:
             row = self.store.session.execute(
@@ -96,7 +98,7 @@ class BrokerExecutionService:
                     FROM broker_accounts WHERE slug = :slug
                     """
                 ),
-                {"slug": PAPER_ACCOUNT_SLUG},
+                {"slug": self.account_slug},
             ).mappings().first()
             if row:
                 d = dict(row)

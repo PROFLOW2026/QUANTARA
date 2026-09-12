@@ -12,17 +12,29 @@ def build_competition_broker_account(
     store: TradingStore,
     *,
     profile: BrokerProfile | None = None,
+    account_slug: str | None = None,
 ) -> BrokerAccountSnapshot:
     """Canonical paper broker account — DB truth, not strategy leg aggregation."""
     profile = profile or QUANTARA_STANDARD_PAPER
-    service = BrokerExecutionService(store)
+    service = BrokerExecutionService(store, account_slug=account_slug)
     snapshot = service.load_account_snapshot()
     if snapshot.profile_slug != profile.slug:
         return snapshot
     return snapshot
 
 
-def list_broker_positions(store: TradingStore) -> list[dict]:
+def build_live_sim_broker_account(store: TradingStore) -> BrokerAccountSnapshot:
+    from quantara_engine.broker.accounts import LIVE_SIM_10K_ACCOUNT_SLUG
+    from quantara_engine.broker.profile import QUANTARA_LIVE_SIM_10K
+
+    return build_competition_broker_account(
+        store,
+        profile=QUANTARA_LIVE_SIM_10K,
+        account_slug=LIVE_SIM_10K_ACCOUNT_SLUG,
+    )
+
+
+def list_broker_positions(store: TradingStore, *, account_slug: str | None = None) -> list[dict]:
     """Net broker positions from broker_positions table."""
     from sqlalchemy import text
 
@@ -35,10 +47,11 @@ def list_broker_positions(store: TradingStore) -> list[dict]:
                 FROM broker_positions bp
                 JOIN broker_accounts ba ON ba.id = bp.broker_account_id
                 JOIN instruments i ON i.id = bp.instrument_id
-                WHERE ba.slug = 'quantara_paper_competition'
+                WHERE ba.slug = :slug
                 ORDER BY i.symbol
                 """
-            )
+            ),
+            {"slug": account_slug or "quantara_paper_competition"},
         ).mappings().all()
     except Exception:
         return []
