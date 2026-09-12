@@ -615,6 +615,21 @@ export interface RiskConcentrationGroupRow {
   robot_count: number;
 }
 
+export interface RegimePerformanceRow {
+  robot_label: string;
+  structure_regime: string;
+  volatility_regime: string;
+  risk_slug: string;
+  trades: number;
+  win_rate: number;
+  realized_pnl: number;
+  fees: number;
+  long_trades: number;
+  short_trades: number;
+  average_r: number | null;
+  average_trade: number;
+}
+
 export interface RiskConcentrationResponse {
   mode: string;
   broker_equity_usd: number;
@@ -986,6 +1001,10 @@ export const api = {
     apiFetch<AssetAnalyticsResponse>("/analytics/assets"),
   getRiskConcentration: () =>
     apiFetch<RiskConcentrationResponse>("/analytics/risk-concentration"),
+  getRegimePerformance: () =>
+    apiFetch<{ rows: RegimePerformanceRow[]; trade_count: number }>(
+      "/analytics/regime-performance"
+    ),
   getEngineHealth: () => apiFetch<EngineHealthResponse>("/health"),
   getWorkersStatus: () => apiFetch<WorkerStatus>("/workers/status"),
   getSettings: () => apiFetch<Settings>("/settings"),

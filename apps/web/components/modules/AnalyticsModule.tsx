@@ -34,11 +34,17 @@ import {
 
   type AnalyticsCosts,
 
+  type RegimePerformanceRow,
   type StrategyBreakdownItem,
 
 } from "@/lib/api-client";
 
-import { formatMetricOrInsufficient } from "@/lib/display-text";
+import {
+  formatMetricOrInsufficient,
+  translateRobotStrategyLabel,
+  translateStructureRegime,
+  translateVolatilityRegime,
+} from "@/lib/display-text";
 
 import { t } from "@/lib/i18n";
 import type { ModuleProps } from "@/lib/modal-workspace/types";
@@ -66,6 +72,7 @@ export default function AnalyticsModule({ embedded }: ModuleProps) {
   const [strategyBreakdown, setStrategyBreakdown] = useState<StrategyBreakdownItem[]>([]);
 
   const [costs, setCosts] = useState<AnalyticsCosts | null>(null);
+  const [regimeRows, setRegimeRows] = useState<RegimePerformanceRow[]>([]);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -96,10 +103,11 @@ export default function AnalyticsModule({ embedded }: ModuleProps) {
           setStrategy(strategyData);
           setStrategyBreakdown(breakdownData.strategies);
 
+        } else if (tab === "regime") {
+          const payload = await api.getRegimePerformance();
+          setRegimeRows(payload.rows ?? []);
         } else {
-
           setCosts(await api.getAnalyticsCosts());
-
         }
 
       } catch (e) {
@@ -127,7 +135,7 @@ export default function AnalyticsModule({ embedded }: ModuleProps) {
     { id: "strategy", label: t("analytics.tab_strategy") },
 
     { id: "costs", label: t("analytics.tab_costs") },
-
+    { id: "regime", label: t("analytics.tab_regime") },
   ];
 
 
@@ -408,18 +416,48 @@ export default function AnalyticsModule({ embedded }: ModuleProps) {
 
         </div>
 
+      ) : tab === "regime" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("analytics.regime_performance_title")}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {regimeRows.length === 0 ? (
+              <p className="text-sm text-muted">{t("analytics.regime_performance_empty")}</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("strategies.robot")}</TableHead>
+                    <TableHead>{t("home.market_regime_structure")}</TableHead>
+                    <TableHead>{t("home.market_regime_volatility")}</TableHead>
+                    <TableHead>{t("strategies.trades_count")}</TableHead>
+                    <TableHead>{t("analytics.win_rate")}</TableHead>
+                    <TableHead>{t("analytics.realized_pnl")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {regimeRows.map((row, index) => (
+                    <TableRow key={`${row.robot_label}-${row.structure_regime}-${index}`}>
+                      <TableCell>{translateRobotStrategyLabel(row.robot_label)}</TableCell>
+                      <TableCell>{translateStructureRegime(row.structure_regime)}</TableCell>
+                      <TableCell>{translateVolatilityRegime(row.volatility_regime)}</TableCell>
+                      <TableCell>{row.trades}</TableCell>
+                      <TableCell>{formatPercent(row.win_rate)}</TableCell>
+                      <TableCell>{formatCurrency(row.realized_pnl)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
       ) : (
-
         <div className="grid gap-4 sm:grid-cols-3">
-
           <MetricCardCurrency label={t("analytics.total_fees")} value={costs?.total_fees ?? 0} />
-
           <MetricCardCurrency label={t("analytics.total_slippage")} value={costs?.total_slippage ?? 0} />
-
           <MetricCardCurrency label={t("analytics.spread_impact")} value={costs?.spread_impact ?? 0} />
-
         </div>
-
       )}
 
     </>
