@@ -55,7 +55,30 @@ jobs:
 
       - name: Provision broker test database
         working-directory: apps/engine
-        run: python -c "from tests.broker_integration_support import _provision_local_database; url = _provision_local_database(); print('provisioned', url); assert url"
+        run: |
+          python -c "
+          import traceback
+          import psycopg2
+          from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+          from tests import broker_integration_support as bis
+          try:
+              admin = psycopg2.connect(bis._admin_dsn())
+              admin.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+              cur = admin.cursor()
+              cur.execute(\"DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'quantara') THEN CREATE ROLE quantara LOGIN PASSWORD 'quantara'; END IF; END \$\$;\")
+              cur.execute(f'DROP DATABASE IF EXISTS \"{bis.BROKER_TEST_DB_NAME}\" WITH (FORCE)')
+              cur.execute(f'CREATE DATABASE \"{bis.BROKER_TEST_DB_NAME}\" OWNER quantara')
+              admin.close()
+              print('db ok', flush=True)
+              bis._apply_all_migrations(bis.BROKER_TEST_DATABASE_URL)
+              print('migrations ok', flush=True)
+              bis._seed_disposable_competition_data(bis.BROKER_TEST_DATABASE_URL)
+              print('seed ok', flush=True)
+          except Exception as exc:
+              print(f'::error title=Provision failed::{exc}')
+              traceback.print_exc()
+              raise
+          "
 
       - name: Run broker integration tests
         working-directory: apps/engine
