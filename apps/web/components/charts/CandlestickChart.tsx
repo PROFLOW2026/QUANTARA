@@ -52,6 +52,15 @@ function formatAxisTime(iso: string): string {
   }
 }
 
+/** Narrower bodies when many candles are visible; always leave side gaps in each slot. */
+function resolveCandleBodyWidth(bandwidth: number, candleCount: number): number {
+  const bodyFillRatio =
+    candleCount >= 180 ? 0.4 : candleCount >= 120 ? 0.44 : candleCount >= 60 ? 0.48 : 0.52;
+  const minBody = candleCount >= 150 ? 2 : 3;
+  const maxBody = bandwidth * 0.56;
+  return Math.min(Math.max(bandwidth * bodyFillRatio, minBody), maxBody);
+}
+
 function CandlestickLayer(props: {
   xAxisMap?: Record<string, { scale: (v: string) => number; bandwidth?: () => number }>;
   yAxisMap?: Record<string, { scale: (v: number) => number }>;
@@ -63,6 +72,7 @@ function CandlestickLayer(props: {
   const xAxis = Object.values(xAxisMap)[0];
   const yAxis = Object.values(yAxisMap)[0];
   const bandwidth = xAxis.bandwidth?.() ?? 12;
+  const bodyWidth = resolveCandleBodyWidth(bandwidth, data.length);
 
   return (
     <g>
@@ -76,7 +86,6 @@ function CandlestickLayer(props: {
         const bodyTop = Math.min(yOpen, yClose);
         const bodyBottom = Math.max(yOpen, yClose);
         const bodyHeight = Math.max(bodyBottom - bodyTop, 1);
-        const bodyWidth = Math.max(bandwidth * 0.65, 4);
 
         return (
           <g key={c.time}>
@@ -139,7 +148,11 @@ export function CandlestickChart({
 
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <ComposedChart data={chartData} margin={{ ...CHART_DEFAULTS.margin, bottom: 4 }}>
+      <ComposedChart
+        data={chartData}
+        margin={{ ...CHART_DEFAULTS.margin, bottom: 4 }}
+        barCategoryGap="20%"
+      >
         <CartesianGrid {...gridStyle} />
         <XAxis
           dataKey="time"
