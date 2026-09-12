@@ -367,6 +367,7 @@
     "open_positions_empty": "אין פוזיציות פתוחות בנכס זה",
     "closed_trades_empty": "אין עסקאות סגורות בנכס זה",
     "closed_at": "נסגר ב",
+    "engine_inline_label": "מנוע",
     "view_research": "מחקר",
     "view_live_sim": "סימולציית $10,000",
     "view_compare": "השוואה",

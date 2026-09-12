@@ -18,22 +18,17 @@ export function parseHomeView(raw: string | null): HomeView {
 }
 
 function EngineInlineStatus({ healthy }: { healthy: boolean | null | undefined }) {
-  if (healthy === null || healthy === undefined) {
-    return (
-      <span className="inline-flex items-center gap-1 text-xs font-normal opacity-70">
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-slate-500" />
-        <span>…</span>
-      </span>
-    );
-  }
+  const dotClass =
+    healthy === null || healthy === undefined
+      ? "bg-slate-500"
+      : healthy
+        ? "bg-profit"
+        : "bg-loss";
 
   return (
     <span className="inline-flex items-center gap-1 text-xs font-normal opacity-90">
-      <span
-        className={cn("h-1.5 w-1.5 shrink-0 rounded-full", healthy ? "bg-profit" : "bg-loss")}
-        aria-hidden
-      />
-      <span>{healthy ? t("home.workers_healthy") : t("home.workers_unhealthy")}</span>
+      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotClass)} aria-hidden />
+      <span>{t("home.engine_inline_label")}</span>
     </span>
   );
 }
