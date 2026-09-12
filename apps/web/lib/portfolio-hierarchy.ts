@@ -33,8 +33,8 @@ export function extractAssetFromPortfolio(
   portfolio: Pick<CompetitionPortfolioSummary, "name" | "robot_label">
 ): string {
   const name = portfolio.name ?? "";
-  if (name.startsWith("ORB ")) {
-    const rest = name.slice(4);
+  if (name.startsWith("ORB ") || name.startsWith("MR ") || name.startsWith("SQZ ") || name.startsWith("MOM ")) {
+    const rest = name.replace(/^(ORB|MR|SQZ|MOM)\s+/, "");
     const raw = rest.split(" — ")[0]?.trim() ?? rest.trim();
     return dbSymbolToDisplay(raw);
   }
@@ -116,9 +116,15 @@ export function groupPortfoliosByHierarchy(
     const byRobot = new Map<string, CompetitionPortfolioSummary[]>();
     for (const portfolio of assetPortfolios) {
       const robotKey =
-        portfolio.robot_label === "Robot B" || portfolio.strategy_slug === "opening-range-breakout"
+        portfolio.strategy_slug === "opening-range-breakout" || portfolio.robot_label === "Robot B"
           ? "robot_b"
-          : "robot_a";
+          : portfolio.strategy_slug === "mean-reversion" || portfolio.robot_label === "Robot C"
+            ? "robot_c"
+            : portfolio.strategy_slug === "volatility-squeeze" || portfolio.robot_label === "Robot D"
+              ? "robot_d"
+              : portfolio.strategy_slug === "momentum-continuation" || portfolio.robot_label === "Robot E"
+                ? "robot_e"
+                : "robot_a";
       const bucket = byRobot.get(robotKey) ?? [];
       bucket.push(portfolio);
       byRobot.set(robotKey, bucket);

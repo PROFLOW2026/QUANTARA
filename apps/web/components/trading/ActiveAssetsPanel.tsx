@@ -17,6 +17,8 @@ import {
   providerHasTechnicalDetails,
   translateDataStatus,
   translateProviderStatus,
+  translateStructureRegime,
+  translateVolatilityRegime,
 } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
 import { formatCurrency, formatPercent, formatRelativeTime } from "@/lib/utils";
@@ -293,6 +295,7 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
               <th className="px-1 py-2 text-right">{t("home.asset_price")}</th>
               <th className="px-1 py-2 text-right">{t("home.asset_freshness")}</th>
               <th className="px-1 py-2 text-right">{t("home.asset_session")}</th>
+              <th className="px-1 py-2 text-right">{t("home.market_regime_title")}</th>
               <th className="px-1 py-2 text-right">{t("home.open_positions")}</th>
               <th className="px-1 py-2 text-right">{t("home.closed_trades")}</th>
               <th className="px-1 py-2 text-right">{t("home.realized_pnl")}</th>
@@ -316,6 +319,18 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
                 </td>
                 <td className="truncate px-1 py-2">
                   {t(`home.session_${asset.session_status}`)}
+                </td>
+                <td className="px-1 py-2 text-xs">
+                  {asset.market_regime ? (
+                    <div>
+                      <div>{translateStructureRegime(asset.market_regime.structure_regime)}</div>
+                      <div className="text-muted">
+                        {translateVolatilityRegime(asset.market_regime.volatility_regime)}
+                      </div>
+                    </div>
+                  ) : (
+                    "—"
+                  )}
                 </td>
                 <td className="px-1 py-2 text-right">
                   <CountDrilldownLink

@@ -1,0 +1,1 @@
+"""Volatility squeeze strategy package."""

@@ -20,6 +20,7 @@ from quantara_engine.execution.paper_broker import PaperBrokerAdapter
 from quantara_engine.execution.strategy_scheduling import (
     ROBOT_A_LIVE_CURSOR_KEY,
     ROBOT_B_ORB_LIVE_CURSOR_KEY,
+    ROBOT_CDE_LIVE_CURSOR_KEY,
     load_scheduling_cursor,
     rotated_indices,
     save_scheduling_cursor,
@@ -43,8 +44,9 @@ CANDLE_LOOKBACK = STRATEGY_MIN_CANDLES + 50
 MAX_HISTORICAL_DECISIONS_PER_RUN = 50
 # Live envelope (~5 min). Each robot gets a guaranteed slice so one backlog cannot starve the other.
 LIVE_CYCLE_MAX_SECONDS = 300
-LIVE_ROBOT_A_BUDGET_SEC = 180
-LIVE_ROBOT_B_BUDGET_SEC = 90
+LIVE_ROBOT_A_BUDGET_SEC = 150
+LIVE_ROBOT_B_BUDGET_SEC = 75
+LIVE_ROBOT_CDE_BUDGET_SEC = 75
 HISTORICAL_CYCLE_MAX_SECONDS = 240
 STRATEGY_STALL_THRESHOLD_MINUTES = 12
 
@@ -645,12 +647,15 @@ def _process_competition(
     time_budget_sec: float,
 ) -> int:
     from quantara_engine.competition.constants import TIMEFRAME_ORDER
+    from quantara_engine.competition.multi_strategy_constants import MULTI_STRATEGY_TIMEFRAME
     from quantara_engine.competition.orb_constants import ORB_ASSETS, ORB_TIMEFRAME
+    from quantara_engine.market_data.active_universe import list_active_db_symbols
 
     settings_dict = s.get_settings_dict()
     cycle_t0 = time.perf_counter()
     robot_a = s.list_competition_entries()
     orb_entries = s.list_orb_competition_entries()
+    cde_entries = s.list_multi_strategy_competition_entries()
 
     if live_only and not historical_only:
         # Guaranteed fair scheduling: Robot B cannot be starved by Robot A backlog.
@@ -697,6 +702,31 @@ def _process_competition(
             deadline_b,
         )
         robot_b_duration_ms = round((time.perf_counter() - robot_b_t0) * 1000, 1)
+
+        robot_cde_t0 = time.perf_counter()
+        deadline_cde = robot_cde_t0 + LIVE_ROBOT_CDE_BUDGET_SEC
+        (
+            groups_cde,
+            touched_cde,
+            decisions_cde,
+            tf_cde,
+            inst_cde,
+            skipped_cde,
+        ) = _process_experiment(
+            s,
+            cde_entries,
+            list(list_active_db_symbols()),
+            (MULTI_STRATEGY_TIMEFRAME,),
+            settings_dict,
+            started_at,
+            live_only=True,
+            historical_only=False,
+            time_budget_sec=LIVE_ROBOT_CDE_BUDGET_SEC,
+            deadline=deadline_cde,
+            per_portfolio_eval=True,
+            scheduling_cursor_key=ROBOT_CDE_LIVE_CURSOR_KEY,
+        )
+        robot_cde_duration_ms = round((time.perf_counter() - robot_cde_t0) * 1000, 1)
     else:
         deadline = cycle_t0 + time_budget_sec
         (
@@ -739,16 +769,46 @@ def _process_competition(
             deadline=deadline,
             per_portfolio_eval=False,
         )
+        (
+            groups_cde,
+            touched_cde,
+            decisions_cde,
+            tf_cde,
+            inst_cde,
+            skipped_cde,
+        ) = _process_experiment(
+            s,
+            cde_entries,
+            list(list_active_db_symbols()),
+            (MULTI_STRATEGY_TIMEFRAME,),
+            settings_dict,
+            started_at,
+            live_only=live_only,
+            historical_only=historical_only,
+            time_budget_sec=time_budget_sec,
+            deadline=deadline,
+            per_portfolio_eval=True,
+            scheduling_cursor_key=ROBOT_CDE_LIVE_CURSOR_KEY,
+        )
         robot_a_duration_ms = round((time.perf_counter() - cycle_t0) * 1000, 1)
         robot_b_duration_ms = 0.0
+        robot_cde_duration_ms = 0.0
 
-    groups_evaluated = groups_a + groups_b
-    portfolios_touched = touched_a + touched_b
-    total_decisions = decisions_a + decisions_b
-    skipped_reasons = skipped_a + skipped_b
-    timeframe_status = {**tf_a, **{f"orb_{k}": v for k, v in tf_b.items()}}
-    instrument_status = {**inst_a, **{f"orb_{k}": v for k, v in inst_b.items()}}
-    entries_count = len(robot_a) + len(orb_entries)
+    groups_evaluated = groups_a + groups_b + groups_cde
+    portfolios_touched = touched_a + touched_b + touched_cde
+    total_decisions = decisions_a + decisions_b + decisions_cde
+    skipped_reasons = skipped_a + skipped_b + skipped_cde
+    timeframe_status = {
+        **tf_a,
+        **{f"orb_{k}": v for k, v in tf_b.items()},
+        **{f"cde_{k}": v for k, v in tf_cde.items()},
+    }
+    instrument_status = {
+        **inst_a,
+        **{f"orb_{k}": v for k, v in inst_b.items()},
+        **{f"cde_{k}": v for k, v in inst_cde.items()},
+    }
+    entries_count = len(robot_a) + len(orb_entries) + len(cde_entries)
 
     overall_backlog = sum(
         int(st.get("backlog", 0))

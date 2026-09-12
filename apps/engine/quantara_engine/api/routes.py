@@ -386,7 +386,7 @@ def analytics_assets(store: StoreDep):
     from quantara_engine.api.dashboard_cache import dashboard_candle_bundle
 
     robot_a, robot_b, combined = store.list_all_competition_entries()
-    if not robot_a and not robot_b:
+    if not combined:
         raise HTTPException(404, "Competition not configured")
 
     now = datetime.now(timezone.utc)
@@ -490,6 +490,20 @@ def analytics_assets(store: StoreDep):
             data_status = "blocked"
         live_provider = asset_health.get("provider") or asset.primary_provider.value
 
+        regime_payload = None
+        if inst and counts.get("15m", 0) >= STRATEGY_MIN_CANDLES:
+            from quantara_engine.market_regime.snapshots import classify_and_save
+
+            candles_15m = store.list_candles(inst.id, "15m", limit=120)
+            if candles_15m:
+                snapshot = classify_and_save(store, inst, "15m", candles_15m)
+                if snapshot:
+                    regime_payload = {
+                        "structure_regime": snapshot.structure_regime.value,
+                        "volatility_regime": snapshot.volatility_regime.value,
+                        "candle_time": candles_15m[-1].timestamp.isoformat(),
+                    }
+
         rows.append(
             {
                 "symbol": asset.display_symbol,
@@ -515,6 +529,7 @@ def analytics_assets(store: StoreDep):
                 "open_risk_usd": round(open_risk_usd, 2) if open_risk_usd is not None else None,
                 "open_risk_pct": round(open_risk_pct, 2) if open_risk_pct is not None else None,
                 "global_risk_cap_pct": global_risk_cap_pct,
+                "market_regime": regime_payload,
             }
         )
 
@@ -832,28 +847,54 @@ def competition_equity_curves(store: StoreDep, limit: int = 100):
     return {"equity_curves": build_competition_equity_curves(store, limit_per_portfolio=limit)}
 
 
+@router.get("/analytics/risk-concentration")
+def analytics_risk_concentration(store: StoreDep):
+    from quantara_engine.broker.state_builder import build_competition_broker_account
+    from quantara_engine.risk.concentration import build_physical_concentration
+
+    account = build_competition_broker_account(store)
+    broker_equity = account.equity if account else Decimal("320000")
+    return build_physical_concentration(store, broker_equity=broker_equity)
+
+
+@router.get("/analytics/regime-performance")
+def analytics_regime_performance(store: StoreDep):
+    from quantara_engine.analytics.regime_performance import build_regime_performance
+
+    return build_regime_performance(store)
+
+
 @router.get("/portfolios")
 def portfolios_list(store: StoreDep):
-    from quantara_engine.competition.orb_constants import ORB_PORTFOLIO_DEF_BY_ID, ORB_STRATEGY_SLUG
+    from quantara_engine.competition.multi_strategy_constants import PORTFOLIO_DEF_BY_ID as MULTI_DEFS
+    from quantara_engine.competition.orb_constants import ORB_PORTFOLIO_DEF_BY_ID
+    from quantara_engine.strategies.registry import get as get_strategy
 
-    robot_a_entries, robot_b_entries, all_entries = store.list_all_competition_entries()
-    robot_b_ids = {e["portfolio"].id for e in robot_b_entries}
+    _, _, all_entries = store.list_all_competition_entries()
     portfolio_ids = [e["portfolio"].id for e in all_entries]
     batch_stats = store.batch_portfolio_dashboard_stats(portfolio_ids)
 
     items = []
     for entry in all_entries:
         p = entry["portfolio"]
-        is_orb = p.id in robot_b_ids
+        slug = entry["instance"].strategy_slug
+        version = entry["instance"].strategy_version
         portfolio_def = PORTFOLIO_DEF_BY_ID.get(p.id)
         orb_def = ORB_PORTFOLIO_DEF_BY_ID.get(p.id)
+        multi_def = MULTI_DEFS.get(p.id)
         display_name = (
             portfolio_def.name_he
             if portfolio_def
             else orb_def.name_he
             if orb_def
+            else multi_def.name_he
+            if multi_def
             else p.name
         )
+        try:
+            strategy_name = get_strategy(slug, version).name()
+        except KeyError:
+            strategy_name = slug
         stats = batch_stats.get(p.id, {})
         open_positions = stats.get("open_positions") or []
         open_pos = open_positions[0] if open_positions else None
@@ -862,9 +903,9 @@ def portfolios_list(store: StoreDep):
                 "id": p.id,
                 "name": display_name,
                 "kind": "competition",
-                "robot_label": "Robot B" if is_orb else "Robot A",
-                "strategy_slug": ORB_STRATEGY_SLUG if is_orb else "gold-trend-pullback",
-                "strategy_name": "Opening Range Breakout" if is_orb else "Trend Pullback",
+                "robot_label": ROBOT_LABELS.get(slug, slug),
+                "strategy_slug": slug,
+                "strategy_name": strategy_name,
                 "timeframe": entry["instance"].timeframe,
                 "timeframe_he": TIMEFRAME_HE.get(entry["instance"].timeframe, entry["instance"].timeframe),
                 "risk_slug": entry["risk_profile"].slug,
@@ -976,10 +1017,7 @@ def decisions_by_asset(
     return payload
 
 
-ROBOT_LABELS: dict[str, str] = {
-    "gold-trend-pullback": "Robot A",
-    "opening-range-breakout": "Robot B",
-}
+from quantara_engine.competition.robot_registry import ROBOT_LABELS  # noqa: E402
 
 
 @router.get("/strategies")

@@ -107,6 +107,41 @@ export function translateExecution(mode: string | null | undefined): string {
   return mode;
 }
 
+const MULTI_STRATEGY_REASON_KEYS: Record<string, string> = {
+  strong_trend_no_mean_reversion: "signals.mr_strong_trend",
+  long_stretch_to_mean: "signals.mr_long_stretch",
+  short_stretch_to_mean: "signals.mr_short_stretch",
+  insufficient_reward_to_mean: "signals.mr_insufficient_rr",
+  no_mean_reversion_setup: "signals.mr_no_setup",
+  no_compression_detected: "signals.sqz_no_compression",
+  compression_no_breakout_yet: "signals.sqz_no_breakout",
+  squeeze_release_long: "signals.sqz_release_long",
+  squeeze_release_short: "signals.sqz_release_short",
+  momentum_long_confirmed: "signals.mom_long_confirmed",
+  momentum_short_confirmed: "signals.mom_short_confirmed",
+  overextended_from_mean: "signals.mom_overextended",
+  no_hourly_confirmation: "signals.mom_no_hourly_confirmation",
+  insufficient_directional_strength: "signals.mom_insufficient_adx",
+  no_momentum_setup: "signals.mom_no_setup",
+  market_closed: "signals.market_closed",
+  insufficient_data: "signals.insufficient_data",
+};
+
+const STRUCTURE_REGIME_KEYS: Record<string, string> = {
+  TREND_UP: "regime.structure.trend_up",
+  TREND_DOWN: "regime.structure.trend_down",
+  RANGE: "regime.structure.range",
+  TRANSITION: "regime.structure.transition",
+  UNKNOWN: "regime.structure.unknown",
+};
+
+const VOLATILITY_REGIME_KEYS: Record<string, string> = {
+  COMPRESSED: "regime.volatility.compressed",
+  NORMAL: "regime.volatility.normal",
+  EXPANDED: "regime.volatility.expanded",
+  UNKNOWN: "regime.volatility.unknown",
+};
+
 const ORB_REASON_KEYS: Record<string, string> = {
   waiting_for_breakout: "signals.orb_waiting_for_breakout",
   breakout_long_confirmed: "signals.orb_breakout_long_confirmed",
@@ -257,9 +292,30 @@ export function translateRobotStrategyLabel(
   if (robotLabel === "Robot B" || strategySlug === "opening-range-breakout") {
     return t("home.robot_b_label");
   }
+  if (robotLabel === "Robot C" || strategySlug === "mean-reversion") {
+    return t("home.robot_c_label");
+  }
+  if (robotLabel === "Robot D" || strategySlug === "volatility-squeeze") {
+    return t("home.robot_d_label");
+  }
+  if (robotLabel === "Robot E" || strategySlug === "momentum-continuation") {
+    return t("home.robot_e_label");
+  }
   if (strategyName && robotLabel === "Robot A") return t("home.robot_a_label");
   if (strategyName && robotLabel === "Robot B") return t("home.robot_b_label");
   return robotLabel ?? strategyName ?? "—";
+}
+
+export function translateStructureRegime(value?: string | null): string {
+  if (!value) return "—";
+  const key = STRUCTURE_REGIME_KEYS[value];
+  return key ? t(key) : value;
+}
+
+export function translateVolatilityRegime(value?: string | null): string {
+  if (!value) return "—";
+  const key = VOLATILITY_REGIME_KEYS[value];
+  return key ? t(key) : value;
 }
 
 export function isEntrySignalDecision(decisionType: string | null | undefined): boolean {
@@ -273,6 +329,9 @@ export function translateSignalReason(reason: string | null | undefined): string
 
   const orbKey = ORB_REASON_KEYS[text];
   if (orbKey) return t(orbKey);
+
+  const multiKey = MULTI_STRATEGY_REASON_KEYS[text];
+  if (multiKey) return t(multiKey);
 
   if (text.startsWith("RISK_APPROVED:")) {
     const match = text.match(

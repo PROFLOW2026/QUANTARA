@@ -6,6 +6,7 @@ import {
   isEngineConnectionError,
   type AssetAnalyticsResponse,
   type BrokerAccountSummary,
+  type RiskConcentrationResponse,
   type Decision,
   type MarketProviderStatus,
   type TodayActivity,
@@ -38,6 +39,9 @@ export function useHomeDashboardPoll() {
   );
   const [marketStatus, setMarketStatus] = useState<MarketProviderStatus | null>(null);
   const [brokerAccount, setBrokerAccount] = useState<BrokerAccountSummary | null>(null);
+  const [riskConcentration, setRiskConcentration] = useState<RiskConcentrationResponse | null>(
+    null
+  );
   const [engineHealthy, setEngineHealthy] = useState<boolean | null>(null);
   const [engineConnectionError, setEngineConnectionError] = useState(false);
   const [competitionUnavailable, setCompetitionUnavailable] = useState(false);
@@ -112,6 +116,13 @@ export function useHomeDashboardPoll() {
       const brokerResult = await settle(api.getBrokerAccount());
       if (brokerResult.ok) {
         setBrokerAccount(brokerResult.value);
+      } else {
+        partialFailure = true;
+      }
+
+      const concentrationResult = await settle(api.getRiskConcentration());
+      if (concentrationResult.ok) {
+        setRiskConcentration(concentrationResult.value);
       } else {
         partialFailure = true;
       }
@@ -205,6 +216,7 @@ export function useHomeDashboardPoll() {
     competition,
     assetAnalytics,
     brokerAccount,
+    riskConcentration,
     marketStatus,
     engineHealthy,
     engineConnectionError,

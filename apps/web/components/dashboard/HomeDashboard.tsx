@@ -11,6 +11,7 @@ import {
 } from "@/components/trading/ActiveAssetsPanel";
 import { BrokerAccountSummaryCards } from "@/components/trading/BrokerAccountSummaryCards";
 import { ExposureRiskSummaryCards } from "@/components/trading/ExposureRiskSummaryCards";
+import { RiskConcentrationPanel } from "@/components/trading/RiskConcentrationPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useHomeDashboardPoll } from "@/hooks/useHomeDashboardPoll";
 import { t } from "@/lib/i18n";
@@ -24,6 +25,7 @@ export function HomeDashboard() {
     competition,
     assetAnalytics,
     brokerAccount,
+    riskConcentration,
     marketStatus,
     engineHealthy,
     engineConnectionError,
@@ -37,9 +39,14 @@ export function HomeDashboard() {
   const competitionReady = Boolean(competition?.active && !competitionUnavailable);
   const portfolios = competitionReady ? (competition?.portfolios ?? []) : [];
   const combinedEquity = competitionReady ? competition?.combined?.current_equity : null;
-  const initialCapital = competitionReady
-    ? (competition?.combined?.initial_equity ?? competition?.experiment?.total_initial_capital ?? null)
+  const shadowReferenceCapital = competitionReady
+    ? (competition?.experiment?.shadow_reference_capital ??
+      competition?.combined?.initial_equity ??
+      competition?.experiment?.total_initial_capital ??
+      null)
     : null;
+  const physicalBrokerCapital =
+    brokerAccount?.equity != null ? 320_000 : competitionReady ? 320_000 : null;
   const combinedRealized = competitionReady
     ? portfolios.reduce((sum, row) => sum + row.realized_pnl, 0)
     : null;
@@ -91,15 +98,21 @@ export function HomeDashboard() {
         </Card>
         {competitionUnavailable ? (
           <Card>
-            <CardHeader><CardTitle>{t("home.competition_initial_capital")}</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{t("home.shadow_reference_capital")}</CardTitle></CardHeader>
             <CardContent><p className="text-sm text-muted">{t("common.section_unavailable")}</p></CardContent>
           </Card>
         ) : (
           <MetricCardCurrency
-            label={t("home.competition_initial_capital")}
-            value={initialCapital ?? 0}
+            label={t("home.shadow_reference_capital")}
+            value={shadowReferenceCapital ?? 0}
+            hint={t("home.shadow_reference_hint")}
           />
         )}
+        <MetricCardCurrency
+          label={t("home.physical_broker_capital")}
+          value={physicalBrokerCapital ?? 0}
+          hint={t("home.physical_broker_hint")}
+        />
         {competitionUnavailable ? (
           <Card>
             <CardHeader><CardTitle>{t("home.competition_combined_equity")}</CardTitle></CardHeader>
@@ -123,6 +136,8 @@ export function HomeDashboard() {
         <h2 className="mb-3 text-base font-semibold">{t("home.broker_section_title")}</h2>
         <BrokerAccountSummaryCards account={brokerAccount} loading={loading && !brokerAccount} />
       </section>
+
+      <RiskConcentrationPanel data={riskConcentration} loading={loading && !riskConcentration} />
 
       <section className="mt-6">
         <div className="mb-3">

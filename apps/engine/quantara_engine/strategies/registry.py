@@ -6,7 +6,10 @@ from typing import Type
 
 from quantara_engine.strategies.base import BaseStrategy
 from quantara_engine.strategies.gold_trend_pullback.v1_0_0 import GoldTrendPullbackV1
+from quantara_engine.strategies.mean_reversion.v1_0_0 import MeanReversionV1
+from quantara_engine.strategies.momentum_continuation.v1_0_0 import MomentumContinuationV1
 from quantara_engine.strategies.opening_range_breakout.v1_0_0 import OpeningRangeBreakoutV1
+from quantara_engine.strategies.volatility_squeeze.v1_0_0 import VolatilitySqueezeV1
 
 STRATEGY_REGISTRY: dict[str, dict[str, Type[BaseStrategy]]] = {
     "gold-trend-pullback": {
@@ -14,6 +17,15 @@ STRATEGY_REGISTRY: dict[str, dict[str, Type[BaseStrategy]]] = {
     },
     "opening-range-breakout": {
         "1.0.0": OpeningRangeBreakoutV1,
+    },
+    "mean-reversion": {
+        "1.0.0": MeanReversionV1,
+    },
+    "volatility-squeeze": {
+        "1.0.0": VolatilitySqueezeV1,
+    },
+    "momentum-continuation": {
+        "1.0.0": MomentumContinuationV1,
     },
 }
 

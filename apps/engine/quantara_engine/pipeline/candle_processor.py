@@ -260,6 +260,20 @@ class CandleProcessor:
             and p.instrument_id == self.instrument.id
         ]
         runtime["has_open_position"] = bool(open_for_instance)
+        if open_for_instance:
+            pos = open_for_instance[0]
+            bars_held = 0
+            if pos.opened_at and candle.timestamp >= pos.opened_at:
+                from quantara_engine.market_data.polling import timeframe_minutes
+
+                tf_min = timeframe_minutes(candle.timeframe)
+                elapsed_min = (candle.timestamp - pos.opened_at).total_seconds() / 60
+                bars_held = max(0, int(elapsed_min // tf_min))
+            runtime["open_position"] = {
+                "direction": pos.direction.value,
+                "opened_at": pos.opened_at.isoformat() if pos.opened_at else None,
+                "bars_held": bars_held,
+            }
         if self.instance.strategy_slug == "opening-range-breakout" and self.store:
             from quantara_engine.strategies.opening_range_breakout.session import (
                 rth_session_date,
@@ -279,6 +293,21 @@ class CandleProcessor:
             runtime["consumed_opportunity_keys"] = self.store.list_consumed_opportunity_keys(
                 self.instance.id
             )
+        if self.instance.strategy_slug == "momentum-continuation" and self.store:
+            from quantara_engine.market_data.polling import is_bar_complete
+
+            h1_candles = self.store.list_candles(
+                self.instrument.id,
+                "1h",
+                limit=120,
+            )
+            closed_1h = [
+                c
+                for c in h1_candles
+                if is_bar_complete(c.timestamp, "1h", self.execution_now)
+                and c.timestamp <= candle.timestamp
+            ]
+            runtime["confirmation_candles_1h"] = closed_1h
         return runtime
 
     def evaluate_signal(self, candle_index: int):

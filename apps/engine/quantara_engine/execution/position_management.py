@@ -457,8 +457,7 @@ def manage_all_open_positions(
     if not allows_position_management(control):
         return report.to_dict()
 
-    entries = store.list_competition_entries()
-    entries.extend(store.list_orb_competition_entries())
+    _, _, entries = store.list_all_competition_entries()
     instance_by_id = {entry["instance"].id: entry["instance"] for entry in entries}
     portfolio_ids = list({entry["portfolio"].id for entry in entries})
 

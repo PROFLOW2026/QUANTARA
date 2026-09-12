@@ -679,6 +679,48 @@ class TradingStore:
         settings = self.get_settings_dict()
         return bool(settings.get("orb_competition_enabled"))
 
+    def is_multi_strategy_competition_enabled(self, strategy_slug: str | None = None) -> bool:
+        from quantara_engine.competition.multi_strategy_constants import SETTINGS_BY_STRATEGY
+
+        settings = self.get_settings_dict()
+        if strategy_slug:
+            key = SETTINGS_BY_STRATEGY.get(strategy_slug)
+            return bool(key and settings.get(key))
+        return any(bool(settings.get(key)) for key in SETTINGS_BY_STRATEGY.values())
+
+    def list_multi_strategy_competition_entries(
+        self, strategy_slug: str | None = None
+    ) -> list[dict[str, Any]]:
+        from quantara_engine.competition.multi_strategy_constants import (
+            MEAN_REVERSION_EXPERIMENT_ID,
+            MEAN_REVERSION_STRATEGY_SLUG,
+            MOMENTUM_CONTINUATION_EXPERIMENT_ID,
+            MOMENTUM_CONTINUATION_STRATEGY_SLUG,
+            PORTFOLIO_DEF_BY_ID,
+            VOLATILITY_SQUEEZE_EXPERIMENT_ID,
+            VOLATILITY_SQUEEZE_STRATEGY_SLUG,
+        )
+
+        specs = [
+            (MEAN_REVERSION_EXPERIMENT_ID, MEAN_REVERSION_STRATEGY_SLUG),
+            (VOLATILITY_SQUEEZE_EXPERIMENT_ID, VOLATILITY_SQUEEZE_STRATEGY_SLUG),
+            (MOMENTUM_CONTINUATION_EXPERIMENT_ID, MOMENTUM_CONTINUATION_STRATEGY_SLUG),
+        ]
+        entries: list[dict[str, Any]] = []
+        for experiment_id, slug in specs:
+            if strategy_slug and slug != strategy_slug:
+                continue
+            if not self.is_multi_strategy_competition_enabled(slug):
+                continue
+            entries.extend(
+                self.list_competition_entries(
+                    experiment_id=experiment_id,
+                    strategy_slug=slug,
+                    order_map={pid: d.sort_order for pid, d in PORTFOLIO_DEF_BY_ID.items()},
+                )
+            )
+        return entries
+
     def list_orb_competition_entries(self) -> list[dict[str, Any]]:
         from quantara_engine.competition.orb_constants import (
             ORB_COMPETITION_EXPERIMENT_ID,
@@ -728,7 +770,8 @@ class TradingStore:
             return self._competition_entries_cache
         robot_a = self.list_competition_entries()
         robot_b = self.list_orb_competition_entries() if self.is_orb_competition_enabled() else []
-        self._competition_entries_cache = (robot_a, robot_b, robot_a + robot_b)
+        robot_cde = self.list_multi_strategy_competition_entries()
+        self._competition_entries_cache = (robot_a, robot_b, robot_a + robot_b + robot_cde)
         return self._competition_entries_cache
 
     def batch_portfolio_dashboard_stats(
@@ -836,18 +879,22 @@ class TradingStore:
 
     def build_instance_strategy_identity_map(self) -> dict[str, dict[str, str]]:
         """Map strategy_instance_id -> robot_label, strategy_slug, strategy_name."""
-        from quantara_engine.competition.orb_constants import ORB_STRATEGY_SLUG
+        from quantara_engine.competition.robot_registry import ROBOT_LABELS
+        from quantara_engine.strategies.registry import get
 
         mapping: dict[str, dict[str, str]] = {}
         _, _, combined = self.list_all_competition_entries()
         for entry in combined:
             inst = entry["instance"]
             slug = inst.strategy_slug
-            is_orb = slug == ORB_STRATEGY_SLUG
+            try:
+                strategy_name = get(slug, inst.strategy_version).name()
+            except KeyError:
+                strategy_name = slug
             mapping[inst.id] = {
-                "robot_label": "Robot B" if is_orb else "Robot A",
+                "robot_label": ROBOT_LABELS.get(slug, slug),
                 "strategy_slug": slug,
-                "strategy_name": "Opening Range Breakout" if is_orb else "Trend Pullback",
+                "strategy_name": strategy_name,
             }
         return mapping
 
@@ -944,6 +991,24 @@ class TradingStore:
                 results.extend(
                     self._batch_latest_decisions_for_instances(instance_ids_b, instrument_ids_b)
                 )
+
+        entries_cde = [
+            e
+            for e in self.list_multi_strategy_competition_entries()
+            if e["instance"].timeframe == timeframe
+        ]
+        if entries_cde:
+            instance_ids_cde = [e["instance"].id for e in entries_cde]
+            instrument_ids_cde: list[str] = []
+            from quantara_engine.market_data.active_universe import list_active_db_symbols
+
+            for symbol in list_active_db_symbols():
+                instrument = self.get_instrument_by_symbol(symbol)
+                if instrument:
+                    instrument_ids_cde.append(instrument.id)
+            results.extend(
+                self._batch_latest_decisions_for_instances(instance_ids_cde, instrument_ids_cde)
+            )
 
         return results
 
@@ -2905,13 +2970,17 @@ class TradingStore:
         limit: int = 50,
     ) -> list[dict[str, Any]]:
         from quantara_engine.competition.constants import PORTFOLIO_DEF_BY_ID, RISK_SLUG_HE, TIMEFRAME_HE
+        from quantara_engine.competition.multi_strategy_constants import (
+            PORTFOLIO_DEF_BY_ID as MULTI_PORTFOLIO_DEF_BY_ID,
+        )
         from quantara_engine.competition.orb_constants import ORB_PORTFOLIO_DEF_BY_ID
 
         rows = self.session.execute(
-            select(OrmTrade, OrmStrategyInstance, OrmPortfolio, OrmRiskProfile)
+            select(OrmTrade, OrmStrategyInstance, OrmPortfolio, OrmRiskProfile, OrmInstrument)
             .join(OrmStrategyInstance, OrmStrategyInstance.id == OrmTrade.strategy_instance_id)
             .join(OrmPortfolio, OrmPortfolio.id == OrmTrade.portfolio_id)
             .join(OrmRiskProfile, OrmRiskProfile.id == OrmStrategyInstance.risk_profile_id)
+            .join(OrmInstrument, OrmInstrument.id == OrmTrade.instrument_id)
             .where(
                 OrmStrategyInstance.experiment_id == _uuid(experiment_id),
                 OrmTrade.backtest_run_id.is_(None),
@@ -2921,15 +2990,18 @@ class TradingStore:
         ).all()
 
         results: list[dict[str, Any]] = []
-        for trade, instance, portfolio, risk in rows:
+        for trade, instance, portfolio, risk, instrument in rows:
             pid = str(portfolio.id)
             portfolio_def = PORTFOLIO_DEF_BY_ID.get(pid)
             orb_def = ORB_PORTFOLIO_DEF_BY_ID.get(pid)
+            multi_def = MULTI_PORTFOLIO_DEF_BY_ID.get(pid)
             display_name = (
                 portfolio_def.name_he
                 if portfolio_def
                 else orb_def.name_he
                 if orb_def
+                else multi_def.name_he
+                if multi_def
                 else portfolio.name
             )
             results.append(
@@ -2937,6 +3009,8 @@ class TradingStore:
                     "trade_id": str(trade.id),
                     "portfolio_id": pid,
                     "portfolio_name": display_name,
+                    "instrument": instrument.symbol,
+                    "symbol": instrument.symbol,
                     "timeframe": instance.timeframe,
                     "timeframe_he": TIMEFRAME_HE.get(instance.timeframe, instance.timeframe),
                     "risk_slug": risk.slug,

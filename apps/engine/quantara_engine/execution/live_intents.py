@@ -29,15 +29,25 @@ class PendingIntentWork:
 
 
 def _expire_stale_intents(store: TradingStore, now: datetime) -> int:
+    from quantara_engine.competition.multi_strategy_constants import (
+        MEAN_REVERSION_EXPERIMENT_ID,
+        MOMENTUM_CONTINUATION_EXPERIMENT_ID,
+        VOLATILITY_SQUEEZE_EXPERIMENT_ID,
+    )
+
     expired = store.cancel_stale_pending_intents(ACTIVE_COMPETITION_EXPERIMENT_ID, now)
     expired += store.cancel_stale_pending_intents(ORB_COMPETITION_EXPERIMENT_ID, now)
+    for experiment_id in (
+        MEAN_REVERSION_EXPERIMENT_ID,
+        VOLATILITY_SQUEEZE_EXPERIMENT_ID,
+        MOMENTUM_CONTINUATION_EXPERIMENT_ID,
+    ):
+        expired += store.cancel_stale_pending_intents(experiment_id, now)
     return expired
 
 
 def _collect_pending_work(store: TradingStore, now: datetime) -> list[PendingIntentWork]:
-    entries = store.list_competition_entries()
-    if store.is_orb_competition_enabled():
-        entries = entries + store.list_orb_competition_entries()
+    _, _, entries = store.list_all_competition_entries()
 
     work: list[PendingIntentWork] = []
     for entry in entries:

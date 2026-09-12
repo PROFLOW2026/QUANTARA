@@ -585,6 +585,41 @@ export interface AssetAnalyticsRow {
   open_risk_usd?: number | null;
   open_risk_pct?: number | null;
   global_risk_cap_pct?: number;
+  market_regime?: {
+    structure_regime?: string;
+    volatility_regime?: string;
+    candle_time?: string;
+  } | null;
+}
+
+export interface RiskConcentrationSymbolRow {
+  symbol: string;
+  gross_exposure_usd: number;
+  net_exposure_usd: number;
+  long_exposure_usd: number;
+  short_exposure_usd: number;
+  sl_risk_usd: number;
+  sl_risk_pct: number;
+  portfolio_count: number;
+  robot_count: number;
+  robots: string[];
+}
+
+export interface RiskConcentrationGroupRow {
+  group: string;
+  gross_exposure_usd: number;
+  net_exposure_usd: number;
+  sl_risk_usd: number;
+  sl_risk_pct: number;
+  assets: string[];
+  robot_count: number;
+}
+
+export interface RiskConcentrationResponse {
+  mode: string;
+  broker_equity_usd: number;
+  symbols: RiskConcentrationSymbolRow[];
+  groups: RiskConcentrationGroupRow[];
 }
 
 export interface AssetAnalyticsSummary {
@@ -729,10 +764,17 @@ export interface CompetitionResponse {
     total_initial_capital: number;
     portfolio_initial_capital: number;
     portfolio_count: number;
+    shadow_reference_capital?: number;
+    physical_broker_capital?: number;
     robot_a_portfolio_count?: number;
     robot_b_portfolio_count?: number;
+    robot_c_portfolio_count?: number;
+    robot_d_portfolio_count?: number;
+    robot_e_portfolio_count?: number;
     robot_a_initial_capital?: number;
     robot_b_initial_capital?: number;
+    robot_cde_initial_capital?: number;
+    multi_strategy_started_at?: string | null;
   };
   robot_groups?: RobotGroupSummary[];
   combined?: {
@@ -942,6 +984,8 @@ export const api = {
     apiFetch<MarketProviderStatus>("/market-data/status"),
   getAssetAnalytics: () =>
     apiFetch<AssetAnalyticsResponse>("/analytics/assets"),
+  getRiskConcentration: () =>
+    apiFetch<RiskConcentrationResponse>("/analytics/risk-concentration"),
   getEngineHealth: () => apiFetch<EngineHealthResponse>("/health"),
   getWorkersStatus: () => apiFetch<WorkerStatus>("/workers/status"),
   getSettings: () => apiFetch<Settings>("/settings"),
