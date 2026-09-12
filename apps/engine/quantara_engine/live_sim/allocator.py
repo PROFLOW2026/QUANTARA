@@ -254,12 +254,12 @@ def maybe_allocate_live_sim(
 
     def _reject(reason: str, detail: str) -> dict:
         sym_pct = (
-            float((open_risk.by_symbol.get(sym, Decimal("0")) + (expected_risk or Decimal("0")))
+            float((open_risk.by_symbol.get(sym, Decimal("0")) + (expected_risk or Decimal("0"))))
             / equity
             * 100
         ) if equity > 0 else 0.0
         grp_pct = (
-            float((open_risk.by_group.get(grp, Decimal("0")) + (expected_risk or Decimal("0")))
+            float((open_risk.by_group.get(grp, Decimal("0")) + (expected_risk or Decimal("0"))))
             / equity
             * 100
         ) if equity > 0 and grp else None
