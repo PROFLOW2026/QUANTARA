@@ -215,39 +215,41 @@ function DesktopActiveAssetCard({
   onDrilldown: (mode: "open" | "closed") => void;
 }) {
   return (
-    <div className="flex h-full flex-col rounded-md border border-border/60 bg-surface-elevated/30 p-4 text-sm">
-      <div className="mb-3 flex items-start justify-between gap-2">
+    <div className="flex h-full flex-col rounded-md border border-border/60 bg-surface-elevated/30 p-3 text-sm">
+      <div className="mb-2 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate text-base font-semibold">{asset.symbol}</p>
-          <p className="mt-1 text-xs text-muted">
-            {providerLabel(asset.provider)} · {t(`home.session_${asset.session_status}`)}
-          </p>
+          <p className="truncate text-base font-semibold leading-tight">{asset.symbol}</p>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <p className="text-xs text-muted leading-snug">
+              {providerLabel(asset.provider)} · {t(`home.session_${asset.session_status}`)}
+            </p>
+            {statusBadge(asset.data_status, asset.stale, asset.session_closed)}
+          </div>
         </div>
-        <p className="shrink-0 font-mono text-base">
+        <p className="shrink-0 font-mono text-base leading-tight">
           {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
         </p>
       </div>
 
-      <div className="mb-3">{statusBadge(asset.data_status, asset.stale, asset.session_closed)}</div>
-
-      <div className="mb-3 text-xs">
-        <p className="mb-1 text-muted">{t("home.market_regime_title")}</p>
+      <div className="mb-2 text-xs leading-snug">
+        <span className="text-muted">{t("home.market_regime_title")}: </span>
         {asset.market_regime ? (
-          <div>
-            <p>{translateStructureRegime(asset.market_regime.structure_regime)}</p>
-            <p className="text-muted">
-              {translateVolatilityRegime(asset.market_regime.volatility_regime)}
-            </p>
-          </div>
+          <>
+            <span>{translateStructureRegime(asset.market_regime.structure_regime)}</span>
+            <span className="text-muted">
+              {" "}
+              · {translateVolatilityRegime(asset.market_regime.volatility_regime)}
+            </span>
+          </>
         ) : (
-          <p>—</p>
+          <span>—</span>
         )}
       </div>
 
-      <div className="mt-auto grid grid-cols-2 gap-x-3 gap-y-2.5 text-xs">
+      <div className="mt-auto grid grid-cols-2 gap-x-2 gap-y-1.5 text-xs leading-snug">
         <div>
           <p className="text-muted">{t("home.open_positions")}</p>
-          <p>
+          <p className="mt-0.5">
             <CountDrilldownLink
               count={asset.open_positions}
               label={t("home.open_positions_modal_title", { asset: asset.symbol })}
@@ -258,7 +260,7 @@ function DesktopActiveAssetCard({
         </div>
         <div>
           <p className="text-muted">{t("home.closed_trades")}</p>
-          <p>
+          <p className="mt-0.5">
             <CountDrilldownLink
               count={asset.closed_trades}
               label={t("home.closed_trades_modal_title", { asset: asset.symbol })}
@@ -269,27 +271,33 @@ function DesktopActiveAssetCard({
         </div>
         <div>
           <p className="text-muted">{t("home.realized_pnl")}</p>
-          <PnLDisplay value={asset.realized_pnl} size="sm" />
+          <div className="mt-0.5">
+            <PnLDisplay value={asset.realized_pnl} size="sm" />
+          </div>
         </div>
         <div>
           <p className="text-muted">{t("home.unrealized_pnl")}</p>
-          <PnLDisplay value={asset.unrealized_pnl} size="sm" />
+          <div className="mt-0.5">
+            <PnLDisplay value={asset.unrealized_pnl} size="sm" />
+          </div>
         </div>
-        <div className="col-span-2">
-          <p className="text-muted">{t("home.total_pnl")}</p>
+        <div className="col-span-2 flex items-baseline justify-between gap-2 border-t border-border/40 pt-1.5">
+          <span className="text-muted">{t("home.total_pnl")}</span>
           <PnLDisplay value={asset.total_pnl} size="sm" />
         </div>
-        <div>
-          <p className="text-muted">{t("home.asset_exposure_short")}</p>
-          <p className="font-mono">{formatAssetExposure(asset)}</p>
-        </div>
-        <div>
-          <p className="text-muted">{t("home.asset_risk_short")}</p>
-          <p className="font-mono">{formatAssetRisk(asset)}</p>
-        </div>
-        <div className="col-span-2">
-          <p className="text-muted">{t("home.asset_risk_pct_short")}</p>
-          <p className="font-mono">{formatRiskPct(asset)}</p>
+        <div className="col-span-2 grid grid-cols-3 gap-x-2">
+          <div>
+            <p className="text-muted">{t("home.asset_exposure_short")}</p>
+            <p className="mt-0.5 font-mono">{formatAssetExposure(asset)}</p>
+          </div>
+          <div>
+            <p className="text-muted">{t("home.asset_risk_short")}</p>
+            <p className="mt-0.5 font-mono">{formatAssetRisk(asset)}</p>
+          </div>
+          <div>
+            <p className="text-muted">{t("home.asset_risk_pct_short")}</p>
+            <p className="mt-0.5 font-mono">{formatRiskPct(asset)}</p>
+          </div>
         </div>
       </div>
     </div>
@@ -361,7 +369,7 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
             </div>
           ))}
         </div>
-        <div className="hidden gap-4 md:grid md:grid-cols-2 lg:grid-cols-4">
+        <div className="hidden gap-3 md:grid md:grid-cols-2 lg:grid-cols-4">
           {assets.map((asset) => (
             <DesktopActiveAssetCard
               key={asset.db_symbol}
