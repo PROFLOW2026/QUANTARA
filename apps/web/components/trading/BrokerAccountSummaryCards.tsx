@@ -90,10 +90,22 @@ export function BrokerAccountSummaryCards({
           <CardTitle>Physical Remaining SL Risk</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="font-mono text-2xl">{v(account?.physical_remaining_sl_risk_usd ?? 0)}</p>
+          <p className="font-mono text-2xl">
+            {loading
+              ? "…"
+              : account?.physical_risk_complete === false
+                ? "לא זמין / נתונים חסרים"
+                : formatCurrencyOrUnavailable(account?.physical_remaining_sl_risk_usd ?? null)}
+          </p>
           <p className="text-muted mt-1 text-xs">
             Projected broker equity at stops{" "}
-            {v(account?.projected_broker_equity_at_stops ?? account?.equity ?? 0)}
+            {loading
+              ? "…"
+              : account?.physical_risk_complete === false
+                ? "לא זמין / נתונים חסרים"
+                : formatCurrencyOrUnavailable(
+                    account?.projected_broker_equity_at_stops ?? account?.equity ?? null
+                  )}
           </p>
         </CardContent>
       </Card>

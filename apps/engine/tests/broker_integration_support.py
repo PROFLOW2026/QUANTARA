@@ -23,17 +23,18 @@ BROKER_TEST_DATABASE_URL = os.environ.get(
     "BROKER_TEST_DATABASE_URL",
     f"postgresql://quantara:quantara@localhost:5432/{BROKER_TEST_DB_NAME}",
 )
+BROKER_TEST_ADMIN_URL = os.environ.get(
+    "BROKER_TEST_ADMIN_URL",
+    "postgresql://postgres:postgres@localhost:5432/postgres",
+)
 MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "packages" / "db" / "migrations"
 
 _broker_db_ready = False
+_embedded_pg = None
 
 
 def _admin_dsn() -> str:
-    url = BROKER_TEST_DATABASE_URL
-    if url.startswith("postgresql://"):
-        base = url.rsplit("/", 1)[0]
-        return f"{base}/postgres"
-    return "postgresql://quantara:quantara@localhost:5432/postgres"
+    return BROKER_TEST_ADMIN_URL
 
 
 def _postgres_available(url: str) -> bool:
@@ -60,6 +61,42 @@ def _broker_tables_exist(url: str) -> bool:
         return False
 
 
+def _apply_all_migrations(url: str) -> None:
+    engine = create_engine(url, pool_pre_ping=True)
+    for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
+        if "owner_recovery" in path.name:
+            continue
+        with engine.begin() as conn:
+            _apply_migration_file(conn, path)
+
+
+def _seed_disposable_competition_data(url: str) -> None:
+    """Minimal reference seed so reset tests can touch 160 competition portfolios."""
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    env["DATABASE_URL"] = url
+    scripts = (
+        "seed.py",
+        "seed_8_assets.py",
+        "seed_competition.py",
+        "seed_orb_strategy.py",
+        "seed_orb_competition.py",
+    )
+    for name in scripts:
+        script = root / "scripts" / name
+        if not script.exists():
+            continue
+        subprocess.run(
+            [sys.executable, str(script)],
+            cwd=str(root),
+            check=True,
+            env=env,
+        )
+
+
 def _provision_local_database() -> str | None:
     if not _postgres_available(_admin_dsn()):
         return None
@@ -67,15 +104,33 @@ def _provision_local_database() -> str | None:
     admin = psycopg2.connect(_admin_dsn())
     admin.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
     cur = admin.cursor()
-    cur.execute(f'DROP DATABASE IF EXISTS "{BROKER_TEST_DB_NAME}"')
-    cur.execute(f'CREATE DATABASE "{BROKER_TEST_DB_NAME}"')
+    cur.execute(
+        "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'quantara') "
+        "THEN CREATE ROLE quantara LOGIN PASSWORD 'quantara'; END IF; END $$;"
+    )
+    cur.execute(f'DROP DATABASE IF EXISTS "{BROKER_TEST_DB_NAME}" WITH (FORCE)')
+    cur.execute(f'CREATE DATABASE "{BROKER_TEST_DB_NAME}" OWNER quantara')
+    cur.execute(f'GRANT ALL PRIVILEGES ON DATABASE "{BROKER_TEST_DB_NAME}" TO quantara')
     admin.close()
 
-    engine = create_engine(BROKER_TEST_DATABASE_URL, pool_pre_ping=True)
-    for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
-        with engine.begin() as conn:
-            _apply_migration_file(conn, path)
+    _apply_all_migrations(BROKER_TEST_DATABASE_URL)
+    _seed_disposable_competition_data(BROKER_TEST_DATABASE_URL)
     return BROKER_TEST_DATABASE_URL
+
+
+def _provision_embedded_postgresql() -> str | None:
+    """Portable temp PostgreSQL via testing.postgresql (no Docker / system install)."""
+    global _embedded_pg
+    try:
+        from testing.postgresql import Postgresql
+
+        _embedded_pg = Postgresql()
+        url = _embedded_pg.url()
+        _apply_all_migrations(url)
+        return url
+    except Exception:
+        _embedded_pg = None
+        return None
 
 
 def _patch_session_factory(url: str) -> None:
@@ -113,6 +168,12 @@ def provision_broker_test_database() -> str:
         _broker_db_ready = True
         return local_url
 
+    embedded_url = _provision_embedded_postgresql()
+    if embedded_url:
+        _patch_session_factory(embedded_url)
+        _broker_db_ready = True
+        return embedded_url
+
     explicit = os.environ.get("BROKER_TEST_DATABASE_URL")
     if explicit and _broker_tables_exist(explicit):
         if owner_url and explicit.strip() == owner_url:
@@ -122,9 +183,8 @@ def provision_broker_test_database() -> str:
         return explicit
 
     pytest.fail(
-        "No safe broker test database. Start local PostgreSQL "
-        "(docker compose up postgres) or set BROKER_TEST_DATABASE_URL to a disposable DB "
-        "with migrations 0006+0007 applied."
+        "No safe broker test database. Install PostgreSQL locally, set BROKER_TEST_DATABASE_URL "
+        "to a disposable DB, or ensure testing.postgresql can start embedded PostgreSQL binaries."
     )
 
 

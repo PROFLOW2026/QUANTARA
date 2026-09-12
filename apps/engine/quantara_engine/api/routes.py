@@ -633,14 +633,18 @@ def broker_account_summary(store: StoreDep):
             }
             for p in account.positions.values()
         ],
-        "physical_remaining_sl_risk_usd": float(
-            physical_risk["physical_remaining_sl_risk_usd"]
+        "physical_remaining_sl_risk_usd": (
+            float(physical_risk["physical_remaining_sl_risk_usd"])
+            if physical_risk["physical_remaining_sl_risk_usd"] is not None
+            else None
         ),
         "projected_broker_equity_at_stops": (
             float(physical_risk["projected_broker_equity_at_stops"])
             if physical_risk["projected_broker_equity_at_stops"] is not None
             else None
         ),
+        "physical_risk_complete": bool(physical_risk.get("physical_risk_complete", True)),
+        "physical_risk_missing_count": int(physical_risk.get("physical_risk_missing_count") or 0),
     }
 
 

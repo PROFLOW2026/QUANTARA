@@ -20,6 +20,7 @@ from quantara_engine.persistence.store import TradingStore
 
 from tests.broker_integration_support import (
     STARTING_CASH,
+    TEST_ACCOUNT_SLUG,
     read_account_balances,
     setup_active_test_account,
     setup_inactive_placeholder_account,
@@ -521,10 +522,13 @@ def test_pm_sl_bridge_nullable_strategy_intent(monkeypatch):
             text(
                 """
                 SELECT strategy_intent_id, idempotency_key, order_purpose
-                FROM broker_orders ORDER BY submitted_at DESC LIMIT 1
+                FROM broker_orders
+                WHERE idempotency_key = :key
                 """
-            )
+            ),
+            {"key": f"pm:sl:{spid}:{at.isoformat()}"},
         ).mappings().first()
+        assert row
         assert row["strategy_intent_id"] is None
         assert str(row["order_purpose"]) == "sl"
         session.flush()
@@ -612,7 +616,7 @@ def test_paper_run_reset_excludes_legacy_pnl_from_sync(monkeypatch):
     patch_paper_account_slug(monkeypatch)
     from quantara_engine.db.session import SessionLocal
     from quantara_engine.competition.paper_run import get_current_paper_run_id
-    from quantara_engine.domain.types import Portfolio, PortfolioStatus
+    from quantara_engine.domain.types import Mode, Portfolio, PortfolioStatus
 
     root = Path(__file__).resolve().parents[3]
     sys.path.insert(0, str(root / "scripts"))
@@ -624,8 +628,28 @@ def test_paper_run_reset_excludes_legacy_pnl_from_sync(monkeypatch):
     try:
         store = TradingStore(session)
         setup_active_test_account(store)
-        pid = str(uuid.uuid4())
+        from quantara_engine.competition.constants import ACTIVE_COMPETITION_PORTFOLIOS
+
+        ref = ACTIVE_COMPETITION_PORTFOLIOS[0]
+        pid = ref.portfolio_id
         pos_id = str(uuid.uuid4())
+        store.session.execute(
+            text(
+                """
+                INSERT INTO positions (
+                  id, portfolio_id, strategy_instance_id, instrument_id,
+                  direction, quantity, entry_price, current_price, stop_loss,
+                  unrealized_pnl, status, opened_at, closed_at, mode, backtest_run_id, paper_run_id
+                )
+                SELECT
+                  CAST(:pos AS uuid), CAST(:port AS uuid), si.id, si.instrument_id,
+                  'long', 1, 100, 105, 95, 0, 'closed', NOW() - INTERVAL '1 hour', NOW(), 'paper', NULL, NULL
+                FROM strategy_instances si
+                WHERE si.id = CAST(:si AS uuid)
+                """
+            ),
+            {"pos": pos_id, "port": pid, "si": ref.instance_id},
+        )
         store.session.execute(
             text(
                 """
@@ -640,10 +664,11 @@ def test_paper_run_reset_excludes_legacy_pnl_from_sync(monkeypatch):
                   CAST(:tid AS uuid), CAST(:pos AS uuid), CAST(:port AS uuid),
                   si.id, si.strategy_version_id, si.instrument_id, 'long', 1, 100, 105,
                   500, 500, 0, 0, 0, 100, 100, 'strategy', 60, NOW(), NOW(), 'paper', NULL, NULL
-                FROM strategy_instances si LIMIT 1
+                FROM strategy_instances si
+                WHERE si.id = CAST(:si AS uuid)
                 """
             ),
-            {"tid": str(uuid.uuid4()), "pos": pos_id, "port": pid},
+            {"tid": str(uuid.uuid4()), "pos": pos_id, "port": pid, "si": ref.instance_id},
         )
         reset_mod._execute_reset(store)
         session.flush()
@@ -651,7 +676,8 @@ def test_paper_run_reset_excludes_legacy_pnl_from_sync(monkeypatch):
         assert run_id
         portfolio = Portfolio(
             id=pid,
-            name="test",
+            name=ref.name_he,
+            mode=Mode.PAPER,
             initial_capital=Decimal("2000"),
             balance=Decimal("2000"),
             equity=Decimal("2000"),
@@ -659,6 +685,134 @@ def test_paper_run_reset_excludes_legacy_pnl_from_sync(monkeypatch):
         )
         store.sync_portfolios_financial_state_from_ledger([portfolio])
         assert portfolio.balance == Decimal("2000")
+        session.flush()
+    finally:
+        session.rollback()
+        session.close()
+
+
+def test_first_generation_legacy_reset_retires_null_run_rows(monkeypatch):
+    """First reset after 0007 with no prior paper_run must retire legacy NULL-run rows."""
+    patch_paper_account_slug(monkeypatch)
+    from quantara_engine.db.session import SessionLocal
+
+    root = Path(__file__).resolve().parents[3]
+    sys.path.insert(0, str(root / "scripts"))
+    import paper_broker_reset as reset_mod
+
+    monkeypatch.setattr(reset_mod, "ACCOUNT_SLUG", TEST_ACCOUNT_SLUG)
+
+    session = SessionLocal()
+    try:
+        store = TradingStore(session)
+        setup_active_test_account(store)
+        from quantara_engine.competition.constants import ACTIVE_COMPETITION_PORTFOLIOS
+
+        ref = ACTIVE_COMPETITION_PORTFOLIOS[0]
+        pid = ref.portfolio_id
+        pos_id = str(uuid.uuid4())
+        intent_id = str(uuid.uuid4())
+        signal_id = str(uuid.uuid4())
+        inst_id = store.session.execute(
+            text("SELECT instrument_id::text FROM strategy_instances WHERE id = CAST(:si AS uuid)"),
+            {"si": ref.instance_id},
+        ).scalar()
+        si_row = store.session.execute(
+            text(
+                """
+                SELECT strategy_version_id::text AS sv, risk_profile_id::text AS rp
+                FROM strategy_instances WHERE id = CAST(:si AS uuid)
+                """
+            ),
+            {"si": ref.instance_id},
+        ).mappings().first()
+        assert si_row
+        sv_id = si_row["sv"]
+        rp_id = si_row["rp"]
+        store.session.execute(
+            text(
+                """
+                INSERT INTO signals (
+                  id, strategy_instance_id, strategy_version_id, instrument_id,
+                  candle_timestamp, action, reason, mode, backtest_run_id
+                ) VALUES (
+                  CAST(:id AS uuid), CAST(:si AS uuid), CAST(:sv AS uuid), CAST(:inst AS uuid),
+                  NOW(), 'buy', 'legacy-test', 'paper', NULL
+                )
+                """
+            ),
+            {"id": signal_id, "si": ref.instance_id, "sv": sv_id, "inst": inst_id},
+        )
+        store.session.execute(
+            text(
+                """
+                INSERT INTO positions (
+                  id, portfolio_id, strategy_instance_id, instrument_id,
+                  direction, quantity, entry_price, current_price, stop_loss,
+                  unrealized_pnl, status, opened_at, mode, backtest_run_id, paper_run_id
+                ) VALUES (
+                  CAST(:pos AS uuid), CAST(:port AS uuid), CAST(:si AS uuid), CAST(:inst AS uuid),
+                  'long', 1, 100, 100, 95, 0, 'open', NOW(), 'paper', NULL, NULL
+                )
+                """
+            ),
+            {
+                "pos": pos_id,
+                "port": pid,
+                "si": ref.instance_id,
+                "inst": inst_id,
+            },
+        )
+        store.session.execute(
+            text(
+                """
+                INSERT INTO order_intents (
+                  id, signal_id, strategy_instance_id, portfolio_id, direction, quantity,
+                  stop_loss, take_profit, target_risk_amount, actual_risk_amount,
+                  signal_candle_timestamp, risk_profile_id, status, entry_type, idempotency_key,
+                  mode, backtest_run_id, paper_run_id
+                ) VALUES (
+                  CAST(:id AS uuid), CAST(:sig AS uuid), CAST(:si AS uuid), CAST(:port AS uuid),
+                  'long', 1, 95, NULL, 100, 100, NOW(), CAST(:rp AS uuid),
+                  'pending_execution', 'market', :idem, 'paper', NULL, NULL
+                )
+                """
+            ),
+            {
+                "id": intent_id,
+                "sig": signal_id,
+                "si": ref.instance_id,
+                "port": pid,
+                "rp": rp_id,
+                "idem": f"legacy-test:{intent_id}",
+            },
+        )
+        store.session.execute(
+            text("DELETE FROM paper_runs")
+        )
+        store.session.execute(
+            text("DELETE FROM settings WHERE key = 'current_paper_run_id'")
+        )
+        reset_mod._execute_reset(store)
+        session.flush()
+        legacy_open = int(
+            store.session.execute(
+                text(
+                    """
+                    SELECT COUNT(*) FROM positions
+                    WHERE id = CAST(:id AS uuid) AND status = 'open'
+                    """
+                ),
+                {"id": pos_id},
+            ).scalar()
+            or 0
+        )
+        assert legacy_open == 0
+        pending = store.session.execute(
+            text("SELECT status FROM order_intents WHERE id = CAST(:id AS uuid)"),
+            {"id": intent_id},
+        ).scalar()
+        assert str(pending) == "expired"
         session.flush()
     finally:
         session.rollback()

@@ -311,6 +311,7 @@ def batch_competition_exposure_risk_summary(
     symbol_by_instrument_id: dict[str, str],
 ) -> tuple[CompetitionExposureRiskSummary, dict[str, AssetExposureRiskMetrics]]:
     """Batched open exposure + canonical SL risk for competition dashboards."""
+    from quantara_engine.competition.paper_run import position_scope_clause
     from quantara_engine.competition.asset_equity import (
         nominal_asset_allocated_equity,
         portfolio_ids_for_symbol,
@@ -354,6 +355,7 @@ def batch_competition_exposure_risk_summary(
         ).where(
             OrmPosition.portfolio_id.in_(_uuids(portfolio_ids)),
             OrmPosition.status == OrmPositionStatus.OPEN,
+            position_scope_clause(store),
         )
     ).all()
     if not open_rows:
@@ -593,6 +595,8 @@ def list_positions_for_portfolios(
     open_only: bool = True,
     status: str | None = None,
 ) -> list[Position]:
+    from quantara_engine.competition.paper_run import position_scope_clause
+
     if not portfolio_ids:
         return []
     ids = _uuids(portfolio_ids)
@@ -600,7 +604,10 @@ def list_positions_for_portfolios(
     if status:
         stmt = stmt.where(OrmPosition.status == OrmPositionStatus(status))
     elif open_only:
-        stmt = stmt.where(OrmPosition.status == OrmPositionStatus.OPEN)
+        stmt = stmt.where(
+            OrmPosition.status == OrmPositionStatus.OPEN,
+            position_scope_clause(store),
+        )
     rows = store.session.scalars(stmt).all()
     positions = [store._position_to_domain(row) for row in rows]
     store._hydrate_position_strategy_versions(positions)

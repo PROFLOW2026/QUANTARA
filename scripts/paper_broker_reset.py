@@ -480,6 +480,10 @@ def _execute_reset(store: TradingStore) -> str:
         end_paper_run(store, previous_run)
         _retire_open_competition_positions(store, paper_run_id=previous_run)
         _expire_competition_pending_intents(store, paper_run_id=previous_run)
+    else:
+        # First generation after 0007: legacy NULL-run rows must not enter the new run.
+        _retire_open_competition_positions(store, paper_run_id=None)
+        _expire_competition_pending_intents(store, paper_run_id=None)
 
     new_run_id = create_paper_run(
         store,

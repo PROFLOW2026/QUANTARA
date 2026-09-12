@@ -122,17 +122,61 @@ def paper_run_uuid(store: TradingStore) -> uuid.UUID | None:
         return None
 
 
+_STAMP_TABLES = frozenset(
+    {"positions", "trades", "order_intents", "portfolio_snapshots", "decisions", "signals"}
+)
+
+
 def stamp_paper_run_id(store: TradingStore, *, table: str, row_id: str) -> None:
     """Attach current paper run to a persisted row when 0007 columns exist."""
     run_id = get_current_paper_run_id(store)
     if not run_id or not paper_run_columns_ready(store):
         return
-    if table not in {"positions", "trades", "order_intents"}:
+    if table not in _STAMP_TABLES:
         return
     store.session.execute(
         text(f"UPDATE {table} SET paper_run_id = CAST(:run_id AS uuid) WHERE id = CAST(:id AS uuid)"),
         {"run_id": run_id, "id": row_id},
     )
+
+
+def _scoped_run_id(store: TradingStore) -> str | None:
+    if not paper_run_columns_ready(store):
+        return None
+    return get_current_paper_run_id(store)
+
+
+def snapshot_scope_clause(store: TradingStore):
+    from quantara_engine.models.portfolio import PortfolioSnapshot as OrmPortfolioSnapshot
+
+    run_id = _scoped_run_id(store)
+    if run_id:
+        return text("portfolio_snapshots.paper_run_id = CAST(:paper_run_id AS uuid)").bindparams(
+            paper_run_id=run_id
+        )
+    return OrmPortfolioSnapshot.backtest_run_id.is_(None)
+
+
+def decision_scope_clause(store: TradingStore):
+    from quantara_engine.models.trading import Decision as OrmDecision
+
+    run_id = _scoped_run_id(store)
+    if run_id:
+        return text("decisions.paper_run_id = CAST(:paper_run_id AS uuid)").bindparams(
+            paper_run_id=run_id
+        )
+    return OrmDecision.backtest_run_id.is_(None)
+
+
+def signal_scope_clause(store: TradingStore):
+    from quantara_engine.models.trading import Signal as OrmSignal
+
+    run_id = _scoped_run_id(store)
+    if run_id:
+        return text("signals.paper_run_id = CAST(:paper_run_id AS uuid)").bindparams(
+            paper_run_id=run_id
+        )
+    return OrmSignal.backtest_run_id.is_(None)
 
 
 def trade_scope_sql(store: TradingStore, alias: str = "trades") -> tuple[str, dict]:

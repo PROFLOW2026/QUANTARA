@@ -842,7 +842,9 @@ export interface BrokerAccountSummary {
     mark_price: number;
     unrealized_pnl: number;
   }>;
-  physical_remaining_sl_risk_usd?: number;
+  physical_remaining_sl_risk_usd?: number | null;
+  physical_risk_complete?: boolean;
+  physical_risk_missing_count?: number;
   projected_broker_equity_at_stops?: number | null;
 }
 

@@ -181,6 +181,8 @@ class TradingStore:
 
     def count_open_competition_positions(self) -> int:
         """Open paper positions across Robot A + Robot B competition portfolios."""
+        from quantara_engine.competition.paper_run import position_scope_clause
+
         _, _, entries = self.list_all_competition_entries()
         pids = [_uuid(e["portfolio"].id) for e in entries]
         if not pids:
@@ -192,6 +194,7 @@ class TradingStore:
                 .where(
                     OrmPosition.portfolio_id.in_(pids),
                     OrmPosition.status == OrmPositionStatus.OPEN,
+                    position_scope_clause(self),
                 )
             )
             or 0
@@ -1301,6 +1304,10 @@ class TradingStore:
             backtest_run_id=self._bt_uuid(),
         )
         self.session.merge(row)
+        self.session.flush()
+        from quantara_engine.competition.paper_run import stamp_paper_run_id
+
+        stamp_paper_run_id(self, table="signals", row_id=signal_id)
 
     def merge_signal_metadata(self, signal_id: str, patch: dict) -> None:
         """Merge keys into signal.metadata (e.g. risk_audit after approval)."""
@@ -1344,6 +1351,10 @@ class TradingStore:
             backtest_run_id=self._bt_uuid(),
         )
         self.session.merge(row)
+        self.session.flush()
+        from quantara_engine.competition.paper_run import stamp_paper_run_id
+
+        stamp_paper_run_id(self, table="decisions", row_id=entry.id)
 
     def list_consumed_opportunity_keys(self, strategy_instance_id: str) -> list[str]:
         """Opportunity keys with pending or filled entry intents (restart-safe)."""
@@ -1890,13 +1901,19 @@ class TradingStore:
         )
         self.session.add(row)
         self.session.flush()
+        from quantara_engine.competition.paper_run import stamp_paper_run_id
+
+        stamp_paper_run_id(self, table="portfolio_snapshots", row_id=snap_id)
         return snap_id
 
     def save_snapshots_batch(self, snapshots: list[PortfolioSnapshot]) -> None:
+        from quantara_engine.competition.paper_run import stamp_paper_run_id
+
         for snapshot in snapshots:
+            snap_id = uuid.uuid4()
             self.session.add(
                 OrmPortfolioSnapshot(
-                    id=uuid.uuid4(),
+                    id=snap_id,
                     portfolio_id=_uuid(snapshot.portfolio_id),
                     timestamp=snapshot.timestamp,
                     balance=snapshot.balance,
@@ -1910,6 +1927,7 @@ class TradingStore:
                     backtest_run_id=self._bt_uuid(),
                 )
             )
+            stamp_paper_run_id(self, table="portfolio_snapshots", row_id=str(snap_id))
 
     def update_portfolios_batch(
         self,
@@ -2004,6 +2022,8 @@ class TradingStore:
         portfolio_ids: list[str],
     ) -> dict[str, tuple[Decimal, Decimal]]:
         """Return {portfolio_id: (unrealized_pnl_sum, exposure_notional_sum)} for OPEN positions."""
+        from quantara_engine.competition.paper_run import position_scope_clause
+
         if not portfolio_ids:
             return {}
         ids = [_uuid(pid) for pid in portfolio_ids]
@@ -2019,6 +2039,7 @@ class TradingStore:
             .where(
                 OrmPosition.portfolio_id.in_(ids),
                 OrmPosition.status == OrmPositionStatus.OPEN,
+                position_scope_clause(self),
             )
             .group_by(OrmPosition.portfolio_id)
         ).all()
@@ -2142,6 +2163,12 @@ class TradingStore:
     # ------------------------------------------------------------------ Load
 
     def load_portfolio_state(self, portfolio_id: str) -> PortfolioState:
+        from quantara_engine.competition.paper_run import (
+            position_scope_clause,
+            snapshot_scope_clause,
+            trade_scope_clause,
+        )
+
         portfolio_row = self.session.get(OrmPortfolio, _uuid(portfolio_id))
         if not portfolio_row:
             raise ValueError(f"Portfolio not found: {portfolio_id}")
@@ -2152,6 +2179,7 @@ class TradingStore:
             select(OrmPosition).where(
                 OrmPosition.portfolio_id == _uuid(portfolio_id),
                 OrmPosition.status == OrmPositionStatus.OPEN,
+                position_scope_clause(self),
             )
         ).all()
         positions = [self._position_to_domain(row) for row in position_rows]
@@ -2160,14 +2188,20 @@ class TradingStore:
 
         trade_rows = self.session.scalars(
             select(OrmTrade)
-            .where(OrmTrade.portfolio_id == _uuid(portfolio_id))
+            .where(
+                OrmTrade.portfolio_id == _uuid(portfolio_id),
+                trade_scope_clause(self),
+            )
             .order_by(OrmTrade.closed_at)
         ).all()
         trades = [self._trade_to_domain(row) for row in trade_rows]
 
         snapshot_rows = self.session.scalars(
             select(OrmPortfolioSnapshot)
-            .where(OrmPortfolioSnapshot.portfolio_id == _uuid(portfolio_id))
+            .where(
+                OrmPortfolioSnapshot.portfolio_id == _uuid(portfolio_id),
+                snapshot_scope_clause(self),
+            )
             .order_by(OrmPortfolioSnapshot.timestamp)
         ).all()
         snapshots = [self._snapshot_to_domain(row) for row in snapshot_rows]
@@ -2181,6 +2215,8 @@ class TradingStore:
 
     def load_portfolio_for_snapshot(self, portfolio_id: str) -> PortfolioState:
         """Lightweight state for snapshot job — open positions only, no history."""
+        from quantara_engine.competition.paper_run import position_scope_clause
+
         portfolio_row = self.session.get(OrmPortfolio, _uuid(portfolio_id))
         if not portfolio_row:
             raise ValueError(f"Portfolio not found: {portfolio_id}")
@@ -2190,6 +2226,7 @@ class TradingStore:
             select(OrmPosition).where(
                 OrmPosition.portfolio_id == _uuid(portfolio_id),
                 OrmPosition.status == OrmPositionStatus.OPEN,
+                position_scope_clause(self),
             )
         ).all()
         positions = [self._position_to_domain(row) for row in position_rows]
@@ -2202,6 +2239,8 @@ class TradingStore:
 
     def batch_load_portfolio_states(self, portfolio_ids: list[str]) -> dict[str, PortfolioState]:
         """Load open-position portfolio states for PM — two queries total."""
+        from quantara_engine.competition.paper_run import position_scope_clause
+
         if not portfolio_ids:
             return {}
         unique_ids = sorted(set(portfolio_ids))
@@ -2216,6 +2255,7 @@ class TradingStore:
             select(OrmPosition).where(
                 OrmPosition.portfolio_id.in_(uuids),
                 OrmPosition.status == OrmPositionStatus.OPEN,
+                position_scope_clause(self),
             )
         ).all()
         positions_by_portfolio: dict[str, list[Position]] = {pid: [] for pid in unique_ids}
@@ -2340,11 +2380,16 @@ class TradingStore:
         open_only: bool = True,
         status: str | None = None,
     ) -> list[Position]:
+        from quantara_engine.competition.paper_run import position_scope_clause
+
         stmt = select(OrmPosition).where(OrmPosition.portfolio_id == _uuid(portfolio_id))
         if status:
             stmt = stmt.where(OrmPosition.status == OrmPositionStatus(status))
         elif open_only:
-            stmt = stmt.where(OrmPosition.status == OrmPositionStatus.OPEN)
+            stmt = stmt.where(
+                OrmPosition.status == OrmPositionStatus.OPEN,
+                position_scope_clause(self),
+            )
         rows = self.session.scalars(stmt).all()
         return [self._position_to_domain(row) for row in rows]
 
@@ -2353,9 +2398,14 @@ class TradingStore:
         portfolio_id: str,
         limit: int = 100,
     ) -> list[PortfolioSnapshot]:
+        from quantara_engine.competition.paper_run import snapshot_scope_clause
+
         rows = self.session.scalars(
             select(OrmPortfolioSnapshot)
-            .where(OrmPortfolioSnapshot.portfolio_id == _uuid(portfolio_id))
+            .where(
+                OrmPortfolioSnapshot.portfolio_id == _uuid(portfolio_id),
+                snapshot_scope_clause(self),
+            )
             .order_by(OrmPortfolioSnapshot.timestamp.desc())
             .limit(limit)
         ).all()
@@ -2791,6 +2841,13 @@ class TradingStore:
                 "trades_closed_today": 0,
             }
 
+        from quantara_engine.competition.paper_run import (
+            decision_scope_clause,
+            intent_scope_clause,
+            position_scope_clause,
+            trade_scope_clause,
+        )
+
         inst_uuids = [_uuid(i) for i in instance_ids]
         port_uuids = [_uuid(i) for i in portfolio_ids]
 
@@ -2807,6 +2864,7 @@ class TradingStore:
                 OrmDecision.strategy_instance_id.in_(inst_uuids),
                 OrmDecision.created_at >= today_start,
                 OrmDecision.decision_type.in_(signal_types),
+                decision_scope_clause(self),
             )
         ) or 0
 
@@ -2819,6 +2877,7 @@ class TradingStore:
                 OrmDecision.decision_type.in_(
                     [OrmDecisionType.BUY_SIGNAL, OrmDecisionType.SELL_SIGNAL]
                 ),
+                decision_scope_clause(self),
             )
         ) or 0
 
@@ -2831,7 +2890,7 @@ class TradingStore:
             .where(
                 OrmOrderIntent.portfolio_id.in_(port_uuids),
                 OrmOrderIntent.created_at >= today_start,
-                OrmOrderIntent.backtest_run_id.is_(None),
+                intent_scope_clause(self),
                 OrmOrderIntent.target_risk_amount > 0,
                 OrmOrderIntent.status.in_(
                     [
@@ -2852,6 +2911,7 @@ class TradingStore:
                 OrmPosition.portfolio_id.in_(port_uuids),
                 OrmPosition.opened_at >= today_start,
                 OrmPosition.status == OrmPositionStatus.OPEN,
+                position_scope_clause(self),
             )
         ) or 0
 
@@ -2861,7 +2921,7 @@ class TradingStore:
             .where(
                 OrmTrade.portfolio_id.in_(port_uuids),
                 OrmTrade.closed_at >= today_start,
-                OrmTrade.backtest_run_id.is_(None),
+                trade_scope_clause(self),
             )
         ) or 0
 
@@ -2877,6 +2937,7 @@ class TradingStore:
                         OrmDecision.strategy_instance_id.in_(inst_uuids),
                         OrmDecision.created_at >= today_start,
                         OrmDecision.decision_type == OrmDecisionType.SELL_SIGNAL,
+                        decision_scope_clause(self),
                     )
                 )
                 or 0
@@ -2888,7 +2949,7 @@ class TradingStore:
                     select(func.coalesce(func.sum(OrmTrade.realized_pnl), 0)).where(
                         OrmTrade.portfolio_id.in_(port_uuids),
                         OrmTrade.closed_at >= today_start,
-                        OrmTrade.backtest_run_id.is_(None),
+                        trade_scope_clause(self),
                     )
                 )
                 or 0

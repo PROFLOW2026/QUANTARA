@@ -127,6 +127,8 @@ def load_global_risk_context(
     from quantara_engine.models.trading import Position as OrmPosition
     from sqlalchemy import func, select
 
+    from quantara_engine.competition.paper_run import position_scope_clause
+
     allocated_ids = portfolio_ids_for_symbol(db_symbol)
     if not allocated_ids:
         return [], nominal_asset_allocated_equity(db_symbol)
@@ -136,6 +138,7 @@ def load_global_risk_context(
             OrmPosition.instrument_id == instrument_id,
             OrmPosition.status == OrmPositionStatus.OPEN,
             OrmPosition.portfolio_id.in_(allocated_ids),
+            position_scope_clause(store),
         )
     ).all()
     positions = [store._position_to_domain(row) for row in rows]

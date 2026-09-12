@@ -15,6 +15,11 @@ from quantara_engine.risk.sizing import _expected_risk_at_quantity
 
 def compute_physical_broker_risk(store: TradingStore) -> dict:
     """Remaining SL risk and projected broker equity at stops using physical attribution."""
+    from quantara_engine.broker.execution_service import BrokerExecutionService
+
+    svc = BrokerExecutionService(store)
+    snap = svc.load_account_snapshot()
+
     rows = store.session.execute(
         text(
             """
@@ -34,9 +39,12 @@ def compute_physical_broker_risk(store: TradingStore) -> dict:
     ).mappings().all()
 
     if not rows:
+        equity = snap.equity if snap.equity is not None else Decimal("0")
         return {
             "physical_remaining_sl_risk_usd": Decimal("0"),
-            "projected_broker_equity_at_stops": None,
+            "projected_broker_equity_at_stops": equity.quantize(Decimal("0.01")),
+            "physical_risk_complete": True,
+            "physical_risk_missing_count": 0,
             "attributed_lot_count": 0,
         }
 
@@ -46,16 +54,22 @@ def compute_physical_broker_risk(store: TradingStore) -> dict:
     fx = resolve_dashboard_fx_rates(store, quote_currencies_for_instruments(instruments))
 
     total_risk = Decimal("0")
+    missing_count = 0
     for r in rows:
         qty = Decimal(str(r["remaining_qty"]))
-        stop = Decimal(str(r["stop_loss"] or "0"))
-        if stop <= 0 or qty <= 0:
+        stop_raw = r["stop_loss"]
+        if stop_raw is None or Decimal(str(stop_raw)) <= 0:
+            missing_count += 1
             continue
-        mark = Decimal(str(r["mark_price"] or r["current_price"] or "0"))
-        if mark <= 0:
+        stop = Decimal(str(stop_raw))
+        mark_raw = r["mark_price"] or r["current_price"]
+        if mark_raw is None or Decimal(str(mark_raw)) <= 0:
+            missing_count += 1
             continue
+        mark = Decimal(str(mark_raw))
         instrument = store.get_instrument_by_id(str(r["instrument_id"]))
         if not instrument:
+            missing_count += 1
             continue
         direction = Direction.LONG if str(r["direction"]).lower() == "long" else Direction.SHORT
         try:
@@ -68,20 +82,26 @@ def compute_physical_broker_risk(store: TradingStore) -> dict:
                 fx_rates=fx,
                 execution_assumptions=None,
             )
-            if risk is not None:
-                total_risk += risk
+            if risk is None:
+                missing_count += 1
+                continue
+            total_risk += risk
         except (ValueError, ZeroDivisionError, TypeError):
+            missing_count += 1
             continue
 
-    from quantara_engine.broker.execution_service import BrokerExecutionService
-
-    snap = BrokerExecutionService(store).load_account_snapshot()
-    projected = snap.equity - total_risk if snap.equity is not None else None
+    risk_complete = missing_count == 0
+    equity = snap.equity if snap.equity is not None else None
+    projected = (equity - total_risk) if equity is not None and risk_complete else None
 
     return {
-        "physical_remaining_sl_risk_usd": total_risk.quantize(Decimal("0.01")),
+        "physical_remaining_sl_risk_usd": (
+            total_risk.quantize(Decimal("0.01")) if risk_complete else None
+        ),
         "projected_broker_equity_at_stops": (
             projected.quantize(Decimal("0.01")) if projected is not None else None
         ),
+        "physical_risk_complete": risk_complete,
+        "physical_risk_missing_count": missing_count,
         "attributed_lot_count": len(rows),
     }

@@ -1,0 +1,40 @@
+name: Broker Integration Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  broker-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: quantara
+          POSTGRES_PASSWORD: quantara
+          POSTGRES_DB: quantara_broker_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U quantara -d quantara_broker_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install engine dependencies
+        run: pip install -e "./apps/engine[dev]"
+
+      - name: Run broker integration tests
+        env:
+          BROKER_TEST_DATABASE_URL: postgresql://quantara:quantara@localhost:5432/quantara_broker_test
+        working-directory: apps/engine
+        run: pytest tests/test_broker_execution_integration.py -v --tb=short
