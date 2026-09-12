@@ -2,16 +2,13 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { DecisionTypeBadge } from "@/components/trading/DecisionTypeBadge";
 import {
-  isEntrySignalDecision,
-  translateRobotStrategyLabel,
-  translateDecisionMessage,
-  translateSignalReason,
-  translateTimeframe,
-} from "@/lib/display-text";
+  DecisionGroupDesktopTable,
+  DecisionGroupMobileList,
+  useDecisionGroups,
+} from "@/components/trading/DecisionGroupRows";
+import { isEntrySignalDecision, translateTimeframe } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
-import { formatRelativeTime } from "@/lib/utils";
 import type { Decision } from "@/lib/api-client";
 
 function freshnessBadge(fresh?: boolean) {
@@ -34,11 +31,7 @@ export function LatestDecisionsPanel({
   decisions: Decision[];
   timeframe: string;
 }) {
-  const sorted = [...decisions].sort((a, b) => {
-    const robot = (a.robot_label ?? "").localeCompare(b.robot_label ?? "");
-    if (robot !== 0) return robot;
-    return (a.instrument ?? "").localeCompare(b.instrument ?? "");
-  });
+  const groups = useDecisionGroups(decisions, true);
 
   return (
     <Card>
@@ -49,105 +42,22 @@ export function LatestDecisionsPanel({
         </p>
       </CardHeader>
       <CardContent>
-        {!sorted.length ? (
+        {!groups.length ? (
           <p className="text-sm text-muted">{t("common.no_data")}</p>
         ) : (
           <>
-          <div className="space-y-3 md:hidden">
-            {sorted.map((row) => {
-              const entrySignal =
-                row.entry_signal ??
-                (isEntrySignalDecision(row.decision_type) || row.trade_opened);
-              return (
-                <div
-                  key={`mobile-${row.robot_label ?? "na"}-${row.instrument}-${row.id}`}
-                  className="rounded-md border border-border/60 p-3 text-sm"
-                >
-                  <p className="text-xs text-muted">
-                    {translateRobotStrategyLabel(
-                      row.robot_label,
-                      row.strategy_name,
-                      row.strategy_slug
-                    )}
-                  </p>
-                  <p className="mt-1 font-medium">{row.instrument ?? "—"}</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <DecisionTypeBadge type={row.decision_type} metadata={row.metadata} />
-                    {freshnessBadge(row.fresh)}
-                  </div>
-                  <p className="mt-2 text-xs text-muted">
-                    {formatRelativeTime(row.timestamp)} · {translateTimeframe(row.timeframe ?? timeframe)}
-                  </p>
-                  <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed">
-                    {translateDecisionMessage(row)}
-                  </p>
-                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                    <p>{t("home.entry_signal")}: {yesNo(entrySignal)}</p>
-                    <p>{t("home.position_open_now")}: {yesNo(row.position_open)}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <table className="hidden w-full table-fixed text-sm md:table">
-            <colgroup>
-              <col className="w-[12%]" />
-              <col className="w-[7%]" />
-              <col className="w-[6%]" />
-              <col className="w-[10%]" />
-              <col className="w-[10%]" />
-              <col className="w-[7%]" />
-              <col className="w-[34%]" />
-              <col className="w-[7%]" />
-              <col className="w-[9%]" />
-            </colgroup>
-            <thead>
-              <tr className="border-b border-border text-muted">
-                <th className="py-2 pe-2 text-right">{t("home.robot_strategy")}</th>
-                <th className="py-2 px-1 text-right">{t("home.asset_symbol")}</th>
-                <th className="py-2 px-1 text-right">{t("home.timeframe")}</th>
-                <th className="py-2 px-1 text-right">{t("home.latest_decision")}</th>
-                <th className="py-2 px-1 text-right">{t("home.decision_time")}</th>
-                <th className="py-2 px-1 text-right">{t("home.data_freshness")}</th>
-                <th className="py-2 px-2 text-right">{t("home.reason")}</th>
-                <th className="py-2 px-1 text-right">{t("home.entry_signal")}</th>
-                <th className="py-2 ps-1 text-right">{t("home.position_open_now")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((row) => {
-                const entrySignal =
-                  row.entry_signal ??
-                  (isEntrySignalDecision(row.decision_type) || row.trade_opened);
-                return (
-                  <tr
-                    key={`${row.robot_label ?? "na"}-${row.instrument}-${row.id}`}
-                    className="border-b border-border/50 align-top"
-                  >
-                    <td className="py-2 pe-2 text-xs text-muted truncate">
-                      {translateRobotStrategyLabel(
-                        row.robot_label,
-                        row.strategy_name,
-                        row.strategy_slug
-                      )}
-                    </td>
-                    <td className="py-2 px-1 font-medium">{row.instrument ?? "—"}</td>
-                    <td className="py-2 px-1">{translateTimeframe(row.timeframe ?? timeframe)}</td>
-                    <td className="py-2 px-1">
-                      <DecisionTypeBadge type={row.decision_type} metadata={row.metadata} />
-                    </td>
-                    <td className="py-2 px-1 text-muted">{formatRelativeTime(row.timestamp)}</td>
-                    <td className="py-2 px-1">{freshnessBadge(row.fresh)}</td>
-                    <td className="py-2 px-2 whitespace-pre-wrap break-words leading-relaxed">
-                      {translateDecisionMessage(row)}
-                    </td>
-                    <td className="py-2 px-1">{yesNo(entrySignal)}</td>
-                    <td className="py-2 ps-1">{yesNo(row.position_open)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+            <DecisionGroupMobileList
+              groups={groups}
+              timeframe={timeframe}
+              freshnessBadge={freshnessBadge}
+              yesNo={yesNo}
+            />
+            <DecisionGroupDesktopTable
+              groups={groups}
+              timeframe={timeframe}
+              freshnessBadge={freshnessBadge}
+              yesNo={yesNo}
+            />
           </>
         )}
       </CardContent>

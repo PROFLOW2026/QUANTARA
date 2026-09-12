@@ -521,7 +521,10 @@
     "timestamp": "זמן",
     "decision_type": "סוג החלטה",
     "candle_time": "זמן נר",
-    "historical_incident": "היסטורי — תיעוד תקלה"
+    "historical_incident": "היסטורי — תיעוד תקלה",
+    "portfolios": "תיקי ניסוי",
+    "portfolio_tier_count": "{count} תיקי ניסוי",
+    "grouped_hint": "החלטות זהות מרובות תיקי ניסוי מוצגות בשורה אחת — לחץ לפירוט לפי רמת סיכון"
   },
   "strategies": {
     "title": "אסטרטגיות",

@@ -878,14 +878,36 @@ class TradingStore:
         return [self._decision_to_domain(row) for row in rows]
 
     def build_instance_strategy_identity_map(self) -> dict[str, dict[str, str]]:
-        """Map strategy_instance_id -> robot_label, strategy_slug, strategy_name."""
+        """Map strategy_instance_id -> robot, strategy, portfolio, and risk-tier context."""
+        from quantara_engine.competition.constants import (
+            PORTFOLIO_DEF_BY_ID,
+            RISK_SLUG_HE,
+        )
+        from quantara_engine.competition.multi_strategy_constants import (
+            PORTFOLIO_DEF_BY_ID as MULTI_PORTFOLIO_DEF_BY_ID,
+        )
+        from quantara_engine.competition.orb_constants import ORB_PORTFOLIO_DEF_BY_ID
         from quantara_engine.competition.robot_registry import ROBOT_LABELS
         from quantara_engine.strategies.registry import get
+
+        def _portfolio_display_name(portfolio_id: str, fallback: str) -> str:
+            portfolio_def = PORTFOLIO_DEF_BY_ID.get(portfolio_id)
+            if portfolio_def:
+                return portfolio_def.name_he
+            orb_def = ORB_PORTFOLIO_DEF_BY_ID.get(portfolio_id)
+            if orb_def:
+                return orb_def.name_he
+            multi_def = MULTI_PORTFOLIO_DEF_BY_ID.get(portfolio_id)
+            if multi_def:
+                return multi_def.name_he
+            return fallback
 
         mapping: dict[str, dict[str, str]] = {}
         _, _, combined = self.list_all_competition_entries()
         for entry in combined:
             inst = entry["instance"]
+            portfolio = entry["portfolio"]
+            risk = entry["risk_profile"]
             slug = inst.strategy_slug
             try:
                 strategy_name = get(slug, inst.strategy_version).name()
@@ -895,6 +917,11 @@ class TradingStore:
                 "robot_label": ROBOT_LABELS.get(slug, slug),
                 "strategy_slug": slug,
                 "strategy_name": strategy_name,
+                "portfolio_id": portfolio.id,
+                "portfolio_name": _portfolio_display_name(portfolio.id, portfolio.name),
+                "risk_slug": risk.slug,
+                "risk_name_he": RISK_SLUG_HE.get(risk.slug, portfolio.name),
+                "timeframe": inst.timeframe,
             }
         return mapping
 

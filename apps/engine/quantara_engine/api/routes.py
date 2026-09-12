@@ -992,15 +992,17 @@ def decisions(
     portfolio_id: str | None = None,
 ):
     symbol_map = store.resolve_instrument_display_symbols()
+    context_map: dict[str, dict[str, str]] | None = None
     if portfolio_id:
         items = store.list_decisions_for_portfolio(portfolio_id, limit=limit)
     else:
         competition = store.list_competition_instance_ids()
         if competition:
             items = store.list_competition_decisions(limit=limit)
+            context_map = store.build_instance_strategy_identity_map()
         else:
             items = store.list_decisions(limit=limit)
-    return [_decision_payload(d, symbol_map) for d in items]
+    return [_decision_payload(d, symbol_map, context_map) for d in items]
 
 
 def _sanitize_decision_metadata(metadata: dict | None) -> dict | None:
@@ -1011,10 +1013,15 @@ def _sanitize_decision_metadata(metadata: dict | None) -> dict | None:
     return out or None
 
 
-def _decision_payload(d, symbol_map: dict[str, str]) -> dict:
+def _decision_payload(
+    d,
+    symbol_map: dict[str, str],
+    context_map: dict[str, dict[str, str]] | None = None,
+) -> dict:
     signal = d.metadata.get("signal") if d.metadata else None
     instrument = symbol_map.get(d.instrument_id, d.instrument_id)
-    return {
+    ctx = (context_map or {}).get(d.strategy_instance_id, {})
+    payload = {
         "id": d.id,
         "timestamp": d.candle_timestamp.isoformat(),
         "decision_type": d.decision_type.value,
@@ -1025,7 +1032,16 @@ def _decision_payload(d, symbol_map: dict[str, str]) -> dict:
         "candle_time": d.candle_timestamp.isoformat(),
         "strategy_instance_id": d.strategy_instance_id,
         "signal": signal,
+        "robot_label": ctx.get("robot_label"),
+        "strategy_slug": ctx.get("strategy_slug"),
+        "strategy_name": ctx.get("strategy_name"),
+        "portfolio_id": ctx.get("portfolio_id"),
+        "portfolio_name": ctx.get("portfolio_name"),
+        "risk_slug": ctx.get("risk_slug"),
+        "risk_name_he": ctx.get("risk_name_he"),
+        "timeframe": ctx.get("timeframe"),
     }
+    return payload
 
 
 @router.get("/decisions/latest")
@@ -1058,11 +1074,8 @@ def decisions_by_asset(
     }
     rows = []
     for d in items:
-        payload = _decision_payload(d, symbol_map)
+        payload = _decision_payload(d, symbol_map, identity_map)
         identity = identity_map.get(d.strategy_instance_id, {})
-        payload["robot_label"] = identity.get("robot_label")
-        payload["strategy_slug"] = identity.get("strategy_slug")
-        payload["strategy_name"] = identity.get("strategy_name")
         last_ts = d.candle_timestamp
         age_min = (now - last_ts).total_seconds() / 60
         payload["fresh"] = age_min < 30

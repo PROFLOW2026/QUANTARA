@@ -193,6 +193,11 @@ export interface Decision {
   position_open?: boolean;
   robot_label?: string;
   strategy_slug?: string;
+  strategy_instance_id?: string;
+  portfolio_id?: string;
+  portfolio_name?: string;
+  risk_slug?: string;
+  risk_name_he?: string;
   signal?: {
     direction?: string;
     entry_price?: number;
