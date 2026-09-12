@@ -47,6 +47,7 @@ const MultiEquityCurveChart = dynamic(
 
 const POLL_INTERVAL = 60_000;
 const TIMEFRAME_ORDER = ["1h", "15m", "5m"] as const;
+const RANKING_TIMEFRAME_ORDER = ["5m", "15m", "1h"] as const;
 
 function LeaderboardTable({ rows }: { rows: CompetitionLeaderboardRow[] }) {
   if (!rows.length) {
@@ -85,6 +86,59 @@ function LeaderboardTable({ rows }: { rows: CompetitionLeaderboardRow[] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function CollapsibleRankingSection({
+  title,
+  rows,
+  unavailable,
+}: {
+  title: string;
+  rows: CompetitionLeaderboardRow[];
+  unavailable: string | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const leader = rows[0];
+
+  if (!rows.length && !unavailable) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-md border border-border/60 bg-surface-elevated/20">
+      <button
+        type="button"
+        className="flex w-full items-start justify-between gap-3 px-3 py-3 text-right hover:bg-surface-elevated/40"
+        onClick={() => setExpanded((open) => !open)}
+        aria-expanded={expanded}
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block font-medium">{title}</span>
+          {leader ? (
+            <span className="mt-1 block text-xs text-muted">
+              {t("competition.ranking_collapsed_summary", {
+                count: rows.length,
+                leader: leader.name,
+                return: formatPercent(leader.return_pct),
+              })}
+            </span>
+          ) : null}
+        </span>
+        <span className="shrink-0 text-xs text-accent">
+          {expanded ? t("competition.collapse_group") : t("competition.expand_group")}
+        </span>
+      </button>
+      {expanded ? (
+        <div className="max-h-[min(70vh,520px)] overflow-auto border-t border-border/60 p-3">
+          {unavailable ? (
+            <p className="text-sm text-muted">{unavailable}</p>
+          ) : (
+            <LeaderboardTable rows={rows} />
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -326,42 +380,34 @@ export default function PortfolioComparisonModule({ embedded }: ModuleProps) {
 
       <Card className="mb-4">
         <CardHeader>
-          <CardTitle>{t("competition.leaderboard_overall")}</CardTitle>
-          <p className="text-xs text-muted">{t("competition.leader_return")}</p>
+          <CardTitle>{t("competition.rankings_section_title")}</CardTitle>
+          <p className="text-xs text-muted">{t("competition.rankings_section_hint")}</p>
         </CardHeader>
-        <CardContent>
-          {secondaryUnavailable ? (
-            <p className="text-sm text-muted">{secondaryUnavailable}</p>
-          ) : (
-            <LeaderboardTable rows={data.leaderboard ?? []} />
-          )}
+        <CardContent className="space-y-2">
+          <CollapsibleRankingSection
+            title={t("competition.leaderboard_overall")}
+            rows={data.leaderboard ?? []}
+            unavailable={secondaryUnavailable}
+          />
+          {RANKING_TIMEFRAME_ORDER.map((timeframe) => {
+            const rows = data.leaderboards_by_timeframe?.[timeframe] ?? [];
+            const title =
+              timeframe === "1h"
+                ? t("competition.leaderboard_1h")
+                : timeframe === "15m"
+                  ? t("competition.leaderboard_15m")
+                  : t("competition.leaderboard_5m");
+            return (
+              <CollapsibleRankingSection
+                key={timeframe}
+                title={title}
+                rows={rows}
+                unavailable={secondaryUnavailable}
+              />
+            );
+          })}
         </CardContent>
       </Card>
-
-      {TIMEFRAME_ORDER.map((timeframe) => {
-        const rows = data.leaderboards_by_timeframe?.[timeframe] ?? [];
-        if (!rows.length) return null;
-        const title =
-          timeframe === "1h"
-            ? t("competition.leaderboard_1h")
-            : timeframe === "15m"
-              ? t("competition.leaderboard_15m")
-              : t("competition.leaderboard_5m");
-        return (
-          <Card key={timeframe} className="mb-4">
-            <CardHeader>
-              <CardTitle>{title}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {secondaryUnavailable ? (
-                <p className="text-sm text-muted">{secondaryUnavailable}</p>
-              ) : (
-                <LeaderboardTable rows={rows} />
-              )}
-            </CardContent>
-          </Card>
-        );
-      })}
 
       <Card className="mb-4">
         <CardHeader>

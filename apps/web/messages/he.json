@@ -590,7 +590,10 @@
     "group_equity": "שווי {value}",
     "group_pnl": "רווח/הפסד",
     "group_open_positions": "{count} פוזיציות פתוחות",
-    "total_portfolios_reachable": "סה״כ {count} תיקים נגישים בהיררכיה"
+    "total_portfolios_reachable": "סה״כ {count} תיקים נגישים בהיררכיה",
+    "rankings_section_title": "דירוגים",
+    "rankings_section_hint": "פתח רק את טווח הזמן שברצונך לראות",
+    "ranking_collapsed_summary": "{count} תיקים · מוביל: {leader} · תשואה {return}"
   },
   "settings": {
     "title": "הגדרות",

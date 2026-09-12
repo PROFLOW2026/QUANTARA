@@ -182,23 +182,25 @@ export function ActiveAssetsSummary({
   );
 }
 
-function CountDrilldownButton({
+function CountDrilldownLink({
   count,
   label,
   onClick,
+  className = "",
 }: {
   count: number;
   label: string;
   onClick: () => void;
+  className?: string;
 }) {
   return (
     <button
       type="button"
-      className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-surface-elevated/40 px-2 py-0.5 font-mono text-xs hover:bg-surface-elevated disabled:cursor-default disabled:opacity-70"
+      className={`cursor-pointer font-inherit text-inherit hover:text-accent hover:underline focus:outline-none focus-visible:underline ${className}`}
       onClick={onClick}
       aria-label={label}
     >
-      [{count}]
+      {count}
     </button>
   );
 }
@@ -230,17 +232,17 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
               </p>
               <div className="mt-2">{statusBadge(asset.data_status, asset.stale)}</div>
               <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                <p className="flex items-center gap-2">
-                  {t("home.open_positions")}:
-                  <CountDrilldownButton
+                <p>
+                  {t("home.open_positions")}:{" "}
+                  <CountDrilldownLink
                     count={asset.open_positions}
                     label={t("home.open_positions_modal_title", { asset: asset.symbol })}
                     onClick={() => setDrilldown({ asset, mode: "open" })}
                   />
                 </p>
-                <p className="flex items-center gap-2">
-                  {t("home.closed_trades")}:
-                  <CountDrilldownButton
+                <p>
+                  {t("home.closed_trades")}:{" "}
+                  <CountDrilldownLink
                     count={asset.closed_trades}
                     label={t("home.closed_trades_modal_title", { asset: asset.symbol })}
                     onClick={() => setDrilldown({ asset, mode: "closed" })}
@@ -319,17 +321,19 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
                   ) : null}
                 </td>
                 <td className="px-1 py-2 text-right">
-                  <CountDrilldownButton
+                  <CountDrilldownLink
                     count={asset.open_positions}
                     label={t("home.open_positions_modal_title", { asset: asset.symbol })}
                     onClick={() => setDrilldown({ asset, mode: "open" })}
+                    className="font-mono"
                   />
                 </td>
                 <td className="px-1 py-2 text-right">
-                  <CountDrilldownButton
+                  <CountDrilldownLink
                     count={asset.closed_trades}
                     label={t("home.closed_trades_modal_title", { asset: asset.symbol })}
                     onClick={() => setDrilldown({ asset, mode: "closed" })}
+                    className="font-mono"
                   />
                 </td>
                 <td className="px-1 py-2 text-right">
