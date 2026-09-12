@@ -249,7 +249,7 @@ function DesktopActiveAssetCard({
       </div>
 
       <div className="flex flex-1 flex-col p-3">
-      <div className="mb-2 rounded-md border border-border-nested bg-surface-inner px-2 py-1.5 text-xs leading-snug">
+      <div className="mb-2 border-b border-border-nested pb-2 text-xs leading-snug">
         <span className="text-muted">{t("home.market_regime_title")}: </span>
         {asset.market_regime ? (
           <>
@@ -277,13 +277,13 @@ function DesktopActiveAssetCard({
           ariaLabel={t("home.closed_trades_modal_title", { asset: asset.symbol })}
           onClick={() => onDrilldown("closed")}
         />
-        <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
+        <div className="rounded-md bg-surface-inner px-2 py-1.5">
           <p className="text-muted">{t("home.realized_pnl")}</p>
           <div className="mt-0.5">
             <PnLDisplay value={asset.realized_pnl} size="sm" />
           </div>
         </div>
-        <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
+        <div className="rounded-md bg-surface-inner px-2 py-1.5">
           <p className="text-muted">{t("home.unrealized_pnl")}</p>
           <div className="mt-0.5">
             <PnLDisplay value={asset.unrealized_pnl} size="sm" />

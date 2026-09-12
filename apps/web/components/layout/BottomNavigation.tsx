@@ -46,6 +46,15 @@ function useMoreMenuActive(): boolean {
   );
 }
 
+const navItemClass = (active: boolean) =>
+  cn(
+    "mx-0.5 my-1 flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full px-2 py-1.5 text-[10px] leading-tight transition-colors sm:text-xs",
+    "focus:outline-none focus-visible:ring-2 focus-visible:ring-focus/45 focus-visible:ring-inset",
+    active
+      ? "bg-nav-active-bg font-medium text-primary"
+      : "text-nav-inactive hover:text-foreground-secondary"
+  );
+
 function BottomNavItem({
   href,
   labelKey,
@@ -61,13 +70,7 @@ function BottomNavItem({
     <ModalLink
       href={href}
       scroll={false}
-      className={cn(
-        "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-2 text-[10px] leading-tight transition-colors sm:text-xs",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-focus/45 focus-visible:ring-inset",
-        active
-          ? "bg-nav-active-bg text-accent"
-          : "text-nav-inactive hover:text-foreground-secondary"
-      )}
+      className={navItemClass(active)}
       aria-current={active ? "page" : undefined}
     >
       <span className="text-lg leading-none" aria-hidden="true">
@@ -165,13 +168,7 @@ export function BottomNavigation() {
         <button
           type="button"
           onClick={openMore}
-          className={cn(
-            "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-2 text-[10px] leading-tight transition-colors sm:text-xs",
-            "focus:outline-none focus-visible:ring-2 focus-visible:ring-focus/45 focus-visible:ring-inset",
-            moreActive || moreOpen
-              ? "bg-nav-active-bg text-accent"
-              : "text-nav-inactive hover:text-foreground-secondary"
-          )}
+          className={navItemClass(moreActive || moreOpen)}
           aria-expanded={moreOpen}
           aria-haspopup="menu"
           aria-label={t("nav.more")}
