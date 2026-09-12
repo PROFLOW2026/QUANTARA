@@ -1834,7 +1834,13 @@ class TradingStore:
             )
         self.session.merge(row)
 
-    def save_position(self, position: Position) -> None:
+    def save_position(self, position: Position, *, intent_id: str | None = None) -> None:
+        from quantara_engine.competition.paper_run import (
+            paper_run_columns_ready,
+            resolve_position_paper_run_id,
+        )
+
+        paper_run_id = resolve_position_paper_run_id(self, intent_id=intent_id)
         row = OrmPosition(
             id=_uuid(position.id),
             portfolio_id=_uuid(position.portfolio_id),
@@ -1852,11 +1858,9 @@ class TradingStore:
             closed_at=position.closed_at,
             mode=_mode_to_orm(self.mode),
             backtest_run_id=self._bt_uuid(),
+            paper_run_id=_uuid(paper_run_id) if paper_run_id and paper_run_columns_ready(self) else None,
         )
         self.session.merge(row)
-        from quantara_engine.competition.paper_run import stamp_paper_run_id
-
-        stamp_paper_run_id(self, table="positions", row_id=position.id)
         self.session.flush()
 
     def update_position_closed(

@@ -140,6 +140,54 @@ def stamp_paper_run_id(store: TradingStore, *, table: str, row_id: str) -> None:
     )
 
 
+def resolve_position_paper_run_id(
+    store: TradingStore, *, intent_id: str | None = None
+) -> str | None:
+    """Inherit paper_run_id from intent lineage or fall back to current active run."""
+    if intent_id and paper_run_columns_ready(store):
+        row = store.session.execute(
+            text(
+                """
+                SELECT paper_run_id::text
+                FROM order_intents
+                WHERE id = CAST(:id AS uuid) AND paper_run_id IS NOT NULL
+                """
+            ),
+            {"id": intent_id},
+        ).scalar()
+        if row:
+            return str(row)
+    return get_current_paper_run_id(store)
+
+
+def repair_positions_paper_run_from_lineage(store: TradingStore) -> dict:
+    """Backfill positions.paper_run_id only when entry-fill → order → intent proves the run."""
+    if not paper_run_columns_ready(store):
+        return {"repaired": 0, "position_ids": [], "skipped_ambiguous": 0}
+    rows = store.session.execute(
+        text(
+            """
+            UPDATE positions p
+            SET paper_run_id = oi.paper_run_id
+            FROM fills f
+            JOIN orders o ON o.id = f.order_id
+            JOIN order_intents oi ON oi.id = o.intent_id
+            WHERE p.id = f.position_id
+              AND p.paper_run_id IS NULL
+              AND oi.paper_run_id IS NOT NULL
+              AND f.side = 'entry'
+            RETURNING p.id::text, oi.paper_run_id::text
+            """
+        )
+    ).all()
+    store.session.flush()
+    return {
+        "repaired": len(rows),
+        "position_ids": [str(r[0]) for r in rows],
+        "paper_run_ids": sorted({str(r[1]) for r in rows}),
+    }
+
+
 def _scoped_run_id(store: TradingStore) -> str | None:
     if not paper_run_columns_ready(store):
         return None

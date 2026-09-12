@@ -75,6 +75,33 @@ def _collect_pending_work(store: TradingStore, now: datetime) -> list[PendingInt
     return work
 
 
+def _finalize_execution_cycle(
+    store: TradingStore,
+    now: datetime,
+    *,
+    expired: int,
+    fills: int,
+    portfolios_checked: int,
+    errors: list[str],
+    extra: dict | None = None,
+) -> dict:
+    from quantara_engine.live_sim.allocator import resume_all_pending_live_sim_allocations
+
+    live_sim_resume = resume_all_pending_live_sim_allocations(store, now)
+    store.session.commit()
+    payload = {
+        "expired_intents": expired,
+        "portfolios_checked": portfolios_checked,
+        "fills_attempted": fills,
+        "errors": errors,
+        "live_sim_resumed": live_sim_resume.get("resumed", 0),
+        "live_sim_expired": live_sim_resume.get("expired", 0),
+    }
+    if extra:
+        payload.update(extra)
+    return payload
+
+
 def execute_pending_intents_live(store: TradingStore, now: datetime | None = None) -> dict:
     """Fill eligible pending intents without running strategy logic."""
     from quantara_engine.trading.trading_controls import allows_new_entries, load_trading_control
@@ -97,12 +124,14 @@ def execute_pending_intents_live(store: TradingStore, now: datetime | None = Non
 
     work_items = _collect_pending_work(store, now)
     if not work_items:
-        return {
-            "expired_intents": expired,
-            "portfolios_checked": 0,
-            "fills_attempted": 0,
-            "errors": errors,
-        }
+        return _finalize_execution_cycle(
+            store,
+            now,
+            expired=expired,
+            fills=0,
+            portfolios_checked=0,
+            errors=errors,
+        )
 
     processors: dict[tuple[str, str], CandleProcessor] = {}
 
@@ -193,11 +222,11 @@ def execute_pending_intents_live(store: TradingStore, now: datetime | None = Non
             logger.exception("execute_pending_intents failed for %s", msg)
             errors.append(msg)
 
-    store.session.commit()
-
-    return {
-        "expired_intents": expired,
-        "portfolios_checked": len(portfolios_checked),
-        "fills_attempted": fills,
-        "errors": errors,
-    }
+    return _finalize_execution_cycle(
+        store,
+        now,
+        expired=expired,
+        fills=fills,
+        portfolios_checked=len(portfolios_checked),
+        errors=errors,
+    )

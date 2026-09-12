@@ -224,7 +224,10 @@ class CandleProcessor:
             signal_id=intent.signal_id if intent else None,
         )
         if position and not trade:
-            self.store.save_position(position)
+            self.store.save_position(
+                position,
+                intent_id=intent.id if intent else None,
+            )
         fill_id = new_id()
         qty = intent.quantity if intent else (position.quantity if position else order.quantity)
         self.store.save_fill(

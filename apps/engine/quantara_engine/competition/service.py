@@ -69,7 +69,7 @@ def _portfolio_display_name(portfolio_id: str, fallback: str) -> str:
 
 def _portfolio_summary(
     entry: dict[str, Any],
-    batch_stats: dict[str, Any],
+    stats: dict[str, Any],
     *,
     robot_label: str,
     strategy_slug: str,
@@ -79,7 +79,6 @@ def _portfolio_summary(
     risk = entry["risk_profile"]
     instance = entry["instance"]
     timeframe = instance.timeframe
-    stats = batch_stats.get(portfolio.id, {})
     realized = stats.get("realized_pnl", Decimal("0"))
     trades_count = stats.get("closed_trades_count", 0)
     win_rate = stats.get("win_rate")
@@ -383,7 +382,7 @@ def build_competition_equity_curves(
 
 def _multi_strategy_portfolios(
     entries: list[dict[str, Any]],
-    batch_stats: dict[str, Any],
+    batch_stats: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for entry in entries:

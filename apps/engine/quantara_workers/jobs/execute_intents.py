@@ -54,10 +54,11 @@ def execute_intents_job(store: TradingStore | None = None) -> None:
             errors={"items": report.get("errors")} if report.get("errors") else None,
         )
         logger.info(
-            "execute_intents completed (expired=%d fills=%d checked=%d %.1fms)",
+            "execute_intents completed (expired=%d fills=%d checked=%d live_sim=%d %.1fms)",
             report.get("expired_intents", 0),
             report.get("fills_attempted", 0),
             report.get("portfolios_checked", 0),
+            report.get("live_sim_resumed", 0),
             duration_ms,
         )
         return report

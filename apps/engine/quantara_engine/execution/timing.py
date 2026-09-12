@@ -48,6 +48,68 @@ def _as_utc(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
+def normalize_utc(dt: datetime) -> datetime:
+    """Public UTC normalizer for cross-source timestamp comparisons."""
+    return _as_utc(dt)
+
+
+def find_candle_at_timestamp(candles: list, timestamp: datetime):
+    """Return the candle whose open timestamp matches (UTC-normalized)."""
+    target = normalize_utc(timestamp)
+    for candle in candles:
+        if normalize_utc(candle.timestamp) == target:
+            return candle
+    return None
+
+
+def resolve_execution_candle(
+    candles: list,
+    signal_candle_timestamp: datetime,
+    timeframe: str,
+    *,
+    execution_candle_timestamp: datetime | None = None,
+):
+    """Resolve N+1 execution candle — same semantics as Research intent execution."""
+    exec_ts = execution_candle_timestamp or next_execution_timestamp(
+        signal_candle_timestamp, timeframe
+    )
+    candle = find_candle_at_timestamp(candles, exec_ts)
+    if candle is not None:
+        return candle, exec_ts
+
+    target_signal = normalize_utc(signal_candle_timestamp)
+    for idx, row in enumerate(candles):
+        if normalize_utc(row.timestamp) == target_signal:
+            next_idx = idx + 1
+            if next_idx < len(candles):
+                next_candle = candles[next_idx]
+                return next_candle, next_candle.timestamp
+            break
+    return None, exec_ts
+
+
+def is_execution_candle_ready(
+    *,
+    signal_candle_timestamp: datetime,
+    execution_candle_timestamp: datetime | None,
+    timeframe: str,
+    now: datetime,
+) -> tuple[bool, str | None]:
+    """Canonical readiness gate shared by Research and Live Sim."""
+    exec_ts = execution_candle_timestamp or next_execution_timestamp(
+        signal_candle_timestamp, timeframe
+    )
+    if not is_bar_complete(exec_ts, timeframe, now):
+        return False, "execution_bar_not_complete"
+    return live_fill_allowed(
+        execution_candle_timestamp=exec_ts,
+        candle_timestamp=exec_ts,
+        signal_candle_timestamp=signal_candle_timestamp,
+        now=now,
+        timeframe=timeframe,
+    )
+
+
 def next_execution_timestamp(signal_candle_timestamp: datetime, timeframe: str) -> datetime:
     minutes = timeframe_minutes(timeframe)
     if signal_candle_timestamp.tzinfo is None:

@@ -46,7 +46,11 @@ from quantara_engine.market_data.sessions import session_allows_entries
 from quantara_engine.persistence.store import TradingStore
 from quantara_engine.pipeline.candle_processor import signal_age_minutes
 from quantara_engine.risk.opportunity import opportunity_key_from_signal
-from quantara_engine.execution.timing import live_fill_allowed
+from quantara_engine.execution.timing import (
+    is_execution_candle_ready,
+    next_execution_timestamp,
+    resolve_execution_candle,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,13 +67,6 @@ def _account_row(store: TradingStore) -> dict | None:
         ),
         {"slug": LIVE_SIM_10K_ACCOUNT_SLUG},
     ).mappings().first()
-
-
-def _execution_candle_index(candles: list, signal_candle_timestamp: datetime) -> int | None:
-    for idx, row in enumerate(candles):
-        if row.timestamp == signal_candle_timestamp:
-            return idx
-    return None
 
 
 def _execute_accepted_allocation(
@@ -257,21 +254,28 @@ def _resume_pending_allocation(
         return {"status": "skipped", "reason": lifecycle}
 
     signal_ts = existing["signal_candle_timestamp"]
-    candle_index = _execution_candle_index(candles, signal_ts)
-    if candle_index is None:
-        return {"status": "queued", "log_id": existing["id"]}
+    timeframe = str(existing["timeframe"])
+    meta = existing.get("metadata") or {}
+    stored_exec_ts = meta.get("execution_candle_timestamp")
+    exec_ts_hint = (
+        datetime.fromisoformat(stored_exec_ts.replace("Z", "+00:00"))
+        if isinstance(stored_exec_ts, str)
+        else stored_exec_ts
+    ) if stored_exec_ts else None
+    exec_candle, exec_ts = resolve_execution_candle(
+        candles,
+        signal_ts,
+        timeframe,
+        execution_candle_timestamp=exec_ts_hint,
+    )
+    if exec_candle is None:
+        return {"status": "queued", "log_id": existing["id"], "reason": "execution_candle_missing"}
 
-    exec_index = candle_index + 1
-    if exec_index >= len(candles):
-        return {"status": "queued", "log_id": existing["id"]}
-
-    exec_candle = candles[exec_index]
-    allowed, reject_reason = live_fill_allowed(
-        execution_candle_timestamp=exec_candle.timestamp,
-        candle_timestamp=exec_candle.timestamp,
+    allowed, reject_reason = is_execution_candle_ready(
         signal_candle_timestamp=signal_ts,
+        execution_candle_timestamp=exec_ts,
+        timeframe=timeframe,
         now=execution_now,
-        timeframe=str(existing["timeframe"]),
     )
     if not allowed:
         if reject_reason and "execution_window_passed" in reject_reason:
@@ -684,10 +688,12 @@ def maybe_allocate_live_sim(
     if not gate.allowed:
         return _reject(gate.reason or "GATE", gate.detail or REJECTION_HE.get(gate.reason or "", ""))
 
+    exec_ts = next_execution_timestamp(candle.timestamp, instance.timeframe)
     pending_meta = {
         "pending_execution": True,
         "lifecycle_state": "pending_execution",
         "sizing_reason": sizing.sizing_reason,
+        "execution_candle_timestamp": exec_ts.isoformat(),
     }
     if candle_index + 1 >= len(candles):
         log_id = log_allocation(
@@ -713,13 +719,21 @@ def maybe_allocate_live_sim(
         )
         return {"status": "queued", "log_id": log_id}
 
-    exec_candle = candles[candle_index + 1]
-    allowed, reject_reason = live_fill_allowed(
-        execution_candle_timestamp=exec_candle.timestamp,
-        candle_timestamp=exec_candle.timestamp,
-        signal_candle_timestamp=candle.timestamp,
-        now=execution_now,
-        timeframe=instance.timeframe,
+    exec_candle, exec_ts = resolve_execution_candle(
+        candles,
+        candle.timestamp,
+        instance.timeframe,
+        execution_candle_timestamp=exec_ts,
+    )
+    allowed, reject_reason = (
+        is_execution_candle_ready(
+            signal_candle_timestamp=candle.timestamp,
+            execution_candle_timestamp=exec_ts,
+            timeframe=instance.timeframe,
+            now=execution_now,
+        )
+        if exec_candle is not None
+        else (False, "execution_candle_missing")
     )
     if not allowed:
         log_id = log_allocation(
