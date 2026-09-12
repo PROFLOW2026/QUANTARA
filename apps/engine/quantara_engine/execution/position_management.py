@@ -214,6 +214,7 @@ def process_position_management(
     broker: PaperBrokerAdapter | None = None,
     cursors: dict[str, str] | None = None,
     portfolio_state: PortfolioState | None = None,
+    prefetched: list | None = None,
     defer_writes: bool = False,
     pending_exits: list[dict[str, Any]] | None = None,
     pending_decisions: list[DecisionLogEntry] | None = None,
@@ -241,6 +242,7 @@ def process_position_management(
         instance.timeframe,
         last_managed=last_managed,
         now=now,
+        prefetched=prefetched,
     )
     if not candles:
         return {"position_id": position.id, "status": "no_pending_candles"}
@@ -563,6 +565,7 @@ def manage_all_open_positions(
                 now=now,
                 cursors=cursors,
                 portfolio_state=state,
+                prefetched=prefetched,
                 defer_writes=True,
                 pending_exits=pending_exits,
                 currency=shared_currency,

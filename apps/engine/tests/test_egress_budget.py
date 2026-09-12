@@ -78,40 +78,35 @@ def test_bounded_processed_timestamps_match_catchup_in_window():
 
 def test_steady_state_cycle_candle_row_budget_after_warmup():
     """288 normal cycles: returned candle rows grow with new bars, not history depth."""
+    from tests.egress_test_support import IncrementalCandleBackingStore
+
     reset_worker_candle_cache()
     cache = WorkerCandleCache()
-    store = MagicMock()
-    metrics = EgressMetrics()
-    store.egress_metrics = metrics
     lookback = 250
+    backing = IncrementalCandleBackingStore()
     base = [_candle(i) for i in range(lookback)]
+    backing.seed("inst1", "5m", base)
 
-    def _recent(*_args, **_kwargs):
-        metrics.note_query("list_recent_candles", candle_rows=len(base))
-        return list(base)
-
-    def _after(_iid, _tf, after, **_kwargs):
-        rows = [_candle(lookback)] if after == base[-1].timestamp else []
-        metrics.note_query("list_candles_after", candle_rows=len(rows))
-        return rows
-
-    store.list_recent_candles.side_effect = _recent
-    store.list_candles_after.side_effect = _after
-
-    metrics.reset()
-    cache.get_window(store, "inst1", "5m", lookback=lookback)
-    warm_rows = metrics.candle_rows
+    cache.get_window(backing, "inst1", "5m", lookback=lookback)
+    warm_rows = backing.egress_metrics.candle_rows
+    warm_recent_calls = backing.egress_metrics.query_labels.get("list_recent_candles", 0)
 
     per_cycle_rows: list[int] = []
+    latest_ts = base[-1].timestamp
     for cycle in range(288):
-        metrics.reset()
-        base.append(_candle(lookback + cycle))
-        cache.get_window(store, "inst1", "5m", lookback=lookback)
-        per_cycle_rows.append(metrics.candle_rows)
+        backing.egress_metrics.reset()
+        new_row = _candle(lookback + cycle)
+        backing.append("inst1", "5m", new_row)
+        cache.get_window(backing, "inst1", "5m", lookback=lookback)
+        per_cycle_rows.append(backing.egress_metrics.candle_rows)
+        assert backing.egress_metrics.candle_rows <= 1
+        assert new_row.timestamp > latest_ts
+        latest_ts = new_row.timestamp
 
     assert warm_rows == lookback
-    assert max(per_cycle_rows) <= 2
-    assert sum(per_cycle_rows) <= 288 * 2
+    assert warm_recent_calls == 1
+    assert max(per_cycle_rows) == 1
+    assert sum(per_cycle_rows) == 288
 
 
 def test_snapshot_skips_unchanged_portfolio():

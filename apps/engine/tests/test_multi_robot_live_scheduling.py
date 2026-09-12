@@ -202,6 +202,26 @@ def test_running_beyond_stall_threshold_is_unhealthy():
     assert summary["stalled"] is True
 
 
+def test_snapshot_deduped_status_stays_healthy():
+    entries = [_entry(f"a{i}", f"p{i}") for i in range(5)]
+    store = MagicMock()
+    store.list_all_competition_entries.return_value = (entries, [], entries)
+    store.session = MagicMock()
+
+    with patch(
+        "quantara_workers.jobs.snapshot._run_batch_snapshots",
+        return_value=0,
+    ):
+        snapshot_job(store=store)
+
+    status = store.update_worker_status.call_args[0][1]
+    assert status["status"] == "healthy"
+    assert status["active_portfolios"] == 5
+    assert status["portfolios_snapshotted"] == 0
+    assert status["deduped"] is True
+    assert store.session.commit.called
+
+
 def test_snapshot_includes_all_competition_portfolios():
     robot_a = [_entry(f"a{i}", f"p{i}") for i in range(15)]
     robot_b = [_entry(f"b{i}", f"pb{i}") for i in range(25)]

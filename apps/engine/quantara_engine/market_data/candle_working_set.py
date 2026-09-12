@@ -72,16 +72,31 @@ class WorkerCandleCache:
         lookback: int,
         limit: int | None = None,
     ) -> list[Candle]:
-        """Slice the working set from ``since`` (PM / flatten paths)."""
+        """Oldest pending candles from ``since`` — PM catch-up safe."""
+        key = (instrument_id, timeframe)
         window = self.get_window(
             store,
             instrument_id,
             timeframe,
             lookback=lookback,
         )
+        earliest = window[0].timestamp if window else None
+        catch_up_limit = limit if limit is not None else lookback
+
+        if earliest is not None and since < earliest:
+            rows = store.list_candles(
+                instrument_id,
+                timeframe,
+                since=since,
+                limit=catch_up_limit,
+            )
+            if rows:
+                self._windows[key] = _merge_trim(window, rows, lookback)
+            return rows
+
         out = [c for c in window if c.timestamp >= since]
         if limit is not None and len(out) > limit:
-            return out[-limit:]
+            return out[:limit]
         return out
 
     def replace_window(

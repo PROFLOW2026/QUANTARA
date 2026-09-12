@@ -149,23 +149,37 @@ def snapshot_job(store: TradingStore | None = None) -> None:
 
     def _run(s: TradingStore) -> None:
         _, _, entries = s.list_all_competition_entries()
+        active_count = len(entries)
         count = _run_batch_snapshots(s, entries, started_at)
-        if count == 0:
-            logger.warning("No active competition portfolios — snapshot job skipped")
-            return
 
         s.session.commit()
-        s.update_worker_status(
-            "snapshot",
-            {"status": "healthy", "last_run": started_at.isoformat(), "portfolios_snapshotted": count},
-        )
+        status_payload = {
+            "status": "healthy",
+            "last_run": started_at.isoformat(),
+            "portfolios_snapshotted": count,
+            "active_portfolios": active_count,
+        }
+        if count == 0 and active_count > 0:
+            status_payload["deduped"] = True
+            logger.info(
+                "snapshot job deduped — %d active portfolio(s), 0 new snapshots (unchanged)",
+                active_count,
+            )
+        elif count == 0:
+            logger.warning("No active competition portfolios — snapshot job skipped")
+            status_payload["status"] = "idle"
+        else:
+            logger.info("snapshot job completed for %d portfolio(s)", count)
+
+        s.update_worker_status("snapshot", status_payload)
         s.save_worker_run(
             run_id=str(uuid.uuid4()),
             worker_name="snapshot",
             started_at=started_at,
-            jobs_processed=count,
+            jobs_processed=count if count > 0 else active_count,
         )
-        logger.info("snapshot job completed for %d portfolio(s)", count)
+        if count == 0 and active_count == 0:
+            return
 
     try:
         last_exc: Exception | None = None

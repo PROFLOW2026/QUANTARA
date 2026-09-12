@@ -1283,7 +1283,11 @@ class TradingStore:
         rows = self.session.execute(stmt).all()
         out = [self._candle_row_to_domain(row, instrument_id, timeframe) for row in rows]
         if self.egress_metrics is not None:
-            self.egress_metrics.note_query("list_candles", candle_rows=len(out))
+            self.egress_metrics.note_query(
+                "list_candles",
+                candle_rows=len(out),
+                candle_payload_source=out,
+            )
         return out
 
     def list_recent_candles(
@@ -1308,7 +1312,11 @@ class TradingStore:
             for row in reversed(rows)
         ]
         if self.egress_metrics is not None:
-            self.egress_metrics.note_query("list_recent_candles", candle_rows=len(out))
+            self.egress_metrics.note_query(
+                "list_recent_candles",
+                candle_rows=len(out),
+                candle_payload_source=out,
+            )
         return out
 
     def list_candles_after(
@@ -1335,7 +1343,11 @@ class TradingStore:
         rows = self.session.execute(stmt).all()
         out = [self._candle_row_to_domain(row, instrument_id, timeframe) for row in rows]
         if self.egress_metrics is not None:
-            self.egress_metrics.note_query("list_candles_after", candle_rows=len(out))
+            self.egress_metrics.note_query(
+                "list_candles_after",
+                candle_rows=len(out),
+                candle_payload_source=out,
+            )
         return out
 
     def count_candles(self, instrument_id: str, timeframe: str) -> int:
@@ -2314,6 +2326,12 @@ class TradingStore:
         positions = [self._position_to_domain(row) for row in position_rows]
         self._hydrate_position_strategy_versions(positions)
         self.hydrate_position_risk_from_intents(positions)
+        if self.egress_metrics is not None:
+            self.egress_metrics.note_query(
+                "load_portfolio_runtime_state",
+                position_rows=len(positions),
+                portfolio_rows=1,
+            )
         return PortfolioState(
             portfolio=portfolio,
             positions=positions,
@@ -2351,7 +2369,7 @@ class TradingStore:
         self._hydrate_position_strategy_versions(all_positions)
         self.hydrate_position_risk_from_intents(all_positions)
 
-        return {
+        states = {
             pid: PortfolioState(
                 portfolio=portfolios[pid],
                 positions=positions_by_portfolio.get(pid, []),
@@ -2361,6 +2379,13 @@ class TradingStore:
             for pid in unique_ids
             if pid in portfolios
         }
+        if self.egress_metrics is not None:
+            self.egress_metrics.note_query(
+                "batch_load_portfolio_states",
+                position_rows=len(all_positions),
+                portfolio_rows=len(portfolios),
+            )
+        return states
 
     # ------------------------------------------------------------------ Backtest
 
