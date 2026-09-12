@@ -119,59 +119,91 @@ export function HomeDashboard() {
         </Card>
       </div>
 
-      <div className="mt-4">
-        <h2 className="mb-2 text-sm font-medium text-muted">Paper Broker Account</h2>
+      <section className="mt-6">
+        <h2 className="mb-3 text-base font-semibold">{t("home.broker_section_title")}</h2>
         <BrokerAccountSummaryCards account={brokerAccount} loading={loading && !brokerAccount} />
-      </div>
+      </section>
 
-      <div className="mt-4">
-        <h2 className="mb-2 text-sm font-medium text-muted">
-          Strategy Shadow / Research Risk (not broker account risk)
-        </h2>
+      <section className="mt-6">
+        <div className="mb-3">
+          <h2 className="text-base font-semibold">{t("home.strategy_layer_title")}</h2>
+          <p className="text-muted text-xs">{t("home.strategy_layer_hint")}</p>
+        </div>
         <ExposureRiskSummaryCards summary={exposureSummary} loading={loading && !exposureSummary} />
-      </div>
-
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Card>
-          <CardHeader><CardTitle>{t("home.realized_pnl")}</CardTitle></CardHeader>
-          <CardContent>
-            {loading ? (
-              <span className="text-muted">{t("common.loading")}</span>
-            ) : competitionUnavailable || combinedRealized == null ? (
-              <span className="text-muted">{t("common.section_unavailable")}</span>
-            ) : (
-              <PnLDisplay value={combinedRealized} size="lg" />
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle>{t("home.unrealized_pnl")}</CardTitle></CardHeader>
-          <CardContent>
-            {loading ? (
-              <span className="text-muted">{t("common.loading")}</span>
-            ) : competitionUnavailable || combinedUnrealized == null ? (
-              <span className="text-muted">{t("common.section_unavailable")}</span>
-            ) : (
-              <PnLDisplay value={combinedUnrealized} size="lg" />
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle>{t("home.total_pnl")}</CardTitle></CardHeader>
-          <CardContent>
-            {loading ? (
-              <span className="text-muted">{t("common.loading")}</span>
-            ) : competitionUnavailable || combinedTotalPnl == null ? (
-              <span className="text-muted">{t("common.section_unavailable")}</span>
-            ) : (
-              <PnLDisplay value={combinedTotalPnl} size="lg" />
-            )}
-          </CardContent>
-        </Card>
-      </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Card>
+            <CardHeader><CardTitle>{t("home.realized_pnl")}</CardTitle></CardHeader>
+            <CardContent>
+              {loading ? (
+                <span className="text-muted">{t("common.loading")}</span>
+              ) : competitionUnavailable || combinedRealized == null ? (
+                <span className="text-muted">{t("common.section_unavailable")}</span>
+              ) : (
+                <PnLDisplay value={combinedRealized} size="lg" />
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>{t("home.unrealized_pnl")}</CardTitle></CardHeader>
+            <CardContent>
+              {loading ? (
+                <span className="text-muted">{t("common.loading")}</span>
+              ) : competitionUnavailable || combinedUnrealized == null ? (
+                <span className="text-muted">{t("common.section_unavailable")}</span>
+              ) : (
+                <PnLDisplay value={combinedUnrealized} size="lg" />
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>{t("home.total_pnl")}</CardTitle></CardHeader>
+            <CardContent>
+              {loading ? (
+                <span className="text-muted">{t("common.loading")}</span>
+              ) : competitionUnavailable || combinedTotalPnl == null ? (
+                <span className="text-muted">{t("common.section_unavailable")}</span>
+              ) : (
+                <PnLDisplay value={combinedTotalPnl} size="lg" />
+              )}
+            </CardContent>
+          </Card>
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader><CardTitle>{t("home.closed_trades")}</CardTitle></CardHeader>
+            <CardContent>
+              <p className="font-mono text-2xl">{closedTrades ?? "—"}</p>
+              <p className="mt-1 text-xs text-muted">{t("home.closed_trades_hint")}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>{t("home.strategy_legs")}</CardTitle></CardHeader>
+            <CardContent>
+              <p className="font-mono text-2xl">{strategyLegsOpen ?? "—"}</p>
+              <p className="mt-1 text-xs text-muted">{t("home.strategy_legs_hint")}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>{t("home.broker_positions")}</CardTitle></CardHeader>
+            <CardContent>
+              <p className="font-mono text-2xl">{brokerPositionCount ?? "—"}</p>
+              <p className="mt-1 text-xs text-muted">{t("home.broker_positions_hint")}</p>
+            </CardContent>
+          </Card>
+          {competition?.leader ? (
+            <Card>
+              <CardHeader><CardTitle>{t("home.competition_leader")}</CardTitle></CardHeader>
+              <CardContent className="text-sm">
+                <p>{competition.leader.name}</p>
+                <p className="text-muted">{formatPercent(competition.leader.return_pct)}</p>
+              </CardContent>
+            </Card>
+          ) : null}
+        </div>
+      </section>
 
       {assetRows.length ? (
-        <div className="mt-4">
+        <div className="mt-6">
           <ActiveAssetsTable assets={assetRows} />
         </div>
       ) : null}
@@ -188,41 +220,7 @@ export function HomeDashboard() {
         <StrategyFreshnessPanel freshness={freshness} />
       </div>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader><CardTitle>{t("home.closed_trades")}</CardTitle></CardHeader>
-          <CardContent>
-            <p className="font-mono text-2xl">{closedTrades}</p>
-            <p className="mt-1 text-xs text-muted">{t("home.closed_trades_hint")}</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle>Strategy Legs</CardTitle></CardHeader>
-          <CardContent>
-            <p className="font-mono text-2xl">{strategyLegsOpen ?? "—"}</p>
-            <p className="mt-1 text-xs text-muted">Attributed strategy positions across all robots</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle>Broker Positions</CardTitle></CardHeader>
-          <CardContent>
-            <p className="font-mono text-2xl">{brokerPositionCount ?? "—"}</p>
-            <p className="mt-1 text-xs text-muted">Net physical holdings in the shared paper broker account</p>
-          </CardContent>
-        </Card>
-
-        {competition?.leader ? (
-          <Card>
-            <CardHeader><CardTitle>{t("home.competition_leader")}</CardTitle></CardHeader>
-            <CardContent className="text-sm">
-              <p>{competition.leader.name}</p>
-              <p className="text-muted">{formatPercent(competition.leader.return_pct)}</p>
-            </CardContent>
-          </Card>
-        ) : null}
-
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {competition?.worst_performer &&
         competition.worst_performer.portfolio_id !== competition.leader?.portfolio_id ? (
           <Card>

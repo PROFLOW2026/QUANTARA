@@ -43,7 +43,7 @@ from quantara_engine.market_data.tiingo_fallback_scheduler import (
     build_tiingo_fallback_plan,
     defer_reason_for_asset,
 )
-from quantara_engine.market_data.sessions import is_us_equity_rth
+from quantara_engine.market_data.sessions import is_us_equity_rth, session_allows_entries
 from quantara_engine.market_data.spot_price import update_spot_from_latest_5m
 from quantara_engine.market_data.validation import validate_candle
 from quantara_engine.persistence.store import TradingStore
@@ -212,6 +212,15 @@ def _should_poll_asset(
                 return False, "deferred (US market closed — last session data retained)"
         if not has_eligible_provider(store, asset, priority=FetchPriority.SCHEDULED):
             return False, "deferred (no eligible provider — cooldown or budget)"
+
+    sessions = asset.trading_sessions or {}
+    if (
+        live
+        and stored >= STRATEGY_MIN_CANDLES
+        and "24x5" in (sessions.get("sessions") or [])
+        and not session_allows_entries(sessions, now)
+    ):
+        return False, "deferred (market closed — last session data retained)"
 
     return True, None
 
@@ -394,6 +403,7 @@ def _fetch_asset_live(
     gap_fill = (
         last_ts is not None
         and stored >= STRATEGY_MIN_CANDLES
+        and session_allows_entries(asset.trading_sessions or {}, now)
         and not is_market_data_fresh(last_ts, timeframe, now)
     )
 
@@ -981,6 +991,17 @@ def _fetch_live_asset_isolated(
             "last_candle": latest.isoformat() if latest else None,
             "stored_5m": stored,
             "note": f"bootstrap in progress ({stored}/{STRATEGY_MIN_CANDLES} 5m bars)",
+        }
+    elif (
+        latest
+        and stored >= STRATEGY_MIN_CANDLES
+        and not session_allows_entries(asset.trading_sessions or {}, now)
+    ):
+        status = {
+            "status": "deferred",
+            "provider": live_provider,
+            "last_candle": latest.isoformat() if latest else None,
+            "note": "market closed — last session data retained",
         }
     else:
         status = {

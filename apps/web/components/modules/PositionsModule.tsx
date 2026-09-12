@@ -65,8 +65,8 @@ export default function PositionsModule({ embedded, searchParams = {} }: ModuleP
 
       <Tabs
         tabs={[
-          { id: "legs", label: "Strategy Legs" },
-          { id: "broker", label: "Broker Positions" },
+          { id: "legs", label: t("positions.strategy_legs_tab") },
+          { id: "broker", label: t("positions.broker_positions_tab") },
         ]}
         active={view}
         onChange={(id) => setView(id as "legs" | "broker")}
@@ -76,7 +76,7 @@ export default function PositionsModule({ embedded, searchParams = {} }: ModuleP
       {view === "legs" ? (
         <Card>
           <CardHeader>
-            <CardTitle>Strategy Legs</CardTitle>
+            <CardTitle>{t("positions.strategy_legs_title")}</CardTitle>
           </CardHeader>
           <CardContent>
             {!positions.length ? (
@@ -144,16 +144,13 @@ export default function PositionsModule({ embedded, searchParams = {} }: ModuleP
       ) : (
         <Card>
           <CardHeader>
-            <CardTitle>Broker Positions</CardTitle>
+            <CardTitle>{t("positions.broker_positions_title")}</CardTitle>
           </CardHeader>
           <CardContent>
             {data?.scope.scopeAll === false ? (
-              <p className="text-sm text-muted">
-                Broker positions are account-level (shared across all strategy portfolios).
-                Switch to all portfolios to see net holdings.
-              </p>
+              <p className="text-sm text-muted">{t("positions.broker_scope_hint")}</p>
             ) : !brokerPositions.length ? (
-              <EmptyState message="No net broker positions" />
+              <EmptyState message={t("positions.broker_empty")} />
             ) : (
               <Table>
                 <TableHeader>

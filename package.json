@@ -17,6 +17,8 @@
     "db:migrate": "node scripts/migrate.mjs",
     "db:seed": "python scripts/seed.py",
     "db:seed:competition": "python scripts/seed_competition.py",
+    "db:seed:orb": "python scripts/seed_orb_strategy.py && python scripts/seed_orb_competition.py",
+    "db:seed:orb:activate": "python scripts/seed_orb_strategy.py && python scripts/seed_orb_competition.py --activate",
     "demo": "python scripts/demo.py",
     "verify:db": "python scripts/verify_local_runtime.py",
     "verify:db:legacy": "python scripts/verify_supabase_runtime.py",

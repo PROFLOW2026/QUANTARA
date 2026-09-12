@@ -281,7 +281,10 @@ def candles_latest(
 def market_data_status(store: StoreDep):
     from quantara_engine.market_data.provider_budgets import all_provider_status
     from quantara_engine.market_data.registry import list_target_assets
-    from quantara_engine.market_data.sessions import session_allows_entries
+    from quantara_engine.market_data.sessions import (
+        is_data_stale_while_session_open,
+        session_allows_entries,
+    )
     from quantara_engine.api.dashboard_cache import dashboard_candle_bundle
 
     worker_raw = store.get_settings_dict().get("worker_status:data_fetcher") or {}
@@ -311,15 +314,18 @@ def market_data_status(store: StoreDep):
             if inst.id in latest_closes:
                 latest_price = float(latest_closes[inst.id])
             if last_candle:
-                age_min = (now - last_candle).total_seconds() / 60
-                stale = age_min > 30
                 session_status = (
                     "open"
-                    if session_allows_entries(asset.trading_sessions, last_candle)
+                    if session_allows_entries(asset.trading_sessions, now)
                     else "closed"
+                )
+                stale = is_data_stale_while_session_open(
+                    asset.trading_sessions, last_candle, now
                 )
         asset_health = (worker_raw.get("assets") or {}).get(asset.db_symbol, {})
         status = asset_health.get("status") or ("stale" if stale else "healthy")
+        if session_status == "closed" and last_candle and status not in ("error", "blocked"):
+            status = "deferred"
         if not last_candle and asset.primary_provider.value == "twelvedata":
             status = "blocked"
         if status in ("error", "stale", "blocked"):
@@ -338,6 +344,7 @@ def market_data_status(store: StoreDep):
                 "session_status": session_status,
                 "candle_counts": counts,
                 "stale": stale,
+                "session_closed": session_status == "closed",
                 "timeframes_available": {
                     "5m": counts.get("5m", 0) > 0,
                     "15m": counts.get("15m", 0) > 0,
@@ -372,7 +379,10 @@ def analytics_assets(store: StoreDep):
     """Per-asset market + competition P&L summary for the Home dashboard."""
     from quantara_engine.market_data.polling import STRATEGY_MIN_CANDLES
     from quantara_engine.market_data.registry import list_target_assets
-    from quantara_engine.market_data.sessions import session_allows_entries
+    from quantara_engine.market_data.sessions import (
+        is_data_stale_while_session_open,
+        session_allows_entries,
+    )
     from quantara_engine.api.dashboard_cache import dashboard_candle_bundle
 
     robot_a, robot_b, combined = store.list_all_competition_entries()
@@ -426,12 +436,13 @@ def analytics_assets(store: StoreDep):
             if inst.id in latest_closes:
                 latest_price = float(latest_closes[inst.id])
             if last_candle:
-                age_min = (now - last_candle).total_seconds() / 60
-                stale = age_min > 30
                 session_status = (
                     "open"
-                    if session_allows_entries(asset.trading_sessions, last_candle)
+                    if session_allows_entries(asset.trading_sessions, now)
                     else "closed"
+                )
+                stale = is_data_stale_while_session_open(
+                    asset.trading_sessions, last_candle, now
                 )
 
             metrics = asset_metrics.get(inst.id, {})
@@ -473,6 +484,8 @@ def analytics_assets(store: StoreDep):
 
         asset_health = (worker_raw.get("assets") or {}).get(asset.db_symbol, {})
         data_status = asset_health.get("status") or ("stale" if stale else "healthy")
+        if session_status == "closed" and last_candle and data_status not in ("error", "blocked"):
+            data_status = "deferred"
         if not last_candle and asset.primary_provider.value == "twelvedata":
             data_status = "blocked"
         live_provider = asset_health.get("provider") or asset.primary_provider.value
@@ -487,6 +500,7 @@ def analytics_assets(store: StoreDep):
                 "data_status": data_status,
                 "stale": stale,
                 "session_status": session_status,
+                "session_closed": session_status == "closed",
                 "candle_counts": counts,
                 "timeframes_available": {
                     tf: counts[tf] > 0 for tf in ("5m", "15m", "1h")

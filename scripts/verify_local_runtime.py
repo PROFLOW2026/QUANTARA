@@ -115,6 +115,17 @@ def main() -> int:
             return _fail(f"Total portfolios = {total}, expected >= {EXPECTED_PORTFOLIOS}")
         _pass(f"Portfolios — Robot A={robot_a}, Robot B={robot_b}, total={total}")
 
+        if not store.is_orb_competition_enabled():
+            return _fail("orb_competition_enabled=false — run: npm run db:seed:orb:activate")
+        robot_a_entries, robot_b_entries, combined_entries = store.list_all_competition_entries()
+        if len(robot_a_entries) != EXPECTED_ROBOT_A:
+            return _fail(f"Active Robot A instances = {len(robot_a_entries)}, expected {EXPECTED_ROBOT_A}")
+        if len(robot_b_entries) != EXPECTED_ROBOT_B:
+            return _fail(f"Active Robot B instances = {len(robot_b_entries)}, expected {EXPECTED_ROBOT_B}")
+        if len(combined_entries) != EXPECTED_PORTFOLIOS:
+            return _fail(f"Active competition entries = {len(combined_entries)}, expected {EXPECTED_PORTFOLIOS}")
+        _pass("ORB enabled — 120 + 40 active strategy instances")
+
         ref_rows = session.execute(
             text(
                 """

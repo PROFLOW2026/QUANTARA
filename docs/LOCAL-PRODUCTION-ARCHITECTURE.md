@@ -54,7 +54,7 @@ python scripts/seed.py
 python scripts/seed_8_assets.py
 python scripts/seed_competition.py
 python scripts/seed_orb_strategy.py
-python scripts/seed_orb_competition.py
+python scripts/seed_orb_competition.py --activate
 python scripts/paper_broker_reset.py --execute
 python scripts/purge_mock_candles.py   # if mock rows ever present on quantara_prod
 npm run db:bootstrap          # REAL provider history only (requires API keys in .env)

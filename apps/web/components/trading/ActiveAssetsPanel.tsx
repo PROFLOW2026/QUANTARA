@@ -20,8 +20,10 @@ import {
 import { t } from "@/lib/i18n";
 import { formatCurrency, formatPercent, formatRelativeTime } from "@/lib/utils";
 
-function statusBadge(status: string, stale?: boolean) {
-  const key = stale ? "stale" : status;
+function statusBadge(status: string, stale?: boolean, sessionClosed?: boolean) {
+  const effectiveStatus =
+    sessionClosed && status !== "error" && status !== "blocked" ? "deferred" : status;
+  const key = stale && !sessionClosed ? "stale" : effectiveStatus;
   const variant =
     key === "healthy" || key === "fresh"
       ? "success"
@@ -32,7 +34,11 @@ function statusBadge(status: string, stale?: boolean) {
           : key === "conservation"
             ? "warning"
             : "warning";
-  return <Badge variant={variant}>{translateDataStatus(status, stale)}</Badge>;
+  return (
+    <Badge variant={variant}>
+      {translateDataStatus(effectiveStatus, stale && !sessionClosed, sessionClosed)}
+    </Badge>
+  );
 }
 
 function providerLabel(name: string) {
@@ -261,8 +267,15 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
                 <td className="truncate px-1 py-2 font-mono">
                   {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
                 </td>
-                <td className="px-1 py-2">{statusBadge(asset.data_status, asset.stale)}</td>
-                <td className="truncate px-1 py-2">{t(`home.session_${asset.session_status}`)}</td>
+                <td className="px-1 py-2">
+                  {statusBadge(asset.data_status, asset.stale, asset.session_closed)}
+                </td>
+                <td className="truncate px-1 py-2">
+                  <div>{t(`home.session_${asset.session_status}`)}</div>
+                  {asset.session_closed ? (
+                    <div className="text-muted text-xs">{t("home.session_closed_data_ok")}</div>
+                  ) : null}
+                </td>
                 <td className="px-1 py-2 text-right">{asset.open_positions}</td>
                 <td className="px-1 py-2 text-right">{asset.closed_trades}</td>
                 <td className="px-1 py-2 text-right">

@@ -201,6 +201,15 @@ class TwelveDataMarketDataProvider:
         if end_date is not None:
             params["end_date"] = end_date.strftime("%Y-%m-%d %H:%M:%S")
 
+        if start_date is not None and end_date is not None and start_date >= end_date:
+            logger.debug(
+                "Skipping Twelve Data time_series — invalid range start=%s end=%s symbol=%s",
+                params.get("start_date"),
+                params.get("end_date"),
+                self.provider_symbol,
+            )
+            return []
+
         data = self._request("time_series", params)
         return list(data.get("values") or [])
 
@@ -269,9 +278,14 @@ class TwelveDataMarketDataProvider:
             if since.tzinfo is None:
                 since = since.replace(tzinfo=timezone.utc)
             end = datetime.now(timezone.utc)
+            if since >= end:
+                return []
+            start = since - timedelta(minutes=timeframe_minutes(timeframe))
+            if start >= end:
+                return []
             rows = self._time_series(
                 timeframe,
-                start_date=since - timedelta(minutes=timeframe_minutes(timeframe)),
+                start_date=start,
                 end_date=end,
             )
         else:

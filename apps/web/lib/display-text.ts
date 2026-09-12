@@ -123,6 +123,7 @@ const DATA_STATUS_KEYS: Record<string, string> = {
   healthy: "home.asset_status_healthy",
   fresh: "home.asset_status_fresh",
   deferred: "home.asset_status_deferred",
+  closed: "home.asset_status_session_closed",
   stale: "home.asset_status_stale",
   blocked: "home.asset_status_blocked",
   error: "home.asset_status_error",
@@ -227,7 +228,14 @@ export function providerHasTechnicalDetails(
   return Boolean(health.last_error?.trim());
 }
 
-export function translateDataStatus(status: string | null | undefined, stale?: boolean): string {
+export function translateDataStatus(
+  status: string | null | undefined,
+  stale?: boolean,
+  sessionClosed?: boolean
+): string {
+  if (sessionClosed && status !== "error" && status !== "blocked") {
+    return t("home.asset_status_session_closed");
+  }
   if (stale && status !== "error" && status !== "blocked") {
     return t("home.asset_status_stale");
   }

@@ -569,6 +569,7 @@ export interface AssetAnalyticsRow {
   data_status: string;
   stale: boolean;
   session_status: string;
+  session_closed?: boolean;
   candle_counts: Record<string, number>;
   timeframes_available: Record<string, boolean>;
   strategy_ready: Record<string, boolean>;

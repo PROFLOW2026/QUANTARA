@@ -77,3 +77,21 @@ def session_allows_entries(asset_sessions: dict, ts: datetime) -> bool:
     if "us_equity_rth" in sessions:
         return is_us_equity_rth(ts)
     return True
+
+
+def is_data_stale_while_session_open(
+    asset_sessions: dict,
+    last_candle: datetime | None,
+    now: datetime,
+    *,
+    stale_threshold_min: float = 30,
+) -> bool:
+    """True when the market is open but the last candle is older than expected."""
+    if last_candle is None:
+        return True
+    if last_candle.tzinfo is None:
+        last_candle = last_candle.replace(tzinfo=timezone.utc)
+    if not session_allows_entries(asset_sessions, now):
+        return False
+    age_min = (now - last_candle).total_seconds() / 60
+    return age_min > stale_threshold_min
