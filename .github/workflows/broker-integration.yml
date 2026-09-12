@@ -53,6 +53,10 @@ jobs:
                   time.sleep(1)
           raise SystemExit('postgres never became ready')"
 
+      - name: Provision broker test database
+        working-directory: apps/engine
+        run: python -c "from tests.broker_integration_support import _provision_local_database; url = _provision_local_database(); print('provisioned', url); assert url"
+
       - name: Run broker integration tests
         working-directory: apps/engine
         run: pytest tests/test_broker_execution_integration.py -v --tb=short
