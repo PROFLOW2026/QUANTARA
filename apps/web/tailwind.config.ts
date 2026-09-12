@@ -68,6 +68,8 @@ const config: Config = {
         "chart-plot": "var(--color-chart-plot)",
         "surface-inner-hover": "var(--color-surface-inner-hover)",
         "surface-inner-hover-soft": "var(--color-surface-inner-hover-soft)",
+        "surface-drilldown": "var(--color-surface-drilldown)",
+        "surface-drilldown-hover": "var(--color-surface-drilldown-hover)",
         "border-hover": "var(--color-border-hover)",
       },
       boxShadow: {

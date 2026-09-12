@@ -22,7 +22,7 @@ import {
   translateVolatilityRegime,
 } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
-import { formatCurrency, formatPercent, formatRelativeTime } from "@/lib/utils";
+import { cn, formatCurrency, formatPercent, formatRelativeTime } from "@/lib/utils";
 
 function statusBadge(
   status: string,
@@ -205,12 +205,17 @@ function AssetDrilldownButton({
   return (
     <button
       type="button"
-      className={`group flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-border-interactive bg-surface-inner px-2 py-1.5 text-xs transition-colors hover:border-border-hover hover:bg-surface-inner-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-focus/45 ${className}`}
+      className={cn(
+        "group flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-border-interactive bg-surface-drilldown px-2.5 py-2 text-xs transition-colors",
+        "hover:border-border-hover hover:bg-surface-drilldown-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-focus/45",
+        "md:px-2 md:py-1.5",
+        className
+      )}
       onClick={onClick}
       aria-label={ariaLabel}
     >
-      <span className="text-text-subtle transition-colors group-hover:text-text-normal">{label}</span>
-      <span className="font-mono text-sm text-accent transition-colors group-hover:text-primary">
+      <span className="text-foreground-secondary transition-colors group-hover:text-text-normal">{label}</span>
+      <span className="font-mono text-sm font-medium text-accent transition-colors group-hover:text-primary">
         {count}
       </span>
     </button>
@@ -338,52 +343,56 @@ export function ActiveAssetsTable({
               key={`mobile-${asset.db_symbol}`}
               className="overflow-hidden rounded-md border border-border bg-surface text-sm shadow-card"
             >
-              <AssetSymbolButton asset={asset} onOpen={() => setChartAsset(asset)} className="font-medium" />
-              <p className="mt-1 text-xs text-muted">
-                {providerLabel(asset.provider)} · {t(`home.session_${asset.session_status}`)}
-              </p>
-              <p className="mt-1 font-mono">
-                {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
-              </p>
-              <div className="mt-2">
-                {statusBadge(
-                  asset.data_status,
-                  asset.stale,
-                  asset.session_closed,
-                  Boolean(asset.last_candle)
-                )}
+              <div className="border-b border-border-nested bg-surface-header px-4 py-3.5">
+                <AssetSymbolButton asset={asset} onOpen={() => setChartAsset(asset)} className="font-medium" />
+                <p className="mt-1.5 text-xs text-text-subtle">
+                  {providerLabel(asset.provider)} · {t(`home.session_${asset.session_status}`)}
+                </p>
+                <p className="mt-1.5 font-mono text-financial">
+                  {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
+                </p>
+                <div className="mt-2">
+                  {statusBadge(
+                    asset.data_status,
+                    asset.stale,
+                    asset.session_closed,
+                    Boolean(asset.last_candle)
+                  )}
+                </div>
               </div>
-              <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                <AssetDrilldownButton
-                  label={t("home.open_positions")}
-                  count={asset.open_positions}
-                  ariaLabel={t("home.open_positions_modal_title", { asset: asset.symbol })}
-                  onClick={() => setDrilldown({ asset, mode: "open" })}
-                />
-                <AssetDrilldownButton
-                  label={t("home.closed_trades")}
-                  count={asset.closed_trades}
-                  ariaLabel={t("home.closed_trades_modal_title", { asset: asset.symbol })}
-                  onClick={() => setDrilldown({ asset, mode: "closed" })}
-                />
-                <p>
-                  {t("home.realized_pnl")}: <PnLDisplay value={asset.realized_pnl} size="sm" />
-                </p>
-                <p>
-                  {t("home.unrealized_pnl")}: <PnLDisplay value={asset.unrealized_pnl} size="sm" />
-                </p>
-                <p className="col-span-2">
-                  {t("home.total_pnl")}: <PnLDisplay value={asset.total_pnl} size="sm" />
-                </p>
-                <p>
-                  {t("home.asset_exposure_short")}: {formatAssetExposure(asset)}
-                </p>
-                <p>
-                  {t("home.asset_risk_short")}: {formatAssetRisk(asset)}
-                </p>
-                <p className="col-span-2">
-                  {t("home.asset_risk_pct_short")}: {formatRiskPct(asset)}
-                </p>
+              <div className="px-4 py-4">
+                <div className="grid grid-cols-2 gap-2.5 text-xs">
+                  <AssetDrilldownButton
+                    label={t("home.open_positions")}
+                    count={asset.open_positions}
+                    ariaLabel={t("home.open_positions_modal_title", { asset: asset.symbol })}
+                    onClick={() => setDrilldown({ asset, mode: "open" })}
+                  />
+                  <AssetDrilldownButton
+                    label={t("home.closed_trades")}
+                    count={asset.closed_trades}
+                    ariaLabel={t("home.closed_trades_modal_title", { asset: asset.symbol })}
+                    onClick={() => setDrilldown({ asset, mode: "closed" })}
+                  />
+                  <p>
+                    {t("home.realized_pnl")}: <PnLDisplay value={asset.realized_pnl} size="sm" />
+                  </p>
+                  <p>
+                    {t("home.unrealized_pnl")}: <PnLDisplay value={asset.unrealized_pnl} size="sm" />
+                  </p>
+                  <p className="col-span-2">
+                    {t("home.total_pnl")}: <PnLDisplay value={asset.total_pnl} size="sm" />
+                  </p>
+                  <p>
+                    {t("home.asset_exposure_short")}: {formatAssetExposure(asset)}
+                  </p>
+                  <p>
+                    {t("home.asset_risk_short")}: {formatAssetRisk(asset)}
+                  </p>
+                  <p className="col-span-2">
+                    {t("home.asset_risk_pct_short")}: {formatRiskPct(asset)}
+                  </p>
+                </div>
               </div>
             </div>
           ))}

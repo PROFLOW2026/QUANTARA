@@ -64,6 +64,8 @@
     --color-chart-plot: #111827;
     --color-surface-inner-hover: #243044;
     --color-surface-inner-hover-soft: #222d3f;
+    --color-surface-drilldown: #1e293b;
+    --color-surface-drilldown-hover: #243044;
     --color-border-hover: #475569;
     --color-shadow-card: transparent;
     --color-shadow-chrome: transparent;
@@ -132,6 +134,8 @@
     --color-chart-plot: #f3f7fa;
     --color-surface-inner-hover: #e1ebf4;
     --color-surface-inner-hover-soft: #e4edf5;
+    --color-surface-drilldown: #ddeaf6;
+    --color-surface-drilldown-hover: #d2e3f1;
     --color-border-hover: #9fb7cc;
     --color-shadow-card: rgb(23 36 58 / 0.04);
     --color-shadow-chrome: rgb(23 36 58 / 0.06);
