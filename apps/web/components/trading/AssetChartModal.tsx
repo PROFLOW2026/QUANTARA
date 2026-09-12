@@ -135,6 +135,7 @@ export function AssetChartModal({
       setLoading(false);
       setError(false);
       setOpenPosition(null);
+      candleCache.current.clear();
     }
   }, [open]);
 

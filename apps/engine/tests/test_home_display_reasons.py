@@ -137,3 +137,15 @@ def test_asset_chart_modal_hebrew_strings_and_canonical_candles():
     assert "ChartExecutionMarker" in (
         REPO_ROOT / "apps" / "web" / "components" / "charts" / "chart-types.ts"
     ).read_text(encoding="utf-8")
+    assert "candleCache.current.clear()" in modal
+
+
+def test_candles_route_uses_list_recent_candles():
+    routes = (
+        REPO_ROOT / "apps" / "engine" / "quantara_engine" / "api" / "routes.py"
+    ).read_text(encoding="utf-8")
+    candles_block = routes.split('@router.get("/candles")', 1)[1].split(
+        '@router.get("/candles/latest")', 1
+    )[0]
+    assert "list_recent_candles" in candles_block
+    assert "list_candles(instrument.id, timeframe, limit=limit)" not in candles_block

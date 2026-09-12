@@ -55,9 +55,17 @@ function formatAxisTime(iso: string): string {
 /** Narrower bodies when many candles are visible; always leave side gaps in each slot. */
 function resolveCandleBodyWidth(bandwidth: number, candleCount: number): number {
   const bodyFillRatio =
-    candleCount >= 180 ? 0.4 : candleCount >= 120 ? 0.44 : candleCount >= 60 ? 0.48 : 0.52;
-  const minBody = candleCount >= 150 ? 2 : 3;
-  const maxBody = bandwidth * 0.56;
+    candleCount >= 200
+      ? 0.3
+      : candleCount >= 150
+        ? 0.34
+        : candleCount >= 100
+          ? 0.38
+          : candleCount >= 60
+            ? 0.42
+            : 0.46;
+  const minBody = candleCount >= 180 ? 1.5 : candleCount >= 120 ? 2 : 3;
+  const maxBody = bandwidth * (candleCount >= 150 ? 0.46 : 0.5);
   return Math.min(Math.max(bandwidth * bodyFillRatio, minBody), maxBody);
 }
 
@@ -151,7 +159,7 @@ export function CandlestickChart({
       <ComposedChart
         data={chartData}
         margin={{ ...CHART_DEFAULTS.margin, bottom: 4 }}
-        barCategoryGap="20%"
+        barCategoryGap="28%"
       >
         <CartesianGrid {...gridStyle} />
         <XAxis

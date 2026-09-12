@@ -202,13 +202,13 @@ def candles(
     if not instrument:
         raise HTTPException(404, "Instrument not found")
 
-    rows = store.list_candles(instrument.id, timeframe, limit=limit)
+    rows = store.list_recent_candles(instrument.id, timeframe, limit=limit)
     if len(rows) < limit and settings.market_data_provider == "mock":
         provider = get_market_data_provider("mock")
         generated = provider.generate_candles(instrument.id, timeframe, limit)
         for candle in generated:
             store.upsert_candle(candle)
-        rows = store.list_candles(instrument.id, timeframe, limit=limit)
+        rows = store.list_recent_candles(instrument.id, timeframe, limit=limit)
 
     return [
         {
