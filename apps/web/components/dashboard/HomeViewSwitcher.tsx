@@ -17,7 +17,32 @@ export function parseHomeView(raw: string | null): HomeView {
   return "research";
 }
 
-export function HomeViewSwitcher() {
+function EngineInlineStatus({ healthy }: { healthy: boolean | null | undefined }) {
+  if (healthy === null || healthy === undefined) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-normal opacity-70">
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-slate-500" />
+        <span>…</span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-normal opacity-90">
+      <span
+        className={cn("h-1.5 w-1.5 shrink-0 rounded-full", healthy ? "bg-profit" : "bg-loss")}
+        aria-hidden
+      />
+      <span>{healthy ? t("home.workers_healthy") : t("home.workers_unhealthy")}</span>
+    </span>
+  );
+}
+
+type Props = {
+  engineHealthy?: boolean | null;
+};
+
+export function HomeViewSwitcher({ engineHealthy }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const current = parseHomeView(searchParams.get("view"));
@@ -47,7 +72,14 @@ export function HomeViewSwitcher() {
               : "text-muted hover:bg-surface hover:text-foreground"
           )}
         >
-          {t(view.labelKey)}
+          {view.id === "research" ? (
+            <span className="inline-flex items-center gap-2">
+              <span>{t(view.labelKey)}</span>
+              <EngineInlineStatus healthy={engineHealthy} />
+            </span>
+          ) : (
+            t(view.labelKey)
+          )}
         </button>
       ))}
     </div>

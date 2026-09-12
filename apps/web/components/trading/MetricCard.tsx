@@ -26,12 +26,12 @@ export function MetricCard({
     <Card className={className}>
       <CardHeader>
         <CardTitle>{label}</CardTitle>
-        {hint ? <p className="text-xs text-muted">{hint}</p> : null}
       </CardHeader>
       <CardContent>
         <p className={cn("text-2xl font-semibold text-slate-100", mono && "font-mono")}>
           {value}
         </p>
+        {hint ? <p className="mt-1 truncate text-xs text-muted">{hint}</p> : null}
         {change !== undefined && (
           <p
             className={cn(

@@ -2,11 +2,11 @@
 
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { PageHeader, WorkerIndicator, EngineConnectionError } from "@/components/layout/PageHeader";
+import { PageHeader, EngineConnectionError } from "@/components/layout/PageHeader";
 import { CompareDashboard } from "@/components/dashboard/CompareDashboard";
 import { HomeViewSwitcher, parseHomeView } from "@/components/dashboard/HomeViewSwitcher";
 import { LiveSimDashboard } from "@/components/dashboard/LiveSimDashboard";
-import { MetricCardCurrency } from "@/components/trading/MetricCard";
+import { HomeSummaryCard, HomeSummaryValue } from "@/components/dashboard/HomeSummaryCard";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import { LatestDecisionsPanel } from "@/components/trading/LatestDecisionsPanel";
 import { StrategyFreshnessPanel } from "@/components/trading/StrategyFreshnessPanel";
@@ -20,7 +20,7 @@ import { RiskConcentrationPanel } from "@/components/trading/RiskConcentrationPa
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useHomeDashboardPoll } from "@/hooks/useHomeDashboardPoll";
 import { t } from "@/lib/i18n";
-import { formatPercent } from "@/lib/utils";
+import { formatCurrency, formatPercent } from "@/lib/utils";
 
 function HomeDashboardContent() {
   const searchParams = useSearchParams();
@@ -78,14 +78,12 @@ function HomeDashboardContent() {
   const exposureSummary = assetAnalytics?.summary ?? null;
   const strategyRunner = workers?.workers?.find((w) => w.name === "strategy_runner");
   const freshness = workers?.strategy_freshness ?? strategyRunner?.freshness;
-  const engineStatusHealthy = engineHealthy === true;
-
   if (view === "live-sim") {
     return (
       <>
         <PageHeader titleKey="home.title" />
         <Suspense fallback={null}>
-          <HomeViewSwitcher />
+          <HomeViewSwitcher engineHealthy={engineHealthy} />
         </Suspense>
         {engineConnectionError ? (
           <div className="mb-4">
@@ -102,7 +100,7 @@ function HomeDashboardContent() {
       <>
         <PageHeader titleKey="home.title" />
         <Suspense fallback={null}>
-          <HomeViewSwitcher />
+          <HomeViewSwitcher engineHealthy={engineHealthy} />
         </Suspense>
         {engineConnectionError ? (
           <div className="mb-4">
@@ -118,7 +116,7 @@ function HomeDashboardContent() {
     <>
       <PageHeader titleKey="home.title" />
       <Suspense fallback={null}>
-        <HomeViewSwitcher />
+        <HomeViewSwitcher engineHealthy={engineHealthy} />
       </Suspense>
 
       {engineConnectionError ? (
@@ -132,50 +130,30 @@ function HomeDashboardContent() {
       ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader><CardTitle>{t("home.experiment_portfolios")}</CardTitle></CardHeader>
-          <CardContent>
-            {competitionUnavailable ? (
-              <p className="text-sm text-muted">{t("common.section_unavailable")}</p>
-            ) : (
-              <p className="font-mono text-2xl">{portfolioCount ?? "—"}</p>
-            )}
-          </CardContent>
-        </Card>
-        {competitionUnavailable ? (
-          <Card>
-            <CardHeader><CardTitle>{t("home.shadow_reference_capital")}</CardTitle></CardHeader>
-            <CardContent><p className="text-sm text-muted">{t("common.section_unavailable")}</p></CardContent>
-          </Card>
-        ) : (
-          <MetricCardCurrency
-            label={t("home.shadow_reference_capital")}
-            value={shadowReferenceCapital ?? 0}
-            hint={t("home.shadow_reference_hint")}
-          />
-        )}
-        <MetricCardCurrency
-          label={t("home.physical_broker_capital")}
-          value={physicalBrokerCapital ?? 0}
-          hint={t("home.physical_broker_hint")}
-        />
-        {competitionUnavailable ? (
-          <Card>
-            <CardHeader><CardTitle>{t("home.competition_combined_equity")}</CardTitle></CardHeader>
-            <CardContent><p className="text-sm text-muted">{t("common.section_unavailable")}</p></CardContent>
-          </Card>
-        ) : (
-          <MetricCardCurrency
-            label={t("home.competition_combined_equity")}
-            value={combinedEquity ?? 0}
-          />
-        )}
-        <Card>
-          <CardHeader><CardTitle>{t("home.worker_status")}</CardTitle></CardHeader>
-          <CardContent>
-            <WorkerIndicator healthy={engineStatusHealthy} />
-          </CardContent>
-        </Card>
+        <HomeSummaryCard label={t("home.experiment_portfolios")}>
+          {competitionUnavailable ? (
+            <p className="text-sm text-muted">{t("common.section_unavailable")}</p>
+          ) : (
+            <HomeSummaryValue>{portfolioCount ?? "—"}</HomeSummaryValue>
+          )}
+        </HomeSummaryCard>
+        <HomeSummaryCard label={t("home.shadow_reference_capital")}>
+          {competitionUnavailable ? (
+            <p className="text-sm text-muted">{t("common.section_unavailable")}</p>
+          ) : (
+            <HomeSummaryValue>{formatCurrency(shadowReferenceCapital ?? 0)}</HomeSummaryValue>
+          )}
+        </HomeSummaryCard>
+        <HomeSummaryCard label={t("home.physical_broker_capital")}>
+          <HomeSummaryValue>{formatCurrency(physicalBrokerCapital ?? 0)}</HomeSummaryValue>
+        </HomeSummaryCard>
+        <HomeSummaryCard label={t("home.competition_combined_equity")}>
+          {competitionUnavailable ? (
+            <p className="text-sm text-muted">{t("common.section_unavailable")}</p>
+          ) : (
+            <HomeSummaryValue>{formatCurrency(combinedEquity ?? 0)}</HomeSummaryValue>
+          )}
+        </HomeSummaryCard>
       </div>
 
       <section className="mt-6">
