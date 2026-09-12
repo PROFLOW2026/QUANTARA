@@ -1546,11 +1546,7 @@ class TradingStore:
             return False
         if row.status == OrmIntentStatus.PENDING_EXECUTION:
             return True
-        if row.status in (
-            OrmIntentStatus.EXPIRED,
-            OrmIntentStatus.REJECTED,
-            OrmIntentStatus.CANCELLED,
-        ):
+        if row.status in (OrmIntentStatus.EXPIRED, OrmIntentStatus.REJECTED):
             return True
         if row.status == OrmIntentStatus.EXECUTED:
             fill = self.session.scalar(
