@@ -207,6 +207,95 @@ function CountDrilldownLink({
   );
 }
 
+function DesktopActiveAssetCard({
+  asset,
+  onDrilldown,
+}: {
+  asset: AssetAnalyticsRow;
+  onDrilldown: (mode: "open" | "closed") => void;
+}) {
+  return (
+    <div className="flex h-full flex-col rounded-md border border-border/60 bg-surface-elevated/30 p-4 text-sm">
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-base font-semibold">{asset.symbol}</p>
+          <p className="mt-1 text-xs text-muted">
+            {providerLabel(asset.provider)} · {t(`home.session_${asset.session_status}`)}
+          </p>
+        </div>
+        <p className="shrink-0 font-mono text-base">
+          {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
+        </p>
+      </div>
+
+      <div className="mb-3">{statusBadge(asset.data_status, asset.stale, asset.session_closed)}</div>
+
+      <div className="mb-3 text-xs">
+        <p className="mb-1 text-muted">{t("home.market_regime_title")}</p>
+        {asset.market_regime ? (
+          <div>
+            <p>{translateStructureRegime(asset.market_regime.structure_regime)}</p>
+            <p className="text-muted">
+              {translateVolatilityRegime(asset.market_regime.volatility_regime)}
+            </p>
+          </div>
+        ) : (
+          <p>—</p>
+        )}
+      </div>
+
+      <div className="mt-auto grid grid-cols-2 gap-x-3 gap-y-2.5 text-xs">
+        <div>
+          <p className="text-muted">{t("home.open_positions")}</p>
+          <p>
+            <CountDrilldownLink
+              count={asset.open_positions}
+              label={t("home.open_positions_modal_title", { asset: asset.symbol })}
+              onClick={() => onDrilldown("open")}
+              className="font-mono text-sm"
+            />
+          </p>
+        </div>
+        <div>
+          <p className="text-muted">{t("home.closed_trades")}</p>
+          <p>
+            <CountDrilldownLink
+              count={asset.closed_trades}
+              label={t("home.closed_trades_modal_title", { asset: asset.symbol })}
+              onClick={() => onDrilldown("closed")}
+              className="font-mono text-sm"
+            />
+          </p>
+        </div>
+        <div>
+          <p className="text-muted">{t("home.realized_pnl")}</p>
+          <PnLDisplay value={asset.realized_pnl} size="sm" />
+        </div>
+        <div>
+          <p className="text-muted">{t("home.unrealized_pnl")}</p>
+          <PnLDisplay value={asset.unrealized_pnl} size="sm" />
+        </div>
+        <div className="col-span-2">
+          <p className="text-muted">{t("home.total_pnl")}</p>
+          <PnLDisplay value={asset.total_pnl} size="sm" />
+        </div>
+        <div>
+          <p className="text-muted">{t("home.asset_exposure_short")}</p>
+          <p className="font-mono">{formatAssetExposure(asset)}</p>
+        </div>
+        <div>
+          <p className="text-muted">{t("home.asset_risk_short")}</p>
+          <p className="font-mono">{formatAssetRisk(asset)}</p>
+        </div>
+        <div className="col-span-2">
+          <p className="text-muted">{t("home.asset_risk_pct_short")}</p>
+          <p className="font-mono">{formatRiskPct(asset)}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
   const [drilldown, setDrilldown] = useState<{
     asset: AssetAnalyticsRow;
@@ -272,102 +361,15 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
             </div>
           ))}
         </div>
-        <table className="hidden w-full table-fixed text-xs md:table">
-          <colgroup>
-            <col className="w-[8%]" />
-            <col className="w-[8%]" />
-            <col className="w-[8%]" />
-            <col className="w-[9%]" />
-            <col className="w-[7%]" />
-            <col className="w-[6%]" />
-            <col className="w-[6%]" />
-            <col className="w-[9%]" />
-            <col className="w-[9%]" />
-            <col className="w-[9%]" />
-            <col className="w-[9%]" />
-            <col className="w-[6%]" />
-            <col className="w-[6%]" />
-          </colgroup>
-          <thead>
-            <tr className="border-b border-border text-muted">
-              <th className="py-2 pe-1 text-right">{t("home.asset_symbol")}</th>
-              <th className="px-1 py-2 text-right">{t("home.asset_provider")}</th>
-              <th className="px-1 py-2 text-right">{t("home.asset_price")}</th>
-              <th className="px-1 py-2 text-right">{t("home.asset_freshness")}</th>
-              <th className="px-1 py-2 text-right">{t("home.asset_session")}</th>
-              <th className="px-1 py-2 text-right">{t("home.market_regime_title")}</th>
-              <th className="px-1 py-2 text-right">{t("home.open_positions")}</th>
-              <th className="px-1 py-2 text-right">{t("home.closed_trades")}</th>
-              <th className="px-1 py-2 text-right">{t("home.realized_pnl")}</th>
-              <th className="px-1 py-2 text-right">{t("home.unrealized_pnl")}</th>
-              <th className="px-1 py-2 text-right">{t("home.total_pnl")}</th>
-              <th className="px-1 py-2 text-right">{t("home.asset_exposure_short")}</th>
-              <th className="px-1 py-2 text-right">{t("home.asset_risk_short")}</th>
-              <th className="ps-1 py-2 text-right">{t("home.asset_risk_pct_short")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {assets.map((asset) => (
-              <tr key={asset.db_symbol} className="border-b border-border/50">
-                <td className="truncate py-2 pe-1 font-medium">{asset.symbol}</td>
-                <td className="truncate px-1 py-2">{providerLabel(asset.provider)}</td>
-                <td className="truncate px-1 py-2 font-mono">
-                  {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
-                </td>
-                <td className="px-1 py-2">
-                  {statusBadge(asset.data_status, asset.stale, asset.session_closed)}
-                </td>
-                <td className="truncate px-1 py-2">
-                  {t(`home.session_${asset.session_status}`)}
-                </td>
-                <td className="px-1 py-2 text-xs">
-                  {asset.market_regime ? (
-                    <div>
-                      <div>{translateStructureRegime(asset.market_regime.structure_regime)}</div>
-                      <div className="text-muted">
-                        {translateVolatilityRegime(asset.market_regime.volatility_regime)}
-                      </div>
-                    </div>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                <td className="px-1 py-2 text-right">
-                  <CountDrilldownLink
-                    count={asset.open_positions}
-                    label={t("home.open_positions_modal_title", { asset: asset.symbol })}
-                    onClick={() => setDrilldown({ asset, mode: "open" })}
-                    className="font-mono"
-                  />
-                </td>
-                <td className="px-1 py-2 text-right">
-                  <CountDrilldownLink
-                    count={asset.closed_trades}
-                    label={t("home.closed_trades_modal_title", { asset: asset.symbol })}
-                    onClick={() => setDrilldown({ asset, mode: "closed" })}
-                    className="font-mono"
-                  />
-                </td>
-                <td className="px-1 py-2 text-right">
-                  <PnLDisplay value={asset.realized_pnl} size="sm" />
-                </td>
-                <td className="px-1 py-2 text-right">
-                  <PnLDisplay value={asset.unrealized_pnl} size="sm" />
-                </td>
-                <td className="px-1 py-2 text-right">
-                  <PnLDisplay value={asset.total_pnl} size="sm" />
-                </td>
-                <td className="truncate px-1 py-2 text-right font-mono">
-                  {formatAssetExposure(asset)}
-                </td>
-                <td className="truncate px-1 py-2 text-right font-mono">
-                  {formatAssetRisk(asset)}
-                </td>
-                <td className="truncate ps-1 py-2 text-right font-mono">{formatRiskPct(asset)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="hidden gap-4 md:grid md:grid-cols-2 lg:grid-cols-4">
+          {assets.map((asset) => (
+            <DesktopActiveAssetCard
+              key={asset.db_symbol}
+              asset={asset}
+              onDrilldown={(mode) => setDrilldown({ asset, mode })}
+            />
+          ))}
+        </div>
       </CardContent>
       <AssetTradeDrilldownModal
         open={drilldown != null}
