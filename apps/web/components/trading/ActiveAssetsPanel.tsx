@@ -196,7 +196,7 @@ function CountDrilldownLink({
   return (
     <button
       type="button"
-      className={`cursor-pointer font-inherit text-inherit hover:text-accent hover:underline focus:outline-none focus-visible:underline ${className}`}
+      className={`cursor-pointer font-inherit text-accent hover:text-blue-400 hover:underline focus:outline-none focus-visible:underline focus-visible:ring-1 focus-visible:ring-accent/50 ${className}`}
       onClick={onClick}
       aria-label={label}
     >
@@ -315,10 +315,7 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
                   {statusBadge(asset.data_status, asset.stale, asset.session_closed)}
                 </td>
                 <td className="truncate px-1 py-2">
-                  <div>{t(`home.session_${asset.session_status}`)}</div>
-                  {asset.session_closed ? (
-                    <div className="text-muted text-xs">{t("home.session_closed_data_ok")}</div>
-                  ) : null}
+                  {t(`home.session_${asset.session_status}`)}
                 </td>
                 <td className="px-1 py-2 text-right">
                   <CountDrilldownLink
