@@ -39,9 +39,14 @@ const variantMap: Record<DecisionCategory, "success" | "warning" | "danger" | "m
 
 interface DecisionTypeBadgeProps {
   type: string;
+  metadata?: Record<string, unknown> | null;
 }
 
-export function DecisionTypeBadge({ type }: DecisionTypeBadgeProps) {
+export function DecisionTypeBadge({ type, metadata }: DecisionTypeBadgeProps) {
   const category = categorizeDecisionType(type);
-  return <Badge variant={variantMap[category]}>{translateDecisionType(type)}</Badge>;
+  return (
+    <Badge variant={variantMap[category]}>
+      {translateDecisionType(type, metadata)}
+    </Badge>
+  );
 }

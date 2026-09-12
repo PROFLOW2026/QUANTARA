@@ -16,9 +16,13 @@ from quantara_engine.persistence.store import TradingStore
 
 
 def rejection_label_he(reason: str | None) -> str:
+    from quantara_engine.broker.display import broker_reason_he
+
     if not reason:
         return "לא ידוע"
-    return REJECTION_HE.get(reason, reason)
+    if reason in REJECTION_HE:
+        return REJECTION_HE[reason]
+    return broker_reason_he(reason)
 
 
 def log_allocation(
@@ -195,6 +199,33 @@ def update_allocation_metadata(
             """
         ),
         {"id": log_id, "meta": json.dumps(metadata_patch)},
+    )
+
+
+def mark_allocation_rejected(
+    store: TradingStore,
+    log_id: str,
+    *,
+    rejection_reason: str,
+    rejection_detail: str,
+) -> None:
+    store.session.execute(
+        text(
+            """
+            UPDATE live_sim_allocation_log
+            SET accepted = FALSE,
+                rejection_reason = :reason,
+                rejection_detail = :detail,
+                metadata = metadata || CAST(:meta AS jsonb)
+            WHERE id = :id
+            """
+        ),
+        {
+            "id": log_id,
+            "reason": rejection_reason,
+            "detail": rejection_detail,
+            "meta": json.dumps({"pending_execution": False, "lifecycle_state": "rejected"}),
+        },
     )
 
 

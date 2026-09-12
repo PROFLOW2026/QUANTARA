@@ -499,18 +499,16 @@ class CandleProcessor:
             reason = (
                 result.decision.rejection_reason.value
                 if result.decision and result.decision.rejection_reason
-                else "unknown"
+                else "broker_rejected"
             )
-            detail = result.decision.rejection_detail if result.decision else ""
             self._log(
                 candle,
-                DecisionType.RISK_DENIED,
-                f"BROKER_REJECT: {reason} — {detail}",
+                DecisionType.BROKER_REJECTED,
+                reason,
                 metadata={
                     "layer": "broker_execution",
                     "broker_decision": "rejected",
                     "broker_reason": reason,
-                    "broker_detail": detail,
                     "strategy_decision": "approved",
                 },
             )
@@ -886,6 +884,30 @@ class CandleProcessor:
                     self.store.update_portfolio_status_only(self.state.portfolio)
                     self._flush_store()
             return
+
+        from quantara_engine.broker.capability import check_entry_capability_for_portfolio
+        from quantara_engine.broker.integration import should_use_broker_realism
+
+        if should_use_broker_realism(self.state.portfolio.id):
+            entry_dir = "long" if signal.action == SignalAction.BUY else "short"
+            cap = check_entry_capability_for_portfolio(
+                self.state.portfolio.id,
+                self.instrument,
+                entry_dir,
+            )
+            if not cap.allowed:
+                self._log(
+                    candle,
+                    DecisionType.BROKER_CAPABILITY_DENIED,
+                    cap.reason or "broker_capability_denied",
+                    signal_id,
+                    metadata={
+                        "layer": "broker_capability",
+                        "broker_reason": cap.reason,
+                        "strategy_decision": "approved",
+                    },
+                )
+                return
 
         if self.store:
             existing = self.store.find_pending_intent_for_signal_candle(

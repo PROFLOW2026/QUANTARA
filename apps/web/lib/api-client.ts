@@ -180,6 +180,7 @@ export interface Decision {
   timestamp: string;
   decision_type: string;
   message: string;
+  metadata?: Record<string, unknown> | null;
   strategy_name?: string;
   instrument?: string;
   instrument_id?: string;

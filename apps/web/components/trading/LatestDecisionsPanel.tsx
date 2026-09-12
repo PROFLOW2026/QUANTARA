@@ -6,6 +6,7 @@ import { DecisionTypeBadge } from "@/components/trading/DecisionTypeBadge";
 import {
   isEntrySignalDecision,
   translateRobotStrategyLabel,
+  translateDecisionMessage,
   translateSignalReason,
   translateTimeframe,
 } from "@/lib/display-text";
@@ -71,14 +72,14 @@ export function LatestDecisionsPanel({
                   </p>
                   <p className="mt-1 font-medium">{row.instrument ?? "—"}</p>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <DecisionTypeBadge type={row.decision_type} />
+                    <DecisionTypeBadge type={row.decision_type} metadata={row.metadata} />
                     {freshnessBadge(row.fresh)}
                   </div>
                   <p className="mt-2 text-xs text-muted">
                     {formatRelativeTime(row.timestamp)} · {translateTimeframe(row.timeframe ?? timeframe)}
                   </p>
                   <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed">
-                    {translateSignalReason(row.message)}
+                    {translateDecisionMessage(row)}
                   </p>
                   <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                     <p>{t("home.entry_signal")}: {yesNo(entrySignal)}</p>
@@ -133,12 +134,12 @@ export function LatestDecisionsPanel({
                     <td className="py-2 px-1 font-medium">{row.instrument ?? "—"}</td>
                     <td className="py-2 px-1">{translateTimeframe(row.timeframe ?? timeframe)}</td>
                     <td className="py-2 px-1">
-                      <DecisionTypeBadge type={row.decision_type} />
+                      <DecisionTypeBadge type={row.decision_type} metadata={row.metadata} />
                     </td>
                     <td className="py-2 px-1 text-muted">{formatRelativeTime(row.timestamp)}</td>
                     <td className="py-2 px-1">{freshnessBadge(row.fresh)}</td>
                     <td className="py-2 px-2 whitespace-pre-wrap break-words leading-relaxed">
-                      {translateSignalReason(row.message)}
+                      {translateDecisionMessage(row)}
                     </td>
                     <td className="py-2 px-1">{yesNo(entrySignal)}</td>
                     <td className="py-2 ps-1">{yesNo(row.position_open)}</td>

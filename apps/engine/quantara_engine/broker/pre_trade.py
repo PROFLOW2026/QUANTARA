@@ -179,7 +179,7 @@ def evaluate_broker_order(
     if direction == "short" and not rules.shorting_allowed and not pure_close:
         return _reject(
             BrokerRejectionReason.SHORT_NOT_ALLOWED,
-            f"shorting not allowed for {spec.asset_class} (QUANTARA_STANDARD_PAPER spot crypto)",
+            f"shorting not allowed for {spec.asset_class}",
             account=account,
         )
 

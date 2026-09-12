@@ -977,6 +977,14 @@ def decisions(
     return [_decision_payload(d, symbol_map) for d in items]
 
 
+def _sanitize_decision_metadata(metadata: dict | None) -> dict | None:
+    if not metadata:
+        return None
+    allowed = ("layer", "broker_reason", "broker_decision", "strategy_decision")
+    out = {k: metadata[k] for k in allowed if k in metadata}
+    return out or None
+
+
 def _decision_payload(d, symbol_map: dict[str, str]) -> dict:
     signal = d.metadata.get("signal") if d.metadata else None
     instrument = symbol_map.get(d.instrument_id, d.instrument_id)
@@ -985,6 +993,7 @@ def _decision_payload(d, symbol_map: dict[str, str]) -> dict:
         "timestamp": d.candle_timestamp.isoformat(),
         "decision_type": d.decision_type.value,
         "message": d.message,
+        "metadata": _sanitize_decision_metadata(d.metadata),
         "instrument": instrument,
         "instrument_id": d.instrument_id,
         "candle_time": d.candle_timestamp.isoformat(),

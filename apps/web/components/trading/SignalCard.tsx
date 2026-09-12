@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DecisionTypeBadge } from "@/components/trading/DecisionTypeBadge";
 import {
+  translateDecisionMessage,
   translateExecution,
   translateSignalReason,
   translateTimeframe,
@@ -25,7 +26,9 @@ export function SignalCard({ decision }: SignalCardProps) {
       <CardHeader>
         <CardTitle>{t("home.active_signal")}</CardTitle>
         <p className="text-xs text-muted">{t("home.signal_hint")}</p>
-        {decision && <DecisionTypeBadge type={decision.decision_type} />}
+        {decision && (
+          <DecisionTypeBadge type={decision.decision_type} metadata={decision.metadata} />
+        )}
       </CardHeader>
       <CardContent>
         {!decision ? (
@@ -35,7 +38,7 @@ export function SignalCard({ decision }: SignalCardProps) {
             <p className="font-medium text-foreground-secondary">{t("home.no_signal")}</p>
             <p>
               <span className="text-muted">{t("home.reason")}: </span>
-              {translateSignalReason(decision.message)}
+              {translateDecisionMessage(decision)}
             </p>
             {decision.signal?.strategy && (
               <p>

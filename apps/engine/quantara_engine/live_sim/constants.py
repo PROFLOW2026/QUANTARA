@@ -27,6 +27,7 @@ REJECTION_HE: dict[str, str] = {
     "STALE_SIGNAL": "אות ישן מדי לביצוע",
     "ACCOUNT_INACTIVE": "חשבון הסימולציה לא פעיל",
     "BROKER_REJECTED": "הברוקר דחה את ההזמנה",
+    "BROKER_CAPABILITY_DENIED": "לא ניתן לביצוע בחשבון הנוכחי",
     "DATA_NOT_FRESH": "נתוני שוק לא מעודכנים",
     "MARKET_CLOSED": "שוק סגור",
     "EXECUTION_FAILED": "ביצוע נכשל",

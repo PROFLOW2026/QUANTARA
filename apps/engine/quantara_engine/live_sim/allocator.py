@@ -137,12 +137,18 @@ def _execute_accepted_allocation(
     )
 
     if broker_res is None or not broker_res.accepted:
-        detail = (
-            broker_res.decision.rejection_detail
-            if broker_res and broker_res.decision
-            else "broker rejected"
+        from quantara_engine.broker.display import broker_reason_he
+
+        reason_code = (
+            broker_res.decision.rejection_reason.value
+            if broker_res and broker_res.decision and broker_res.decision.rejection_reason
+            else "broker_rejected"
         )
-        return {"status": "rejected", "reason": "BROKER_REJECTED", "detail": detail}
+        return {
+            "status": "rejected",
+            "reason": "BROKER_REJECTED",
+            "detail": broker_reason_he(reason_code),
+        }
 
     pos_id = str(uuid.uuid4())
     store.session.execute(
@@ -272,6 +278,25 @@ def _resume_pending_allocation(
             mark_allocation_expired(store, existing["id"], reason=reject_reason)
             return {"status": "expired", "log_id": existing["id"]}
         return {"status": "queued", "log_id": existing["id"]}
+
+    from quantara_engine.broker.capability import check_entry_capability_for_account
+    from quantara_engine.broker.display import broker_reason_he
+    from quantara_engine.live_sim.candidate_log import mark_allocation_rejected
+
+    cap = check_entry_capability_for_account(
+        LIVE_SIM_10K_ACCOUNT_SLUG,
+        instrument,
+        str(existing["direction"]),
+    )
+    if not cap.allowed:
+        detail = broker_reason_he(cap.reason)
+        mark_allocation_rejected(
+            store,
+            existing["id"],
+            rejection_reason="BROKER_CAPABILITY_DENIED",
+            rejection_detail=detail,
+        )
+        return {"status": "rejected", "reason": "BROKER_CAPABILITY_DENIED", "detail": detail}
 
     instance = entry["instance"]
     equity = Decimal(str(account["equity"] or account["starting_cash"]))
@@ -492,6 +517,39 @@ def maybe_allocate_live_sim(
             rejection_detail=REJECTION_HE["SESSION_CLOSED"],
         )
         return {"status": "rejected", "reason": "SESSION_CLOSED"}
+
+    from quantara_engine.broker.capability import check_entry_capability_for_account
+    from quantara_engine.broker.display import broker_reason_he
+
+    cap = check_entry_capability_for_account(
+        LIVE_SIM_10K_ACCOUNT_SLUG,
+        instrument,
+        direction,
+    )
+    if not cap.allowed:
+        detail = broker_reason_he(cap.reason)
+        log_allocation(
+            store,
+            account_id=account_id,
+            canonical_key=canonical_key,
+            opportunity_key=opportunity_key,
+            strategy_slug=strategy_slug,
+            strategy_version=strategy_version,
+            robot_label=robot_label,
+            symbol=instrument.symbol,
+            timeframe=instance.timeframe,
+            direction=direction,
+            signal_candle_timestamp=candle.timestamp,
+            proposed_entry=candle.close,
+            stop_loss=signal.suggested_sl,
+            take_profit=signal.suggested_tp,
+            calculated_risk_usd=None,
+            calculated_quantity=None,
+            accepted=False,
+            rejection_reason="BROKER_CAPABILITY_DENIED",
+            rejection_detail=detail,
+        )
+        return {"status": "rejected", "reason": "BROKER_CAPABILITY_DENIED", "detail": detail}
 
     if signal.suggested_sl is None:
         log_allocation(
@@ -747,8 +805,7 @@ def maybe_allocate_live_sim(
         sizing_reason=sizing.sizing_reason,
     )
     if exec_result.get("status") == "rejected":
-        return _reject(
-            exec_result.get("reason", "BROKER_REJECTED"),
-            exec_result.get("detail") or REJECTION_HE["BROKER_REJECTED"],
-        )
+        reason = exec_result.get("reason", "BROKER_REJECTED")
+        detail = exec_result.get("detail") or REJECTION_HE.get(reason, REJECTION_HE["BROKER_REJECTED"])
+        return _reject(reason, detail)
     return exec_result

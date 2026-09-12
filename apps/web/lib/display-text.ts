@@ -22,6 +22,8 @@ const DECISION_TYPE_KEYS: Record<string, string> = {
   close_signal: "display.decision.close_signal",
   no_setup: "display.decision.no_setup",
   risk_denied: "display.decision.risk_denied",
+  broker_capability_denied: "display.decision.broker_capability_denied",
+  broker_rejected: "display.decision.broker_rejected",
   risk_approved: "display.decision.risk_approved",
   position_open: "display.decision.position_open",
   trading_halted: "display.decision.trading_halted",
@@ -73,8 +75,60 @@ export function translateStatus(status: string): string {
   return key ? t(key) : status;
 }
 
-export function translateDecisionType(type: string): string {
-  const normalized = type.toLowerCase().replace(/\s+/g, "_");
+export type DecisionDisplayInput = {
+  decision_type: string;
+  message?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+const BROKER_REASON_KEYS: Record<string, string> = {
+  short_not_allowed: "display.broker.short_not_allowed",
+  insufficient_buying_power: "display.broker.insufficient_buying_power",
+  insufficient_margin: "display.broker.insufficient_margin",
+  max_leverage: "display.broker.max_leverage",
+  max_gross_leverage: "display.broker.max_gross_leverage",
+  max_asset_exposure: "display.broker.max_asset_exposure",
+  max_order_notional: "display.broker.max_order_notional",
+  invalid_quantity: "display.broker.invalid_quantity",
+  market_closed: "display.broker.market_closed",
+  stale_market_data: "display.broker.stale_market_data",
+  risk_limit: "display.broker.risk_limit",
+  duplicate_opportunity: "display.broker.duplicate_opportunity",
+  account_paused: "display.broker.account_paused",
+  margin_call: "display.broker.margin_call",
+  liquidation: "display.broker.liquidation",
+  unsupported_asset: "display.broker.unsupported_asset",
+  broker_rejected: "display.broker.broker_rejected",
+  broker_capability_denied: "display.decision.broker_capability_denied",
+};
+
+export function resolveDecisionType(
+  type: string,
+  metadata?: Record<string, unknown> | null
+): string {
+  const layer = metadata?.layer;
+  if (type === "risk_denied" && layer === "broker_execution") {
+    return "broker_rejected";
+  }
+  if (type === "risk_denied" && layer === "broker_capability") {
+    return "broker_capability_denied";
+  }
+  return type;
+}
+
+export function translateBrokerReason(reason: string | null | undefined): string {
+  if (!reason) return t("display.broker.rejected_generic");
+  const normalized = reason.trim().toLowerCase();
+  const key = BROKER_REASON_KEYS[normalized];
+  return key ? t(key) : t("display.broker.rejected_generic");
+}
+
+export function translateDecisionType(
+  type: string,
+  metadata?: Record<string, unknown> | null
+): string {
+  const resolved = resolveDecisionType(type, metadata);
+  const normalized = resolved.toLowerCase().replace(/\s+/g, "_");
   const key = DECISION_TYPE_KEYS[normalized];
   if (key) return t(key);
   if (normalized.includes("buy")) return t("display.decision.buy_signal");
@@ -83,6 +137,32 @@ export function translateDecisionType(type: string): string {
     return t("display.decision.no_setup");
   }
   return type;
+}
+
+export function translateDecisionMessage(decision: DecisionDisplayInput): string {
+  const resolvedType = resolveDecisionType(decision.decision_type, decision.metadata);
+  const brokerReason = decision.metadata?.broker_reason;
+  if (
+    resolvedType === "broker_capability_denied" ||
+    resolvedType === "broker_rejected"
+  ) {
+    if (typeof brokerReason === "string") {
+      return translateBrokerReason(brokerReason);
+    }
+    const msg = (decision.message ?? "").trim();
+    if (/^[a-z][a-z0-9_]+$/.test(msg)) {
+      return translateBrokerReason(msg);
+    }
+  }
+
+  const text = (decision.message ?? "").trim();
+  if (text.startsWith("BROKER_REJECT:")) {
+    const match = text.match(/BROKER_REJECT:\s*([a-z_]+)/i);
+    if (match) return translateBrokerReason(match[1]);
+    return t("display.broker.rejected_generic");
+  }
+
+  return translateSignalReason(decision.message);
 }
 
 export function translateExitReason(reason: string | null | undefined): string {

@@ -14,6 +14,7 @@ import {
 import {
   resolveAssetDataStatusPresentation,
   translateRobotStrategyLabel,
+  translateDecisionMessage,
   translateSignalReason,
   translateStructureRegime,
   translateTimeframe,
@@ -323,11 +324,14 @@ export function AssetChartModal({
                     · {translateTimeframe(latestDecision.timeframe ?? "5m")}
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
-                    <DecisionTypeBadge type={latestDecision.decision_type} />
+                    <DecisionTypeBadge
+                      type={latestDecision.decision_type}
+                      metadata={latestDecision.metadata}
+                    />
                     <span className="text-muted">{formatRelativeTime(latestDecision.timestamp)}</span>
                   </div>
                   <p className="whitespace-pre-wrap break-words">
-                    {translateSignalReason(latestDecision.message)}
+                    {translateDecisionMessage(latestDecision)}
                   </p>
                 </div>
               ) : (

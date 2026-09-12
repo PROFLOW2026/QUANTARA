@@ -30,6 +30,8 @@ class DecisionType(str, Enum):
     CLOSE_SIGNAL = "close_signal"
     NO_SETUP = "no_setup"
     RISK_DENIED = "risk_denied"
+    BROKER_CAPABILITY_DENIED = "broker_capability_denied"
+    BROKER_REJECTED = "broker_rejected"
     RISK_APPROVED = "risk_approved"
     POSITION_OPEN = "position_open"
     TRADING_HALTED = "trading_halted"

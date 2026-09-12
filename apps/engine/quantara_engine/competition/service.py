@@ -255,6 +255,8 @@ def _build_activity(store: TradingStore, entries: list[dict[str, Any]], limit: i
         "sell_signal",
         "risk_approved",
         "risk_denied",
+        "broker_capability_denied",
+        "broker_rejected",
         "sl_triggered",
         "tp_triggered",
         "position_open",
@@ -280,8 +282,37 @@ def _build_activity(store: TradingStore, entries: list[dict[str, Any]], limit: i
             message = f"{prefix} — {decision.message}"
             kind = "risk_approved"
         elif dtype == "risk_denied":
-            message = f"{prefix} — סיכון נדחה"
-            kind = "risk_denied"
+            meta = decision.metadata or {}
+            layer = meta.get("layer")
+            if layer == "broker_execution":
+                from quantara_engine.broker.display import broker_reason_he
+
+                detail = broker_reason_he(meta.get("broker_reason"))
+                message = f"{prefix} — נדחה ע״י הברוקר ({detail})"
+                kind = "broker_rejected"
+            elif layer == "broker_capability":
+                from quantara_engine.broker.display import broker_reason_he
+
+                detail = broker_reason_he(meta.get("broker_reason"))
+                message = f"{prefix} — לא ניתן לביצוע ({detail})"
+                kind = "broker_capability_denied"
+            else:
+                message = f"{prefix} — סיכון נדחה"
+                kind = "risk_denied"
+        elif dtype == "broker_capability_denied":
+            from quantara_engine.broker.display import broker_reason_he
+
+            meta = decision.metadata or {}
+            detail = broker_reason_he(meta.get("broker_reason"))
+            message = f"{prefix} — לא ניתן לביצוע ({detail})"
+            kind = "broker_capability_denied"
+        elif dtype == "broker_rejected":
+            from quantara_engine.broker.display import broker_reason_he
+
+            meta = decision.metadata or {}
+            detail = broker_reason_he(meta.get("broker_reason"))
+            message = f"{prefix} — נדחה ע״י הברוקר ({detail})"
+            kind = "broker_rejected"
         elif dtype == "sl_triggered":
             message = f"{prefix} — סטופ ({decision.message})"
             kind = "sl_triggered"

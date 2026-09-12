@@ -7,20 +7,8 @@ import { useModuleData } from "@/hooks/useModuleData";
 import { api } from "@/lib/api-client";
 import type { ModuleProps } from "@/lib/modal-workspace/types";
 import { formatDateTime } from "@/lib/utils";
+import { translateBrokerReason } from "@/lib/display-text";
 import { ModuleFrame } from "./ModuleFrame";
-
-const REASON_HE: Record<string, string> = {
-  insufficient_buying_power: "אין מספיק כוח קנייה",
-  insufficient_margin: "מרווח לא מספיק",
-  max_leverage: "חריגת מינוף נטו",
-  max_gross_leverage: "חריגת מינוף ברוטו",
-  max_asset_exposure: "חריגת חשיפה לנכס",
-  short_not_allowed: "שורט לא מותר (קריפטו ספוט)",
-  market_closed: "שוק סגור",
-  stale_market_data: "נתוני שוק לא עדכניים",
-  margin_call: "קריאת מרווח — חסימת עסקאות מגדילות סיכון",
-  invalid_quantity: "כמות לא תקינה",
-};
 
 export default function BrokerRejectionsModule({ embedded }: ModuleProps) {
   const { data, error, loading } = useModuleData(() => api.getBrokerRejections(200), []);
@@ -56,9 +44,9 @@ export default function BrokerRejectionsModule({ embedded }: ModuleProps) {
                     <TableCell className="text-xs">{formatDateTime(r.timestamp)}</TableCell>
                     <TableCell>{r.symbol}</TableCell>
                     <TableCell className="font-mono">{r.quantity}</TableCell>
-                    <TableCell>{REASON_HE[r.reason] ?? r.reason}</TableCell>
-                    <TableCell className="max-w-xs truncate text-xs text-muted" title={r.detail ?? ""}>
-                      {r.detail ?? "—"}
+                    <TableCell>{translateBrokerReason(r.reason)}</TableCell>
+                    <TableCell className="max-w-xs truncate text-xs text-muted">
+                      {translateBrokerReason(r.reason)}
                     </TableCell>
                   </TableRow>
                 ))}
