@@ -184,25 +184,28 @@ export function ActiveAssetsSummary({
   );
 }
 
-function CountDrilldownLink({
-  count,
+function AssetDrilldownButton({
   label,
+  count,
+  ariaLabel,
   onClick,
   className = "",
 }: {
-  count: number;
   label: string;
+  count: number;
+  ariaLabel: string;
   onClick: () => void;
   className?: string;
 }) {
   return (
     <button
       type="button"
-      className={`cursor-pointer font-inherit text-accent hover:text-blue-400 hover:underline focus:outline-none focus-visible:underline focus-visible:ring-1 focus-visible:ring-accent/50 ${className}`}
+      className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-border/60 bg-surface-elevated/40 px-2 py-1.5 text-xs transition-colors hover:border-border hover:bg-surface-elevated/70 active:bg-surface-elevated focus:outline-none focus-visible:ring-1 focus-visible:ring-accent/50 ${className}`}
       onClick={onClick}
-      aria-label={label}
+      aria-label={ariaLabel}
     >
-      {count}
+      <span className="text-muted">{label}</span>
+      <span className="font-mono text-sm text-accent">{count}</span>
     </button>
   );
 }
@@ -247,28 +250,18 @@ function DesktopActiveAssetCard({
       </div>
 
       <div className="mt-auto grid grid-cols-2 gap-x-2 gap-y-1.5 text-xs leading-snug">
-        <div>
-          <p className="text-muted">{t("home.open_positions")}</p>
-          <p className="mt-0.5">
-            <CountDrilldownLink
-              count={asset.open_positions}
-              label={t("home.open_positions_modal_title", { asset: asset.symbol })}
-              onClick={() => onDrilldown("open")}
-              className="font-mono text-sm"
-            />
-          </p>
-        </div>
-        <div>
-          <p className="text-muted">{t("home.closed_trades")}</p>
-          <p className="mt-0.5">
-            <CountDrilldownLink
-              count={asset.closed_trades}
-              label={t("home.closed_trades_modal_title", { asset: asset.symbol })}
-              onClick={() => onDrilldown("closed")}
-              className="font-mono text-sm"
-            />
-          </p>
-        </div>
+        <AssetDrilldownButton
+          label={t("home.open_positions")}
+          count={asset.open_positions}
+          ariaLabel={t("home.open_positions_modal_title", { asset: asset.symbol })}
+          onClick={() => onDrilldown("open")}
+        />
+        <AssetDrilldownButton
+          label={t("home.closed_trades")}
+          count={asset.closed_trades}
+          ariaLabel={t("home.closed_trades_modal_title", { asset: asset.symbol })}
+          onClick={() => onDrilldown("closed")}
+        />
         <div>
           <p className="text-muted">{t("home.realized_pnl")}</p>
           <div className="mt-0.5">
@@ -331,22 +324,18 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
               </p>
               <div className="mt-2">{statusBadge(asset.data_status, asset.stale)}</div>
               <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                <p>
-                  {t("home.open_positions")}:{" "}
-                  <CountDrilldownLink
-                    count={asset.open_positions}
-                    label={t("home.open_positions_modal_title", { asset: asset.symbol })}
-                    onClick={() => setDrilldown({ asset, mode: "open" })}
-                  />
-                </p>
-                <p>
-                  {t("home.closed_trades")}:{" "}
-                  <CountDrilldownLink
-                    count={asset.closed_trades}
-                    label={t("home.closed_trades_modal_title", { asset: asset.symbol })}
-                    onClick={() => setDrilldown({ asset, mode: "closed" })}
-                  />
-                </p>
+                <AssetDrilldownButton
+                  label={t("home.open_positions")}
+                  count={asset.open_positions}
+                  ariaLabel={t("home.open_positions_modal_title", { asset: asset.symbol })}
+                  onClick={() => setDrilldown({ asset, mode: "open" })}
+                />
+                <AssetDrilldownButton
+                  label={t("home.closed_trades")}
+                  count={asset.closed_trades}
+                  ariaLabel={t("home.closed_trades_modal_title", { asset: asset.symbol })}
+                  onClick={() => setDrilldown({ asset, mode: "closed" })}
+                />
                 <p>
                   {t("home.realized_pnl")}: <PnLDisplay value={asset.realized_pnl} size="sm" />
                 </p>
