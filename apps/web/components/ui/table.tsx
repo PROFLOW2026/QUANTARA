@@ -12,7 +12,10 @@ export function Table({ className, children, ...props }: React.HTMLAttributes<HT
 
 export function TableHeader({ className, children, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) {
   return (
-    <thead className={cn("[&_tr]:border-b border-border", className)} {...props}>
+    <thead
+      className={cn("bg-table-header [&_tr]:border-b [&_tr]:border-table-border", className)}
+      {...props}
+    >
       {children}
     </thead>
   );
@@ -30,7 +33,7 @@ export function TableRow({ className, children, ...props }: React.HTMLAttributes
   return (
     <tr
       className={cn(
-        "border-b border-border transition-colors hover:bg-surface-elevated/50",
+        "border-b border-table-border bg-table-row transition-colors even:bg-table-row-alt hover:bg-table-hover",
         className
       )}
       {...props}
@@ -44,7 +47,7 @@ export function TableHead({ className, children, ...props }: React.ThHTMLAttribu
   return (
     <th
       className={cn(
-        "h-10 px-3 text-right align-middle text-xs font-medium text-muted",
+        "h-10 px-3 text-right align-middle text-xs font-medium text-table-header-text",
         className
       )}
       {...props}
@@ -56,7 +59,7 @@ export function TableHead({ className, children, ...props }: React.ThHTMLAttribu
 
 export function TableCell({ className, children, ...props }: React.TdHTMLAttributes<HTMLTableCellElement>) {
   return (
-    <td className={cn("px-3 py-2.5 align-middle text-sm", className)} {...props}>
+    <td className={cn("px-3 py-2.5 align-middle text-sm text-text-normal", className)} {...props}>
       {children}
     </td>
   );
@@ -72,6 +75,6 @@ export function EmptyState({ message }: { message: string }) {
 
 export function Skeleton({ className }: { className?: string }) {
   return (
-    <div className={cn("animate-pulse rounded-md bg-surface-elevated", className)} />
+    <div className={cn("animate-pulse rounded-md bg-surface-inner", className)} />
   );
 }

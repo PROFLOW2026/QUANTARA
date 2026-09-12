@@ -62,9 +62,11 @@ function BottomNavItem({
       href={href}
       scroll={false}
       className={cn(
-        "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2 text-[10px] leading-tight transition-colors sm:text-xs",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/45 focus-visible:ring-inset",
-        active ? "text-accent" : "text-muted hover:text-foreground"
+        "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-2 text-[10px] leading-tight transition-colors sm:text-xs",
+        "focus:outline-none focus-visible:ring-2 focus-visible:ring-focus/45 focus-visible:ring-inset",
+        active
+          ? "bg-nav-active-bg text-accent"
+          : "text-nav-inactive hover:text-foreground-secondary"
       )}
       aria-current={active ? "page" : undefined}
     >
@@ -106,20 +108,20 @@ function MoreMenu({
         role="menu"
         aria-label={t("nav.more")}
         dir="rtl"
-        className="relative z-10 mb-[4.25rem] w-full max-w-lg rounded-t-xl border border-border bg-background shadow-xl light:bg-surface-elevated sm:mb-[4.5rem] sm:rounded-xl"
+        className="relative z-10 mb-[4.25rem] w-full max-w-lg rounded-t-xl border border-border bg-surface shadow-modal sm:mb-[4.5rem] sm:rounded-xl"
       >
-        <div className="border-b border-border px-4 py-3">
-          <p className="text-sm font-semibold">{t("nav.more")}</p>
+        <div className="border-b border-border bg-surface-header px-4 py-3">
+          <p className="text-sm font-semibold text-foreground">{t("nav.more")}</p>
         </div>
-        <ul className="max-h-[min(60vh,24rem)] overflow-y-auto py-1">
+        <ul className="max-h-[min(60vh,24rem)] overflow-y-auto bg-surface-inner py-1">
           {moreMenuItems.map((item) => (
-            <li key={item.href}>
+            <li key={item.href} className="border-b border-border-nested last:border-b-0">
               <ModalLink
                 href={item.href}
                 scroll={false}
                 role="menuitem"
                 onClick={onClose}
-                className="flex items-center gap-3 px-4 py-3 text-sm text-foreground transition-colors hover:bg-surface-elevated focus:outline-none focus-visible:bg-surface-elevated"
+                className="flex items-center gap-3 px-4 py-3 text-sm text-text-normal transition-colors hover:bg-surface-active focus:outline-none focus-visible:bg-surface-active"
               >
                 <span className="text-base" aria-hidden="true">
                   {item.icon}
@@ -149,7 +151,7 @@ export function BottomNavigation() {
   return (
     <>
       <nav
-        className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-border bg-surface-chrome/95 pb-[env(safe-area-inset-bottom)] backdrop-blur light:shadow-[0_-1px_4px_rgba(15,23,42,0.06)] supports-[backdrop-filter]:bg-surface-chrome/90"
+        className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-border-strong bg-surface-chrome pb-[env(safe-area-inset-bottom)] shadow-chrome backdrop-blur supports-[backdrop-filter]:bg-surface-chrome/95"
         aria-label={t("nav.main_navigation")}
       >
         {bottomNavItems.map((item) => (
@@ -164,9 +166,11 @@ export function BottomNavigation() {
           type="button"
           onClick={openMore}
           className={cn(
-            "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2 text-[10px] leading-tight transition-colors sm:text-xs",
-            "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/45 focus-visible:ring-inset",
-            moreActive || moreOpen ? "text-accent" : "text-muted hover:text-foreground"
+            "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-2 text-[10px] leading-tight transition-colors sm:text-xs",
+            "focus:outline-none focus-visible:ring-2 focus-visible:ring-focus/45 focus-visible:ring-inset",
+            moreActive || moreOpen
+              ? "bg-nav-active-bg text-accent"
+              : "text-nav-inactive hover:text-foreground-secondary"
           )}
           aria-expanded={moreOpen}
           aria-haspopup="menu"

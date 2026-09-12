@@ -45,7 +45,7 @@ export function SimpleModal({
           </h3>
           <button
             type="button"
-            className="rounded-md px-2 py-1 text-sm text-muted hover:bg-surface-elevated hover:text-foreground"
+            className="rounded-md px-2 py-1 text-sm text-muted hover:bg-surface-inner-hover-soft hover:text-foreground"
             onClick={onClose}
           >
             {t("common.close_module")}

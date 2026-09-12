@@ -191,8 +191,10 @@ export function CandlestickChart({
 
   if (!chartData.length) {
     return (
-      <div className="flex items-center justify-center rounded-lg border border-dashed border-border bg-surface-elevated/30" style={{ height }}>
+      <div className="flex items-center justify-center rounded-lg border border-border bg-surface p-1" style={{ height }}>
+        <div className="flex h-full w-full items-center justify-center rounded-md bg-chart-plot">
         <p className="text-sm text-muted">{t("charts.no_data")}</p>
+        </div>
       </div>
     );
   }
@@ -205,6 +207,8 @@ export function CandlestickChart({
   const minTickGap = timeframe === "1h" ? 48 : timeframe === "15m" ? 44 : 36;
 
   return (
+    <div className="rounded-lg border border-border bg-surface p-1">
+    <div className="rounded-md bg-chart-plot">
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart
         data={chartData}
@@ -272,5 +276,7 @@ export function CandlestickChart({
         />
       </ComposedChart>
     </ResponsiveContainer>
+    </div>
+    </div>
   );
 }

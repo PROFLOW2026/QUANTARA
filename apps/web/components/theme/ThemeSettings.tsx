@@ -20,23 +20,25 @@ export function ThemeSettings() {
   }
 
   return (
-    <div className="flex flex-wrap gap-2">
-      {(["dark", "light"] as const).map((choice) => (
-        <button
-          key={choice}
-          type="button"
-          onClick={() => select(choice)}
-          className={cn(
-            "rounded-md border px-4 py-2 text-sm font-medium transition-colors",
-            current === choice
-              ? "border-accent bg-primary text-primary-foreground"
-              : "border-border bg-surface-elevated text-foreground-secondary hover:border-accent/40 hover:text-foreground"
-          )}
-          aria-pressed={current === choice}
-        >
-          {t(choice === "dark" ? "settings.theme_dark" : "settings.theme_light")}
-        </button>
-      ))}
+    <div className="rounded-lg border border-border bg-surface-section p-2">
+      <div className="flex flex-wrap gap-2">
+        {(["dark", "light"] as const).map((choice) => (
+          <button
+            key={choice}
+            type="button"
+            onClick={() => select(choice)}
+            className={cn(
+              "rounded-md border px-4 py-2 text-sm font-medium transition-colors",
+              current === choice
+                ? "border-border-active bg-surface-active text-foreground"
+                : "border-border bg-surface text-foreground-secondary hover:border-border-interactive hover:bg-surface-inner-hover-soft hover:text-foreground"
+            )}
+            aria-pressed={current === choice}
+          >
+            {t(choice === "dark" ? "settings.theme_dark" : "settings.theme_light")}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

@@ -17,7 +17,7 @@ import {
 import { BrokerAccountSummaryCards } from "@/components/trading/BrokerAccountSummaryCards";
 import { ExposureRiskSummaryCards } from "@/components/trading/ExposureRiskSummaryCards";
 import { RiskConcentrationPanel } from "@/components/trading/RiskConcentrationPanel";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, SectionPanel } from "@/components/ui/card";
 import { useHomeDashboardPoll } from "@/hooks/useHomeDashboardPoll";
 import { t } from "@/lib/i18n";
 import { formatCurrency, formatPercent } from "@/lib/utils";
@@ -156,17 +156,17 @@ function HomeDashboardContent() {
         </HomeSummaryCard>
       </div>
 
-      <section className="mt-6">
-        <h2 className="mb-3 text-base font-semibold">{t("home.broker_section_title")}</h2>
+      <SectionPanel className="mt-6">
+        <h2 className="mb-3 text-base font-semibold text-foreground">{t("home.broker_section_title")}</h2>
         <BrokerAccountSummaryCards account={brokerAccount} loading={loading && !brokerAccount} />
-      </section>
+      </SectionPanel>
 
       <RiskConcentrationPanel data={riskConcentration} loading={loading && !riskConcentration} />
 
-      <section className="mt-6">
+      <SectionPanel className="mt-6">
         <div className="mb-3">
-          <h2 className="text-base font-semibold">{t("home.strategy_layer_title")}</h2>
-          <p className="text-muted text-xs">{t("home.strategy_layer_hint")}</p>
+          <h2 className="text-base font-semibold text-foreground">{t("home.strategy_layer_title")}</h2>
+          <p className="text-xs text-muted">{t("home.strategy_layer_hint")}</p>
         </div>
         <ExposureRiskSummaryCards summary={exposureSummary} loading={loading && !exposureSummary} />
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -239,7 +239,7 @@ function HomeDashboardContent() {
             </Card>
           ) : null}
         </div>
-      </section>
+      </SectionPanel>
 
       {assetRows.length ? (
         <div className="mt-6">
@@ -309,7 +309,7 @@ function HomeDashboardContent() {
           <CardHeader><CardTitle>{t("home.timeframe_summary")}</CardTitle></CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-3">
             {competition.timeframe_comparison.map((row) => (
-              <div key={row.timeframe} className="rounded-md bg-surface-elevated p-3 text-sm">
+              <div key={row.timeframe} className="rounded-md border border-border-nested bg-surface-inner p-3 text-sm">
                 <p className="font-medium">{row.title_he ?? row.timeframe_he}</p>
                 <p>
                   <span className="text-muted">{t("home.realized_pnl")}: </span>
@@ -336,7 +336,7 @@ function HomeDashboardContent() {
             {(["5m", "15m", "1h", "orb_5m"] as const).map((timeframe) => {
               const tf = strategyRunner?.timeframes?.[timeframe];
               return (
-                <div key={timeframe} className="rounded-md bg-surface-elevated p-3">
+                <div key={timeframe} className="rounded-md border border-border-nested bg-surface-inner p-3">
                   <p className="font-medium">{timeframe}</p>
                   <p>
                     <span className="text-muted">{t("home.worker_backlog")}: </span>

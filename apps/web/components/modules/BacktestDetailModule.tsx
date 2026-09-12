@@ -340,7 +340,7 @@ export default function BacktestDetailModule({ embedded, params = {} }: ModulePr
 
           {(backtest.parameters || backtest.execution_assumptions || backtest.dataset_fingerprint) && (
 
-            <details className="mb-4 rounded-md border border-border bg-surface-elevated/30 p-3">
+            <details className="mb-4 rounded-md border border-border border border-border-nested bg-surface-inner p-3">
 
               <summary className="cursor-pointer text-sm text-accent">
 
@@ -352,7 +352,7 @@ export default function BacktestDetailModule({ embedded, params = {} }: ModulePr
 
                 {backtest.parameters && (
 
-                  <pre className="overflow-x-auto rounded bg-surface-elevated p-3 text-muted">
+                  <pre className="overflow-x-auto rounded border border-border-nested bg-surface-inner p-3 text-muted">
 
                     {JSON.stringify(backtest.parameters, null, 2)}
 
@@ -362,7 +362,7 @@ export default function BacktestDetailModule({ embedded, params = {} }: ModulePr
 
                 {backtest.execution_assumptions && (
 
-                  <pre className="overflow-x-auto rounded bg-surface-elevated p-3 text-muted">
+                  <pre className="overflow-x-auto rounded border border-border-nested bg-surface-inner p-3 text-muted">
 
                     {JSON.stringify(backtest.execution_assumptions, null, 2)}
 

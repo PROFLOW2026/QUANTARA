@@ -28,5 +28,5 @@ export function HomeSummaryValue({
   children: React.ReactNode;
   className?: string;
 }) {
-  return <p className={cn("font-mono text-2xl font-semibold text-foreground", className)}>{children}</p>;
+  return <p className={cn("font-mono text-2xl font-semibold text-financial", className)}>{children}</p>;
 }

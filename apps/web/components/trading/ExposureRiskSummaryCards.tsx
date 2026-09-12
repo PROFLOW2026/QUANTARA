@@ -1,6 +1,6 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, HighlightCard } from "@/components/ui/card";
 import type { AssetAnalyticsSummary } from "@/lib/api-client";
 import {
   formatCurrencyOrUnavailable,
@@ -57,7 +57,7 @@ export function ExposureRiskSummaryCards({
 }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-      <Card>
+      <HighlightCard>
         <CardHeader>
           <CardTitle title={t("home.open_exposure_usd_hint")}>
             {t("home.open_exposure_title")}
@@ -67,11 +67,11 @@ export function ExposureRiskSummaryCards({
           {loading ? (
             <span className="text-muted">{t("common.loading")}</span>
           ) : (
-            <p className="font-mono text-2xl">{formatExposureMetric(summary, "open_exposure")}</p>
+            <p className="font-mono text-2xl text-financial">{formatExposureMetric(summary, "open_exposure")}</p>
           )}
         </CardContent>
-      </Card>
-      <Card>
+      </HighlightCard>
+      <HighlightCard>
         <CardHeader>
           <CardTitle>{t("home.open_risk_sl_title")}</CardTitle>
         </CardHeader>
@@ -79,10 +79,10 @@ export function ExposureRiskSummaryCards({
           {loading ? (
             <span className="text-muted">{t("common.loading")}</span>
           ) : (
-            <p className="font-mono text-2xl">{formatExposureMetric(summary, "open_risk_usd")}</p>
+            <p className="font-mono text-2xl text-financial">{formatExposureMetric(summary, "open_risk_usd")}</p>
           )}
         </CardContent>
-      </Card>
+      </HighlightCard>
       <Card>
         <CardHeader>
           <CardTitle>{t("home.open_risk_pct_title")}</CardTitle>

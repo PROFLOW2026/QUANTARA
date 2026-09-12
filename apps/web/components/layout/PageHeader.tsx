@@ -42,7 +42,7 @@ export function EngineConnectionError({ onRetry }: { onRetry: () => void }) {
         <button
           type="button"
           onClick={onRetry}
-          className="rounded-md bg-surface-elevated px-4 py-2 text-sm text-foreground hover:bg-accent/20"
+          className="rounded-md border border-border bg-secondary-btn px-4 py-2 text-sm text-foreground-secondary hover:bg-secondary-btn-hover hover:text-foreground"
         >
           {t("common.retry")}
         </button>
@@ -53,7 +53,7 @@ export function EngineConnectionError({ onRetry }: { onRetry: () => void }) {
 
 export function ChartPlaceholder({ label }: { label: string }) {
   return (
-    <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-border bg-surface-elevated/30">
+    <div className="flex h-48 items-center justify-center rounded-lg border border-border-nested border-dashed bg-surface-inner">
       <p className="text-sm text-muted">{label}</p>
     </div>
   );

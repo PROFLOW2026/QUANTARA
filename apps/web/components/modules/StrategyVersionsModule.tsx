@@ -72,7 +72,7 @@ export default function StrategyVersionsModule({ embedded, params = {} }: Module
                 </div>
 
                 {v.parameters ? (
-                  <details className="rounded-md border border-border bg-surface-elevated/30 p-3">
+                  <details className="rounded-md border border-border border border-border-nested bg-surface-inner p-3">
                     <summary className="cursor-pointer text-sm text-accent">
                       {t("common.show_advanced")}
                     </summary>

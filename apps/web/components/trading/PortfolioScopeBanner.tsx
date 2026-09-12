@@ -20,7 +20,7 @@ export function PortfolioScopeBanner({
   competition,
 }: PortfolioScopeBannerProps) {
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface-elevated/40 px-4 py-2 text-sm">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-surface-section px-4 py-2 text-sm">
       <span>
         {scopeAll ? (
           <strong>{t("portfolio.viewing_all")}</strong>

@@ -176,7 +176,7 @@ export default function MarketGoldModule({ embedded }: ModuleProps) {
                     "rounded px-3 py-1 text-xs font-medium transition-colors",
                     timeframe === tf.id
                       ? "bg-accent text-white"
-                      : "bg-surface-elevated text-muted hover:text-foreground"
+                      : "bg-surface-inner text-muted hover:bg-surface-inner-hover-soft hover:text-foreground"
                   )}
                 >
                   {t(tf.labelKey)}

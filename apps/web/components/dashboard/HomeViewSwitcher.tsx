@@ -54,7 +54,7 @@ export function HomeViewSwitcher({ engineHealthy }: Props) {
   }
 
   return (
-    <div className="mb-6 flex flex-wrap gap-2 rounded-lg border border-border bg-surface-elevated p-1">
+    <div className="mb-6 flex flex-wrap gap-2 rounded-lg border border-switcher-border bg-switcher-bg p-1">
       {VIEWS.map((view) => (
         <button
           key={view.id}
@@ -63,8 +63,8 @@ export function HomeViewSwitcher({ engineHealthy }: Props) {
           className={cn(
             "rounded-md px-4 py-2 text-sm font-medium transition-colors",
             current === view.id
-              ? "bg-primary text-primary-foreground"
-              : "text-muted hover:bg-surface hover:text-foreground"
+              ? "bg-primary text-primary-foreground shadow-sm"
+              : "text-foreground-secondary hover:bg-surface-active hover:text-foreground"
           )}
         >
           {view.id === "research" ? (

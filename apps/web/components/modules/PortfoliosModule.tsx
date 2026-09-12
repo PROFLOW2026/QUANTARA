@@ -61,7 +61,7 @@ export default function PortfoliosModule({ embedded }: ModuleProps) {
                 <ModalLink
                   key={item.id}
                   href={`/portfolio?portfolio_id=${item.id}`}
-                  className="rounded-lg border border-border bg-surface-elevated/30 p-4 transition hover:border-accent/40"
+                  className="rounded-lg border border-border bg-surface p-4 transition hover:border-accent/40"
                 >
                   <p className="font-medium">{item.name}</p>
                   <p className="mt-1 text-xs text-muted">

@@ -1,6 +1,6 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SectionPanel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { t } from "@/lib/i18n";
 import { formatRelativeTime } from "@/lib/utils";
@@ -27,6 +27,15 @@ function statusBadge(freshness: StrategyFreshness) {
   return <Badge variant="warning">{t("home.strategy_unhealthy")}</Badge>;
 }
 
+function MetricTile({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-md border border-border-nested bg-surface-inner p-3">
+      <p className="text-xs text-muted">{label}</p>
+      <div className="mt-1 font-mono text-sm text-financial">{children}</div>
+    </div>
+  );
+}
+
 export function StrategyFreshnessPanel({
   freshness,
 }: {
@@ -34,14 +43,14 @@ export function StrategyFreshnessPanel({
 }) {
   if (!freshness) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("home.strategy_freshness_title")}</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <SectionPanel>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3 className="text-sm font-medium text-card-title">{t("home.strategy_freshness_title")}</h3>
+        </div>
+        <div className="rounded-md border border-border bg-surface p-4">
           <p className="text-sm text-muted">{t("common.no_data")}</p>
-        </CardContent>
-      </Card>
+        </div>
+      </SectionPanel>
     );
   }
 
@@ -51,37 +60,28 @@ export function StrategyFreshnessPanel({
     freshness.historical_backlog ?? freshness.backlog ?? 0;
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <CardTitle>{t("home.strategy_freshness_title")}</CardTitle>
+    <SectionPanel>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="text-sm font-medium text-card-title">{t("home.strategy_freshness_title")}</h3>
         {statusBadge(freshness)}
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <div>
-            <p className="text-muted">{t("home.strategy_last_evaluation")}</p>
-            <p className="font-mono">
-              {freshness.last_evaluation_at
-                ? formatRelativeTime(freshness.last_evaluation_at)
-                : t("common.no_data")}
-            </p>
-          </div>
-          <div>
-            <p className="text-muted">{t("home.strategy_live_backlog")}</p>
-            <p className="font-mono">{liveBacklog}</p>
-          </div>
-          <div>
-            <p className="text-muted">{t("home.strategy_historical_backlog")}</p>
-            <p className="font-mono">{historicalBacklog}</p>
-          </div>
+      </div>
+      <div className="space-y-3 rounded-md border border-border bg-surface p-4 text-sm">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <MetricTile label={t("home.strategy_last_evaluation")}>
+            {freshness.last_evaluation_at
+              ? formatRelativeTime(freshness.last_evaluation_at)
+              : t("common.no_data")}
+          </MetricTile>
+          <MetricTile label={t("home.strategy_live_backlog")}>{liveBacklog}</MetricTile>
+          <MetricTile label={t("home.strategy_historical_backlog")}>{historicalBacklog}</MetricTile>
         </div>
         {historicalBacklog > 0 && liveBacklog === 0 && freshness.healthy ? (
           <p className="text-xs text-muted">{t("home.strategy_historical_active_hint")}</p>
         ) : null}
         {marketRows.length ? (
-          <div>
-            <p className="mb-1 text-muted">{t("home.market_candle_age")}</p>
-            <ul className="space-y-1 font-mono text-xs">
+          <div className="rounded-md border border-border-nested bg-surface-inner p-3">
+            <p className="mb-2 text-xs text-muted">{t("home.market_candle_age")}</p>
+            <ul className="space-y-1 font-mono text-xs text-text-normal">
               {marketRows.map(([sym, age]) => (
                 <li key={sym}>
                   {sym}: {age != null ? `${age}m` : "—"}
@@ -91,7 +91,7 @@ export function StrategyFreshnessPanel({
           </div>
         ) : null}
         <p className="text-xs text-muted">{t("home.strategy_backlog_hint")}</p>
-      </CardContent>
-    </Card>
+      </div>
+    </SectionPanel>
   );
 }

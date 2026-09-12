@@ -8,7 +8,7 @@ export function Card({
   return (
     <div
       className={cn(
-        "rounded-lg border border-border bg-surface p-4 shadow-sm",
+        "rounded-lg border border-border bg-surface p-4 shadow-card",
         className
       )}
       {...props}
@@ -36,7 +36,7 @@ export function CardTitle({
   ...props
 }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
-    <h3 className={cn("text-sm font-medium text-foreground-secondary", className)} {...props}>
+    <h3 className={cn("text-sm font-medium text-card-title", className)} {...props}>
       {children}
     </h3>
   );
@@ -51,5 +51,40 @@ export function CardContent({
     <div className={cn("", className)} {...props}>
       {children}
     </div>
+  );
+}
+
+/** Large section wrapper — level 2 hierarchy (page → section → card). */
+export function SectionPanel({
+  className,
+  children,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn(
+        "rounded-lg border border-border bg-surface-section p-4",
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Important / broker metric cards — subtle tint above standard cards. */
+export function HighlightCard({
+  className,
+  children,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <Card
+      className={cn("border-border-strong bg-surface-highlight", className)}
+      {...props}
+    >
+      {children}
+    </Card>
   );
 }

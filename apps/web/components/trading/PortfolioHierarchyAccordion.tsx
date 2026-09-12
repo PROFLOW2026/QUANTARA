@@ -31,7 +31,7 @@ function portfolioDirectionLabel(direction?: string | null): string {
 
 function PortfolioCardCompact({ p }: { p: CompetitionPortfolioSummary }) {
   return (
-    <div className="rounded-md border border-border/60 bg-surface-elevated/20 p-3 text-xs">
+    <div className="rounded-md border border-border-nested bg-surface-inner p-3 text-xs">
       <p className="text-sm font-medium">
         {translateRiskProfile(p.risk_slug)} — {portfolioRiskLabel(p)}
       </p>
@@ -119,7 +119,7 @@ function AccordionToggle({
   return (
     <button
       type="button"
-      className="flex w-full items-start justify-between gap-3 rounded-md border border-border/60 bg-surface-elevated/30 px-3 py-3 text-right hover:bg-surface-elevated/60"
+      className="flex w-full items-start justify-between gap-3 rounded-md border border-border/60 bg-surface-inner px-3 py-3 text-right hover:bg-surface-inner-hover-soft"
       onClick={onToggle}
       aria-expanded={expanded}
     >

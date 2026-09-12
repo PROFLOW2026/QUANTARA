@@ -95,12 +95,12 @@ export function ModalWorkspaceShell() {
         aria-modal="true"
         aria-label={titleKey ? t(titleKey) : t("common.actions")}
         className={cn(
-          "flex w-full flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl outline-none light:bg-surface-elevated light:shadow-[0_8px_32px_rgba(15,23,42,0.08)]",
+          "flex w-full flex-col overflow-hidden rounded-xl border border-border bg-surface-elevated shadow-modal outline-none",
           "h-[96dvh] max-h-[96dvh] sm:h-[94dvh] sm:max-h-[94dvh]",
           "max-w-[96vw] sm:max-w-[95vw]"
         )}
       >
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-6">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-modal-header px-4 py-3 sm:px-6">
           <h2 className="truncate text-lg font-semibold text-foreground">
             {titleKey ? t(titleKey) : "—"}
           </h2>
@@ -108,13 +108,13 @@ export function ModalWorkspaceShell() {
             type="button"
             onClick={closeModule}
             aria-label={t("common.close_module")}
-            className="inline-flex h-9 min-w-9 items-center justify-center rounded-md border border-border bg-surface-elevated px-3 text-sm text-foreground-secondary transition hover:bg-accent/20 hover:text-accent"
+            className="inline-flex h-9 min-w-9 items-center justify-center rounded-md border border-border bg-secondary-btn px-3 text-sm text-foreground-secondary transition hover:bg-secondary-btn-hover hover:text-foreground"
           >
             ✕ {t("common.close_module")}
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 scrollbar-thin">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-surface-elevated px-4 py-4 sm:px-6 sm:py-5 scrollbar-thin">
           {loading ? (
             <p className="text-sm text-muted">{t("common.loading")}</p>
           ) : error ? (

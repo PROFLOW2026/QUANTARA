@@ -38,7 +38,7 @@ const MultiEquityCurveChart = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-[280px] items-center justify-center rounded-lg border border-dashed border-border bg-surface-elevated/30">
+      <div className="flex h-[280px] items-center justify-center rounded-lg border border-dashed border-border border border-border-nested bg-surface-inner">
         <p className="text-sm text-muted">{t("common.loading")}</p>
       </div>
     ),
@@ -107,10 +107,10 @@ function CollapsibleRankingSection({
   }
 
   return (
-    <div className="rounded-md border border-border/60 bg-surface-elevated/20">
+    <div className="rounded-md border border-border-nested bg-surface-inner">
       <button
         type="button"
-        className="flex w-full items-start justify-between gap-3 px-3 py-3 text-right hover:bg-surface-elevated/40"
+        className="flex w-full items-start justify-between gap-3 px-3 py-3 text-right hover:bg-surface-inner-hover-soft"
         onClick={() => setExpanded((open) => !open)}
         aria-expanded={expanded}
       >

@@ -217,9 +217,9 @@ export function AssetChartModal({
         aria-modal="true"
         aria-labelledby="asset-chart-modal-title"
         dir="rtl"
-        className="relative z-10 flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-border bg-background shadow-xl light:bg-surface-elevated light:shadow-[0_8px_32px_rgba(15,23,42,0.08)] sm:max-h-[92vh]"
+        className="relative z-10 flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-border bg-surface-elevated shadow-modal sm:max-h-[92vh]"
       >
-        <div className="border-b border-border px-4 py-3">
+        <div className="border-b border-border bg-modal-header px-4 py-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <h3 id="asset-chart-modal-title" className="truncate text-lg font-semibold">
@@ -244,7 +244,7 @@ export function AssetChartModal({
             </div>
             <button
               type="button"
-              className="shrink-0 rounded-md px-2 py-1 text-sm text-muted hover:bg-surface-elevated hover:text-foreground"
+              className="shrink-0 rounded-md px-2 py-1 text-sm text-muted hover:bg-surface-inner hover:text-foreground"
               onClick={onClose}
             >
               {t("common.close_module")}
@@ -259,8 +259,8 @@ export function AssetChartModal({
                 className={cn(
                   "rounded-md border px-3 py-1.5 text-xs transition-colors",
                   timeframe === tf.id
-                    ? "border-accent bg-accent/15 text-accent"
-                    : "border-border text-muted hover:border-accent/40 hover:text-foreground"
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-surface-inner text-foreground-secondary hover:border-border-interactive hover:bg-surface-active hover:text-foreground"
                 )}
                 onClick={() => setTimeframe(tf.id)}
               >
@@ -274,21 +274,21 @@ export function AssetChartModal({
           <div className="min-w-0">
             {loading ? (
               <div
-                className="flex items-center justify-center rounded-lg border border-dashed border-border bg-surface-elevated/30"
+                className="flex items-center justify-center rounded-lg border border-border bg-surface bg-chart-plot"
                 style={{ height: chartHeight }}
               >
                 <p className="text-sm text-muted">{t("home.asset_chart_loading")}</p>
               </div>
             ) : error ? (
               <div
-                className="flex items-center justify-center rounded-lg border border-dashed border-border bg-surface-elevated/30"
+                className="flex items-center justify-center rounded-lg border border-border bg-surface bg-chart-plot"
                 style={{ height: chartHeight }}
               >
                 <p className="text-sm text-muted">{t("home.asset_chart_error")}</p>
               </div>
             ) : candles.length < 2 ? (
               <div
-                className="flex items-center justify-center rounded-lg border border-dashed border-border bg-surface-elevated/30"
+                className="flex items-center justify-center rounded-lg border border-border bg-surface bg-chart-plot"
                 style={{ height: chartHeight }}
               >
                 <p className="text-sm text-muted">{t("home.asset_chart_no_data")}</p>
@@ -299,7 +299,7 @@ export function AssetChartModal({
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-md border border-border/60 bg-surface-elevated/30 p-3 text-sm">
+            <div className="rounded-md border border-border-nested bg-surface-inner p-3 text-sm">
               <p className="mb-2 font-medium">{t("home.market_regime_title")}</p>
               {asset.market_regime ? (
                 <p className="text-xs leading-relaxed">
@@ -311,7 +311,7 @@ export function AssetChartModal({
               )}
             </div>
 
-            <div className="rounded-md border border-border/60 bg-surface-elevated/30 p-3 text-sm">
+            <div className="rounded-md border border-border-nested bg-surface-inner p-3 text-sm">
               <p className="mb-2 font-medium">{t("home.asset_chart_latest_decision")}</p>
               {latestDecision ? (
                 <div className="space-y-1 text-xs leading-relaxed">
@@ -339,7 +339,7 @@ export function AssetChartModal({
               )}
             </div>
 
-            <div className="rounded-md border border-border/60 bg-surface-elevated/30 p-3 text-sm sm:col-span-2">
+            <div className="rounded-md border border-border-nested bg-surface-inner p-3 text-sm sm:col-span-2">
               <p className="mb-2 font-medium">{t("home.asset_chart_open_position")}</p>
               {openPosition ? (
                 <div className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">

@@ -1,13 +1,14 @@
 import { cn } from "@/lib/utils";
 
-type BadgeVariant = "default" | "success" | "danger" | "warning" | "muted" | "outline";
+type BadgeVariant = "default" | "success" | "danger" | "warning" | "info" | "muted" | "outline";
 
 const variants: Record<BadgeVariant, string> = {
-  default: "bg-accent/20 text-accent border-accent/30",
-  success: "bg-profit/15 text-profit border-profit/30",
-  danger: "bg-loss/15 text-loss border-loss/30",
-  warning: "bg-warning/15 text-warning border-warning/30",
-  muted: "bg-surface-elevated text-foreground-secondary border-border",
+  default: "bg-info-bg text-info border-info-border",
+  success: "bg-profit-bg text-profit border-profit-border",
+  danger: "bg-loss-bg text-loss border-loss-border",
+  warning: "bg-warning-bg text-warning border-warning-border",
+  info: "bg-info-bg text-info border-info-border",
+  muted: "bg-surface-inner text-foreground-secondary border-border-nested",
   outline: "bg-transparent text-foreground-secondary border-border",
 };
 

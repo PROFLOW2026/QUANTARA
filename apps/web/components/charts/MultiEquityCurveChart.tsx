@@ -70,7 +70,7 @@ export function MultiEquityCurveChart({
   if (!series.length || series.every((s) => !s.data.length)) {
     return (
       <div
-        className="flex items-center justify-center rounded-lg border border-dashed border-border bg-surface-elevated/30"
+        className="flex items-center justify-center rounded-lg border border-dashed border-border border border-border-nested bg-surface-inner"
         style={{ height }}
       >
         <p className="text-sm text-muted">{t("charts.no_data")}</p>

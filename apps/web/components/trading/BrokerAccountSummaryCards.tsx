@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, HighlightCard } from "@/components/ui/card";
 import type { BrokerAccountSummary } from "@/lib/api-client";
 import { formatCurrencyOrUnavailable, formatPercentOrUnavailable } from "@/lib/display-text";
 import { t } from "@/lib/i18n";
@@ -22,12 +22,12 @@ export function BrokerAccountSummaryCards({
 
   const primaryCards = (
     <>
-      <Card>
+      <HighlightCard>
         <CardHeader>
           <CardTitle>{t("home.broker_equity")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="font-mono text-2xl">{v(account?.equity)}</p>
+          <p className="font-mono text-2xl text-financial">{v(account?.equity)}</p>
           <p className="text-muted mt-1 text-xs">
             {t("home.broker_balance_cash", {
               balance: v(account?.balance),
@@ -35,24 +35,24 @@ export function BrokerAccountSummaryCards({
             })}
           </p>
         </CardContent>
-      </Card>
-      <Card>
+      </HighlightCard>
+      <HighlightCard>
         <CardHeader>
           <CardTitle>{t("home.broker_gross_exposure")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="font-mono text-2xl">{v(account?.gross_exposure)}</p>
+          <p className="font-mono text-2xl text-financial">{v(account?.gross_exposure)}</p>
           <p className="text-muted mt-1 text-xs">
             {t("home.broker_net_exposure", { value: v(account?.net_exposure) })}
           </p>
         </CardContent>
-      </Card>
-      <Card>
+      </HighlightCard>
+      <HighlightCard>
         <CardHeader>
           <CardTitle>{t("home.broker_net_realized_pnl")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="font-mono text-2xl">{v(account?.net_realized_pnl ?? account?.realized_pnl)}</p>
+          <p className="font-mono text-2xl text-financial">{v(account?.net_realized_pnl ?? account?.realized_pnl)}</p>
           {account?.gross_realized_pnl != null && account?.fees_paid != null && (
             <p className="text-muted mt-1 text-xs">
               {t("home.broker_gross_fees", {
@@ -62,20 +62,20 @@ export function BrokerAccountSummaryCards({
             </p>
           )}
         </CardContent>
-      </Card>
-      <Card>
+      </HighlightCard>
+      <HighlightCard>
         <CardHeader>
           <CardTitle>{t("home.broker_available_margin")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="font-mono text-2xl">{v(account?.available_margin ?? account?.buying_power)}</p>
+          <p className="font-mono text-2xl text-financial">{v(account?.available_margin ?? account?.buying_power)}</p>
           {account?.spot_crypto_cash != null && (
             <p className="text-muted mt-1 text-xs">
               {t("home.broker_spot_crypto_cash", { value: v(account.spot_crypto_cash) })}
             </p>
           )}
         </CardContent>
-      </Card>
+      </HighlightCard>
     </>
   );
 

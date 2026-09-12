@@ -102,7 +102,7 @@ function ProviderHealthCard({
   const status = health?.status ?? "unknown";
   const usageLine = health ? formatProviderUsageLine(name, health) : null;
   return (
-    <div className="rounded-md bg-surface-elevated p-3 text-sm">
+    <div className="rounded-md border border-border-nested bg-surface-inner p-3 text-sm">
       <div className="mb-2 flex items-center justify-between gap-2">
         <p className="font-medium">{providerLabel(name)}</p>
         {providerStatusBadge(status)}
@@ -205,12 +205,12 @@ function AssetDrilldownButton({
   return (
     <button
       type="button"
-      className={`group flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg border border-border/90 bg-background/75 px-2 py-1.5 text-xs shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05),0_1px_2px_rgba(0,0,0,0.14)] transition-[color,background-color,border-color,box-shadow,transform] duration-150 hover:border-accent/30 hover:bg-background hover:shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06),0_2px_6px_rgba(0,0,0,0.18)] active:translate-y-px active:border-accent/20 active:bg-background/60 active:shadow-[inset_0_1px_2px_rgba(0,0,0,0.18)] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/45 focus-visible:ring-offset-1 focus-visible:ring-offset-background ${className}`}
+      className={`group flex w-full cursor-pointer items-center justify-between gap-2 rounded-md border border-border-interactive bg-surface-inner px-2 py-1.5 text-xs transition-colors hover:border-border-hover hover:bg-surface-inner-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-focus/45 ${className}`}
       onClick={onClick}
       aria-label={ariaLabel}
     >
-      <span className="text-muted transition-colors group-hover:text-foreground/85">{label}</span>
-      <span className="font-mono text-sm text-accent transition-colors group-hover:text-blue-300">
+      <span className="text-text-subtle transition-colors group-hover:text-text-normal">{label}</span>
+      <span className="font-mono text-sm text-accent transition-colors group-hover:text-primary">
         {count}
       </span>
     </button>
@@ -227,15 +227,15 @@ function DesktopActiveAssetCard({
   onChartOpen: () => void;
 }) {
   return (
-    <div className="flex h-full flex-col rounded-md border border-border/60 bg-surface-elevated/30 p-3 text-sm">
-      <div className="mb-2">
+    <div className="flex h-full flex-col overflow-hidden rounded-md border border-border bg-surface text-sm shadow-card">
+      <div className="border-b border-border-nested bg-surface-header p-3">
         <div className="flex items-start justify-between gap-2">
-          <AssetSymbolButton asset={asset} onOpen={onChartOpen} className="text-base" />
-          <p className="shrink-0 font-mono text-base leading-tight">
+          <AssetSymbolButton asset={asset} onOpen={onChartOpen} className="text-base text-foreground" />
+          <p className="shrink-0 font-mono text-base leading-tight text-financial">
             {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
           </p>
         </div>
-        <p className="mt-0.5 h-4 truncate text-xs leading-4 text-muted">
+        <p className="mt-0.5 h-4 truncate text-xs leading-4 text-text-subtle">
           {providerLabel(asset.provider)} · {t(`home.session_${asset.session_status}`)}
         </p>
         <div className="mt-1 flex h-5 items-center">
@@ -248,11 +248,12 @@ function DesktopActiveAssetCard({
         </div>
       </div>
 
-      <div className="mb-2 text-xs leading-snug">
+      <div className="flex flex-1 flex-col p-3">
+      <div className="mb-2 rounded-md border border-border-nested bg-surface-inner px-2 py-1.5 text-xs leading-snug">
         <span className="text-muted">{t("home.market_regime_title")}: </span>
         {asset.market_regime ? (
           <>
-            <span>{translateStructureRegime(asset.market_regime.structure_regime)}</span>
+            <span className="text-text-normal">{translateStructureRegime(asset.market_regime.structure_regime)}</span>
             <span className="text-muted">
               {" "}
               · {translateVolatilityRegime(asset.market_regime.volatility_regime)}
@@ -276,36 +277,37 @@ function DesktopActiveAssetCard({
           ariaLabel={t("home.closed_trades_modal_title", { asset: asset.symbol })}
           onClick={() => onDrilldown("closed")}
         />
-        <div>
+        <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
           <p className="text-muted">{t("home.realized_pnl")}</p>
           <div className="mt-0.5">
             <PnLDisplay value={asset.realized_pnl} size="sm" />
           </div>
         </div>
-        <div>
+        <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
           <p className="text-muted">{t("home.unrealized_pnl")}</p>
           <div className="mt-0.5">
             <PnLDisplay value={asset.unrealized_pnl} size="sm" />
           </div>
         </div>
-        <div className="col-span-2 flex items-baseline justify-between gap-2 border-t border-border/40 pt-1.5">
+        <div className="col-span-2 flex items-baseline justify-between gap-2 rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
           <span className="text-muted">{t("home.total_pnl")}</span>
           <PnLDisplay value={asset.total_pnl} size="sm" />
         </div>
         <div className="col-span-2 grid grid-cols-3 gap-x-2">
-          <div>
+          <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
             <p className="text-muted">{t("home.asset_exposure_short")}</p>
-            <p className="mt-0.5 font-mono">{formatAssetExposure(asset)}</p>
+            <p className="mt-0.5 font-mono text-financial">{formatAssetExposure(asset)}</p>
           </div>
-          <div>
+          <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
             <p className="text-muted">{t("home.asset_risk_short")}</p>
-            <p className="mt-0.5 font-mono">{formatAssetRisk(asset)}</p>
+            <p className="mt-0.5 font-mono text-financial">{formatAssetRisk(asset)}</p>
           </div>
-          <div>
+          <div className="rounded-md border border-border-nested bg-surface-inner px-2 py-1.5">
             <p className="text-muted">{t("home.asset_risk_pct_short")}</p>
-            <p className="mt-0.5 font-mono">{formatRiskPct(asset)}</p>
+            <p className="mt-0.5 font-mono text-financial">{formatRiskPct(asset)}</p>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );
@@ -334,7 +336,7 @@ export function ActiveAssetsTable({
           {assets.map((asset) => (
             <div
               key={`mobile-${asset.db_symbol}`}
-              className="rounded-md border border-border/60 p-3 text-sm"
+              className="overflow-hidden rounded-md border border-border bg-surface text-sm shadow-card"
             >
               <AssetSymbolButton asset={asset} onOpen={() => setChartAsset(asset)} className="font-medium" />
               <p className="mt-1 text-xs text-muted">
