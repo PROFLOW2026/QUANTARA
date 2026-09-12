@@ -197,19 +197,19 @@ function DesktopActiveAssetCard({
 }) {
   return (
     <div className="flex h-full flex-col rounded-md border border-border/60 bg-surface-elevated/30 p-3 text-sm">
-      <div className="mb-2 flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate text-base font-semibold leading-tight">{asset.symbol}</p>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-            <p className="text-xs text-muted leading-snug">
-              {providerLabel(asset.provider)} · {t(`home.session_${asset.session_status}`)}
-            </p>
-            {statusBadge(asset.data_status, asset.stale, asset.session_closed)}
-          </div>
+      <div className="mb-2">
+        <div className="flex items-start justify-between gap-2">
+          <p className="min-w-0 truncate text-base font-semibold leading-tight">{asset.symbol}</p>
+          <p className="shrink-0 font-mono text-base leading-tight">
+            {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
+          </p>
         </div>
-        <p className="shrink-0 font-mono text-base leading-tight">
-          {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
+        <p className="mt-0.5 h-4 truncate text-xs leading-4 text-muted">
+          {providerLabel(asset.provider)} · {t(`home.session_${asset.session_status}`)}
         </p>
+        <div className="mt-1 flex h-5 items-center">
+          {statusBadge(asset.data_status, asset.stale, asset.session_closed)}
+        </div>
       </div>
 
       <div className="mb-2 text-xs leading-snug">
