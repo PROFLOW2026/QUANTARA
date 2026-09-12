@@ -216,7 +216,7 @@ export function AssetChartModal({
         aria-modal="true"
         aria-labelledby="asset-chart-modal-title"
         dir="rtl"
-        className="relative z-10 flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-border bg-background shadow-xl sm:max-h-[92vh]"
+        className="relative z-10 flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-border bg-background shadow-xl light:bg-surface-elevated light:shadow-[0_8px_32px_rgba(15,23,42,0.08)] sm:max-h-[92vh]"
       >
         <div className="border-b border-border px-4 py-3">
           <div className="flex items-start justify-between gap-3">

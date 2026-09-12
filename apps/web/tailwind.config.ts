@@ -12,6 +12,7 @@ const config: Config = {
         background: "var(--color-background)",
         surface: "var(--color-surface)",
         "surface-elevated": "var(--color-surface-elevated)",
+        "surface-chrome": "var(--color-surface-chrome)",
         border: "var(--color-border)",
         foreground: "var(--color-foreground)",
         "foreground-secondary": "var(--color-foreground-secondary)",

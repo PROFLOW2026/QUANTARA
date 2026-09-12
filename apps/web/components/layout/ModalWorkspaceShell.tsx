@@ -95,7 +95,7 @@ export function ModalWorkspaceShell() {
         aria-modal="true"
         aria-label={titleKey ? t(titleKey) : t("common.actions")}
         className={cn(
-          "flex w-full flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl outline-none",
+          "flex w-full flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl outline-none light:bg-surface-elevated light:shadow-[0_8px_32px_rgba(15,23,42,0.08)]",
           "h-[96dvh] max-h-[96dvh] sm:h-[94dvh] sm:max-h-[94dvh]",
           "max-w-[96vw] sm:max-w-[95vw]"
         )}

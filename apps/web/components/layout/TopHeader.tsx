@@ -5,7 +5,7 @@ import { t } from "@/lib/i18n";
 
 export function TopHeader() {
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/90">
+    <header className="sticky top-0 z-40 border-b border-border bg-surface-chrome/95 backdrop-blur supports-[backdrop-filter]:bg-surface-chrome/90">
       <div className="mx-auto max-w-7xl px-4 py-2.5 sm:px-6">
         <ModalLink
           href="/"

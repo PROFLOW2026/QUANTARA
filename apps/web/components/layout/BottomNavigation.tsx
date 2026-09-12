@@ -106,7 +106,7 @@ function MoreMenu({
         role="menu"
         aria-label={t("nav.more")}
         dir="rtl"
-        className="relative z-10 mb-[4.25rem] w-full max-w-lg rounded-t-xl border border-border bg-background shadow-xl sm:mb-[4.5rem] sm:rounded-xl"
+        className="relative z-10 mb-[4.25rem] w-full max-w-lg rounded-t-xl border border-border bg-background shadow-xl light:bg-surface-elevated sm:mb-[4.5rem] sm:rounded-xl"
       >
         <div className="border-b border-border px-4 py-3">
           <p className="text-sm font-semibold">{t("nav.more")}</p>
@@ -149,7 +149,7 @@ export function BottomNavigation() {
   return (
     <>
       <nav
-        className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur supports-[backdrop-filter]:bg-surface/90"
+        className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-border bg-surface-chrome/95 pb-[env(safe-area-inset-bottom)] backdrop-blur light:shadow-[0_-1px_4px_rgba(15,23,42,0.06)] supports-[backdrop-filter]:bg-surface-chrome/90"
         aria-label={t("nav.main_navigation")}
       >
         {bottomNavItems.map((item) => (

@@ -30,15 +30,15 @@ const DARK_CHART: ChartColorPalette = {
 };
 
 const LIGHT_CHART: ChartColorPalette = {
-  profit: "#15803d",
-  loss: "#dc2626",
-  accent: "#2563eb",
-  muted: "#64748b",
-  border: "#e2e8f0",
-  surface: "#ffffff",
-  grid: "#e2e8f0",
-  tooltipBg: "#ffffff",
-  tooltipBorder: "#cbd5e1",
+  profit: "#187a45",
+  loss: "#c0392f",
+  accent: "#4a7dab",
+  muted: "#5a6578",
+  border: "#d5dde7",
+  surface: "#f3f6fa",
+  grid: "#dde4ec",
+  tooltipBg: "#fcfdfe",
+  tooltipBorder: "#d5dde7",
   tooltipText: "#0f172a",
 };
 
