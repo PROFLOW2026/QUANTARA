@@ -15,6 +15,7 @@ HOME_COMPONENTS = [
     REPO_ROOT / "apps" / "web" / "components" / "trading" / "SignalCard.tsx",
     REPO_ROOT / "apps" / "web" / "components" / "trading" / "ExposureRiskSummaryCards.tsx",
     REPO_ROOT / "apps" / "web" / "components" / "trading" / "ActiveAssetsPanel.tsx",
+    REPO_ROOT / "apps" / "web" / "components" / "trading" / "AssetChartModal.tsx",
 ]
 
 
@@ -101,3 +102,38 @@ def test_asset_data_status_visual_state_labels():
     assert 'variant: "warning"' in src or 'variant: "warning"' in panel
     assert "session_closed" in panel
     assert "last_candle" in panel
+
+
+def test_asset_chart_modal_hebrew_strings_and_canonical_candles():
+    he = json.loads(HE_JSON.read_text(encoding="utf-8"))
+    home = he["home"]
+    assert home["asset_chart_loading"] == "טוען נתוני גרף..."
+    assert home["asset_chart_error"] == "שגיאה בטעינת נתוני הגרף"
+    assert home["asset_chart_no_data"] == "אין מספיק נתונים להצגה"
+    assert home["asset_chart_no_open_position"] == "פוזיציה פתוחה: אין"
+
+    modal = (
+        REPO_ROOT / "apps" / "web" / "components" / "trading" / "AssetChartModal.tsx"
+    ).read_text(encoding="utf-8")
+    panel = (
+        REPO_ROOT / "apps" / "web" / "components" / "trading" / "ActiveAssetsPanel.tsx"
+    ).read_text(encoding="utf-8")
+    dashboard = (
+        REPO_ROOT / "apps" / "web" / "components" / "dashboard" / "HomeDashboard.tsx"
+    ).read_text(encoding="utf-8")
+
+    assert "api.getCandles" in modal
+    assert "instrument_id: asset.db_symbol" in modal
+    assert "TradingView" not in modal
+    assert 'useState("15m")' in modal
+    assert '"5m"' in modal and '"15m"' in modal and '"1h"' in modal
+    assert "AssetSymbolButton" in panel
+    assert "AssetChartModal" in panel
+    assert "setChartAsset" in panel
+    assert "getCandles" not in panel
+    assert "getCandles" not in dashboard
+    assert "assetDecisions={assetDecisions}" in dashboard
+    assert "CandlestickChart" in modal
+    assert "ChartExecutionMarker" in (
+        REPO_ROOT / "apps" / "web" / "components" / "charts" / "chart-types.ts"
+    ).read_text(encoding="utf-8")

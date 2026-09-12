@@ -243,7 +243,7 @@ function HomeDashboardContent() {
 
       {assetRows.length ? (
         <div className="mt-6">
-          <ActiveAssetsTable assets={assetRows} />
+          <ActiveAssetsTable assets={assetRows} assetDecisions={assetDecisions} />
         </div>
       ) : null}
 

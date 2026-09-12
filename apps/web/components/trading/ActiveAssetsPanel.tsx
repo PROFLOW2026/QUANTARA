@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { AssetChartModal } from "@/components/trading/AssetChartModal";
 import { AssetTradeDrilldownModal } from "@/components/trading/AssetTradeDrilldownModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import {
   type AssetAnalyticsRow,
+  type Decision,
   type MarketProviderStatus,
   type ProviderHealthStatus,
 } from "@/lib/api-client";
@@ -153,6 +155,40 @@ export function ActiveAssetsSummary({
   );
 }
 
+function AssetSymbolButton({
+  asset,
+  onOpen,
+  className = "",
+}: {
+  asset: AssetAnalyticsRow;
+  onOpen: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={`group inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-sm text-right transition-colors hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/45 ${className}`}
+      onClick={onOpen}
+      aria-label={t("home.asset_chart_open_aria", { asset: asset.symbol })}
+    >
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 16 16"
+        className="h-3.5 w-3.5 shrink-0 opacity-45 transition-opacity group-hover:opacity-90"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M2 12 6 7.5 9 10 14 4" />
+        <path d="M11 4h3v3" />
+      </svg>
+      <span className="truncate font-semibold leading-tight group-hover:underline">{asset.symbol}</span>
+    </button>
+  );
+}
+
 function AssetDrilldownButton({
   label,
   count,
@@ -184,15 +220,17 @@ function AssetDrilldownButton({
 function DesktopActiveAssetCard({
   asset,
   onDrilldown,
+  onChartOpen,
 }: {
   asset: AssetAnalyticsRow;
   onDrilldown: (mode: "open" | "closed") => void;
+  onChartOpen: () => void;
 }) {
   return (
     <div className="flex h-full flex-col rounded-md border border-border/60 bg-surface-elevated/30 p-3 text-sm">
       <div className="mb-2">
         <div className="flex items-start justify-between gap-2">
-          <p className="min-w-0 truncate text-base font-semibold leading-tight">{asset.symbol}</p>
+          <AssetSymbolButton asset={asset} onOpen={onChartOpen} className="text-base" />
           <p className="shrink-0 font-mono text-base leading-tight">
             {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
           </p>
@@ -273,11 +311,18 @@ function DesktopActiveAssetCard({
   );
 }
 
-export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
+export function ActiveAssetsTable({
+  assets,
+  assetDecisions = [],
+}: {
+  assets: AssetAnalyticsRow[];
+  assetDecisions?: Decision[];
+}) {
   const [drilldown, setDrilldown] = useState<{
     asset: AssetAnalyticsRow;
     mode: "open" | "closed";
   } | null>(null);
+  const [chartAsset, setChartAsset] = useState<AssetAnalyticsRow | null>(null);
 
   return (
     <Card>
@@ -291,7 +336,7 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
               key={`mobile-${asset.db_symbol}`}
               className="rounded-md border border-border/60 p-3 text-sm"
             >
-              <p className="font-medium">{asset.symbol}</p>
+              <AssetSymbolButton asset={asset} onOpen={() => setChartAsset(asset)} className="font-medium" />
               <p className="mt-1 text-xs text-muted">
                 {providerLabel(asset.provider)} · {t(`home.session_${asset.session_status}`)}
               </p>
@@ -347,10 +392,17 @@ export function ActiveAssetsTable({ assets }: { assets: AssetAnalyticsRow[] }) {
               key={asset.db_symbol}
               asset={asset}
               onDrilldown={(mode) => setDrilldown({ asset, mode })}
+              onChartOpen={() => setChartAsset(asset)}
             />
           ))}
         </div>
       </CardContent>
+      <AssetChartModal
+        open={chartAsset != null}
+        asset={chartAsset}
+        decisions={assetDecisions}
+        onClose={() => setChartAsset(null)}
+      />
       <AssetTradeDrilldownModal
         open={drilldown != null}
         mode={drilldown?.mode ?? "open"}

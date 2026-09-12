@@ -12,6 +12,7 @@ import {
   Customized,
 } from "recharts";
 import type { Candle } from "@/lib/api-client";
+import type { ChartExecutionMarker } from "./chart-types";
 import { t } from "@/lib/i18n";
 import { formatDateTime, formatPrice } from "@/lib/utils";
 import {
@@ -25,6 +26,8 @@ import {
 interface CandlestickChartProps {
   candles: Candle[];
   height?: number;
+  /** Reserved for future fill-based execution markers. */
+  markers?: ChartExecutionMarker[];
 }
 
 interface CandleChartPoint {
@@ -101,7 +104,11 @@ function CandlestickLayer(props: {
   );
 }
 
-export function CandlestickChart({ candles, height = 280 }: CandlestickChartProps) {
+export function CandlestickChart({
+  candles,
+  height = 280,
+  markers: _markers,
+}: CandlestickChartProps) {
   const chartData = useMemo<CandleChartPoint[]>(
     () =>
       [...candles]
