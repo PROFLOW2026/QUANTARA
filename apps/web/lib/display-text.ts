@@ -259,13 +259,6 @@ export function formatProviderUsageLine(
   return null;
 }
 
-export function providerHasTechnicalDetails(
-  health: { last_error?: string | null; status?: string | null } | undefined
-): boolean {
-  if (!health) return false;
-  return Boolean(health.last_error?.trim());
-}
-
 export function translateDataStatus(
   status: string | null | undefined,
   stale?: boolean,

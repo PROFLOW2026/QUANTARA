@@ -62,14 +62,15 @@ def test_provider_health_hebrew_status_mappings():
     assert home["provider_details"] == "פרטים"
 
 
-def test_provider_health_card_hides_raw_errors_by_default():
+def test_provider_health_card_does_not_render_technical_details():
     panel = (
         REPO_ROOT / "apps" / "web" / "components" / "trading" / "ActiveAssetsPanel.tsx"
     ).read_text(encoding="utf-8")
     assert "translateProviderStatus" in panel
-    assert "providerHasTechnicalDetails" in panel
-    assert "showDetails" in panel
-    assert "health.last_error" not in panel.replace("health?.last_error", "")
+    assert "providerHasTechnicalDetails" not in panel
+    assert "provider_details" not in panel
+    assert "showDetails" not in panel
+    assert "last_error" not in panel
     assert "twelvedata.com/pricing" not in panel
 
 

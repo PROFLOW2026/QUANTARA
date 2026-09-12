@@ -14,7 +14,6 @@ import {
   formatCurrencyOrUnavailable,
   formatPercentOrUnavailable,
   formatProviderUsageLine,
-  providerHasTechnicalDetails,
   translateDataStatus,
   translateProviderStatus,
   translateStructureRegime,
@@ -105,10 +104,8 @@ function ProviderHealthCard({
   name: string;
   health?: ProviderHealthStatus;
 }) {
-  const [showDetails, setShowDetails] = useState(false);
   const status = health?.status ?? "unknown";
   const usageLine = health ? formatProviderUsageLine(name, health) : null;
-  const hasTechnicalDetails = providerHasTechnicalDetails(health);
   return (
     <div className="rounded-md bg-surface-elevated p-3 text-sm">
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -125,27 +122,6 @@ function ProviderHealthCard({
         <p className="text-xs text-muted">
           {t("home.provider_guard_limit", { limit: health.guard_limit })}
         </p>
-      ) : null}
-      {name === "tiingo" && health?.fallback_mode ? (
-        <p className="text-xs text-muted">{t("home.provider_fallback_active")}</p>
-      ) : null}
-      {hasTechnicalDetails ? (
-        <div className="mt-2">
-          <button
-            type="button"
-            className="text-xs text-accent underline-offset-2 hover:underline"
-            onClick={() => setShowDetails((open) => !open)}
-            aria-expanded={showDetails}
-          >
-            {showDetails ? t("home.provider_details_hide") : t("home.provider_details")}
-          </button>
-          {showDetails ? (
-            <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded border border-border/60 bg-background/50 p-2 text-[10px] leading-snug text-muted">
-              {t("home.provider_details_technical")}:{"\n"}
-              {health?.last_error?.trim()}
-            </pre>
-          ) : null}
-        </div>
       ) : null}
     </div>
   );
