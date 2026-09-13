@@ -64,20 +64,37 @@ def _batch_marks(
     entries: list[dict],
     open_by_portfolio: dict[str, list],
 ) -> dict[tuple[str, str], Decimal]:
+    from quantara_engine.execution.crypto_mark_valuation import (
+        canonical_mark_for_instrument,
+    )
+    from quantara_engine.persistence.batch_summary import batch_instruments_by_id
+
     pairs: set[tuple[str, str]] = set()
     tf_by_portfolio = {e["portfolio"].id: e["instance"].timeframe for e in entries}
+    instrument_ids: set[str] = set()
     for pid, positions in open_by_portfolio.items():
         tf = tf_by_portfolio.get(pid, "5m")
         for pos in positions:
             pairs.add((pos.instrument_id, tf))
+            instrument_ids.add(pos.instrument_id)
+
+    instruments_by_id = batch_instruments_by_id(s, list(instrument_ids))
+    crypto_canonical: dict[str, Decimal] = {}
+    for iid, inst in instruments_by_id.items():
+        canon = canonical_mark_for_instrument(s, iid, inst.symbol)
+        if canon is not None:
+            crypto_canonical[iid] = canon
 
     marks: dict[tuple[str, str], Decimal] = {}
     by_tf: dict[str, list[str]] = {}
     for instrument_id, tf in pairs:
+        if instrument_id in crypto_canonical:
+            marks[(instrument_id, tf)] = crypto_canonical[instrument_id]
+            continue
         by_tf.setdefault(tf, []).append(instrument_id)
 
-    for tf, instrument_ids in by_tf.items():
-        unique_ids = list(dict.fromkeys(instrument_ids))
+    for tf, ids in by_tf.items():
+        unique_ids = list(dict.fromkeys(ids))
         closes = batch_latest_candle_closes(s, unique_ids, tf)
         for instrument_id, close in closes.items():
             marks[(instrument_id, tf)] = close

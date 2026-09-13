@@ -17,7 +17,7 @@ import {
 import { loadCompetitionView } from "@/lib/competition-client";
 import { t } from "@/lib/i18n";
 
-const POLL_INTERVAL_MS = 60_000;
+const POLL_INTERVAL_MS = 30_000;
 
 async function settle<T>(
   promise: Promise<T>

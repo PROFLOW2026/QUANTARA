@@ -457,6 +457,18 @@ def analytics_assets(store: StoreDep):
             realized_pnl = float(metrics.get("realized_pnl", 0.0))
             unrealized_pnl = float(metrics.get("unrealized_pnl", 0.0))
 
+            if open_positions > 0:
+                from quantara_engine.execution.crypto_mark_valuation import (
+                    get_crypto_canonical_mark,
+                    is_fast_protection_crypto,
+                )
+
+                if is_fast_protection_crypto(asset.db_symbol):
+                    canon = get_crypto_canonical_mark(store, asset.db_symbol)
+                    if canon:
+                        latest_price = float(canon[0])
+                        last_candle = canon[1]
+
         risk_metrics = exposure_by_instrument.get(inst.id if inst else "", None)
         if open_positions > 0 and risk_metrics is not None:
             open_exposure = (

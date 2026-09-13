@@ -81,7 +81,11 @@ def refresh_broker_marks_from_latest_closes(
 
     from quantara_engine.models.instruments import Candle as OrmCandle
 
+    from quantara_engine.execution.crypto_mark_valuation import crypto_mark_owned_by_1m
+
     for symbol in target:
+        if crypto_mark_owned_by_1m(store, symbol):
+            continue
         instrument = store.get_instrument_by_symbol(symbol)
         if not instrument:
             continue
