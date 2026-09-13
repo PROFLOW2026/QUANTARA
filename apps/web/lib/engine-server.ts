@@ -1,3 +1,8 @@
+import dns from "node:dns";
+
+/** Tailscale Funnel DNS can return AAAA first; Vercel serverless often fails IPv6 connect. */
+dns.setDefaultResultOrder("ipv4first");
+
 const LOCAL_ENGINE = "http://localhost:8000";
 const DEFAULT_PROXY_TIMEOUT_MS = 60_000;
 
@@ -41,11 +46,62 @@ export function resolveServerEngineUrl(): string {
   return LOCAL_ENGINE;
 }
 
-/** Server-only: API key forwarded to Engine. */
+/** Server-only: API key forwarded to Engine (never browser-public). */
 export function resolveServerApiKey(): string {
+  const key = process.env.QUANTARA_API_KEY?.trim();
+  if (key) {
+    return key;
+  }
+
+  if (process.env.VERCEL === "1") {
+    throw new Error("QUANTARA_API_KEY must be set on Vercel production");
+  }
+
+  return "dev-api-key";
+}
+
+function isFetchTimeout(error: unknown): boolean {
   return (
-    process.env.QUANTARA_API_KEY ??
-    process.env.NEXT_PUBLIC_API_KEY ??
-    "dev-api-key"
+    error instanceof Error &&
+    (error.name === "TimeoutError" || error.name === "AbortError")
   );
+}
+
+export function describeUpstreamFetchError(error: unknown): {
+  message: string;
+  cause?: string;
+} {
+  if (!(error instanceof Error)) {
+    return { message: "Failed to reach engine" };
+  }
+
+  const nested = error.cause;
+  const cause =
+    nested instanceof Error
+      ? nested.message
+      : nested && typeof nested === "object" && "code" in nested
+        ? String((nested as NodeJS.ErrnoException).code)
+        : nested != null
+          ? String(nested)
+          : undefined;
+
+  return {
+    message: error.message,
+    ...(cause ? { cause } : {}),
+  };
+}
+
+/** One retry on transient connect failures (not timeouts). */
+export async function fetchEngineUpstream(
+  target: string,
+  init: RequestInit
+): Promise<Response> {
+  try {
+    return await fetch(target, init);
+  } catch (first) {
+    if (isFetchTimeout(first)) {
+      throw first;
+    }
+    return fetch(target, init);
+  }
 }

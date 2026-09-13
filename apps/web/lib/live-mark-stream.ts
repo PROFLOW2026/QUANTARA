@@ -6,16 +6,15 @@ const LOCAL_ENGINE = "http://localhost:8000";
 
 export type LiveMarkMap = Map<string, { price: number; at: string; source?: string }>;
 
-export function resolveBrowserStreamBaseUrl(): string | null {
-  const candidates = [
-    process.env.NEXT_PUBLIC_ENGINE_STREAM_URL,
-    process.env.NEXT_PUBLIC_ENGINE_URL,
-  ]
-    .map((value) => value?.trim().replace(/\/$/, "") ?? "")
-    .filter(Boolean);
+function isLocalEngineUrl(url: string): boolean {
+  return /localhost|127\.0\.0\.1/.test(url);
+}
 
-  if (candidates.length > 0) {
-    return candidates[0];
+/** Local-dev fallback only — production uses /api/engine/stream-base at runtime. */
+export function resolveBrowserStreamBaseUrl(): string | null {
+  const publicUrl = process.env.NEXT_PUBLIC_ENGINE_URL?.trim().replace(/\/$/, "") ?? "";
+  if (publicUrl && isLocalEngineUrl(publicUrl)) {
+    return publicUrl;
   }
 
   if (typeof window !== "undefined") {

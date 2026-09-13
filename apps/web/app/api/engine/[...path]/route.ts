@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  describeUpstreamFetchError,
   ENGINE_PROXY_TIMEOUT_MS,
+  fetchEngineUpstream,
   resolveServerApiKey,
   resolveServerEngineUrl,
 } from "@/lib/engine-server";
@@ -34,7 +36,7 @@ async function proxyToEngine(req: NextRequest, pathSegments: string[]) {
   }
 
   try {
-    const res = await fetch(target, init);
+    const res = await fetchEngineUpstream(target, init);
     const body = await res.text();
 
     if (!res.ok) {
@@ -58,15 +60,13 @@ async function proxyToEngine(req: NextRequest, pathSegments: string[]) {
     const isTimeout =
       error instanceof Error &&
       (error.name === "TimeoutError" || error.name === "AbortError");
+    const described = describeUpstreamFetchError(error);
 
     return NextResponse.json(
       {
         error: isTimeout ? "upstream_timeout" : "upstream_error",
-        message: isTimeout
-          ? "Engine did not respond in time"
-          : error instanceof Error
-            ? error.message
-            : "Failed to reach engine",
+        message: isTimeout ? "Engine did not respond in time" : described.message,
+        ...(described.cause ? { cause: described.cause } : {}),
         upstream: upstreamPath,
         engine_url: engineUrl,
       },
