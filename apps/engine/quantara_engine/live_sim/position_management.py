@@ -7,13 +7,14 @@ from datetime import datetime
 
 from sqlalchemy import text
 
-from quantara_engine.broker.accounts import LIVE_SIM_10K_ACCOUNT_SLUG, LIVE_SIM_VIRTUAL_PORTFOLIO_ID
+from quantara_engine.broker.accounts import LIVE_SIM_VIRTUAL_PORTFOLIO_ID
 from quantara_engine.broker.execution_bridge import execute_through_broker
 from quantara_engine.broker.execution_service import BrokerExecutionService
 from quantara_engine.domain.types import Direction
 from quantara_engine.execution.cost_profile import execution_assumptions_for
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
 from quantara_engine.execution.exit_triggers import detect_exit_trigger
+from quantara_engine.live_sim.execution_routing import query_open_live_sim_position_rows
 from quantara_engine.live_sim.opportunity import live_sim_execution_idempotency_key
 from quantara_engine.persistence.store import TradingStore
 
@@ -21,27 +22,9 @@ logger = logging.getLogger(__name__)
 
 
 def process_live_sim_exits(store: TradingStore, now: datetime) -> dict:
-    account = store.session.execute(
-        text("SELECT id::text FROM broker_accounts WHERE slug = :slug"),
-        {"slug": LIVE_SIM_10K_ACCOUNT_SLUG},
-    ).mappings().first()
-    if not account:
+    rows = query_open_live_sim_position_rows(store)
+    if not rows:
         return {"closed": 0}
-
-    account_id = account["id"]
-    rows = store.session.execute(
-        text(
-            """
-            SELECT p.id::text, p.instrument_id::text, p.direction::text, p.quantity,
-                   p.entry_price, p.stop_loss, p.take_profit, p.timeframe,
-                   p.canonical_opportunity_key, i.symbol
-            FROM live_sim_positions p
-            JOIN instruments i ON i.id = p.instrument_id
-            WHERE p.broker_account_id = :aid AND p.status = 'open'
-            """
-        ),
-        {"aid": account_id},
-    ).mappings().all()
 
     from quantara_engine.execution.crypto_mark_valuation import (
         should_skip_5m_position_management,
@@ -64,6 +47,7 @@ def process_live_sim_exits(store: TradingStore, now: datetime) -> dict:
         from quantara_engine.domain.types import Position as DomainPosition
 
         direction = D.LONG if str(row["direction"]).lower() == "long" else D.SHORT
+        account_slug = str(row["broker_account_slug"])
         pos = DomainPosition(
             id=row["id"],
             portfolio_id=LIVE_SIM_VIRTUAL_PORTFOLIO_ID,
@@ -95,7 +79,7 @@ def process_live_sim_exits(store: TradingStore, now: datetime) -> dict:
             )
             purpose = "sl" if reason.value == "sl" else "tp"
             idem = live_sim_execution_idempotency_key(
-                LIVE_SIM_10K_ACCOUNT_SLUG,
+                account_slug,
                 f"exit:{row['id']}:{candle.timestamp.isoformat()}:{purpose}",
             )
             broker_res = execute_through_broker(
@@ -112,7 +96,7 @@ def process_live_sim_exits(store: TradingStore, now: datetime) -> dict:
                 strategy_position_id=row["id"],
                 order_purpose=purpose,
                 skip_if_not_competition=False,
-                account_slug=LIVE_SIM_10K_ACCOUNT_SLUG,
+                account_slug=account_slug,
             )
             if broker_res and broker_res.accepted:
                 store.session.execute(
@@ -125,10 +109,10 @@ def process_live_sim_exits(store: TradingStore, now: datetime) -> dict:
                     ),
                     {"id": row["id"], "ts": candle.timestamp},
                 )
-                svc = BrokerExecutionService(store, account_slug=LIVE_SIM_10K_ACCOUNT_SLUG)
+                svc = BrokerExecutionService(store, account_slug=account_slug)
                 svc.mark_to_market({instrument.symbol.upper(): candle.close}, at=candle.timestamp)
                 closed += 1
-                logger.info("Live-sim closed %s via %s", instrument.symbol, purpose)
+                logger.info("Live-sim closed %s via %s on %s", instrument.symbol, purpose, account_slug)
             break
 
     return {"closed": closed, "open_checked": len(rows)}

@@ -65,7 +65,9 @@ def accrue_position_costs(
     if product == ExecutionProduct.CRYPTO_DERIVATIVE.value:
         rate = EXECUTION_SIM_DEFAULTS["crypto_derivative_funding_rate_8h"]
         periods = hours / Decimal("8")
-        total = (notional * rate * periods).quantize(Decimal("0.0001"))
+        # Signed perpetual funding: longs pay positive rate; shorts receive (net credit).
+        side_sign = Decimal("1") if net_quantity > 0 else Decimal("-1")
+        total = (notional * rate * periods * side_sign).quantize(Decimal("0.0001"))
         cost_type = "crypto_funding"
     elif product == ExecutionProduct.MARGIN_FX.value:
         bps = EXECUTION_SIM_DEFAULTS["fx_overnight_financing_bps"]
@@ -82,7 +84,7 @@ def accrue_position_costs(
         total = (notional * annual * (hours / Decimal("8760"))).quantize(Decimal("0.0001"))
         cost_type = "equity_borrow"
 
-    if total <= 0 or cost_type is None:
+    if total == 0 or cost_type is None:
         return Decimal("0")
 
     field = "accumulated_funding" if cost_type != "equity_borrow" else "accumulated_borrow_fee"

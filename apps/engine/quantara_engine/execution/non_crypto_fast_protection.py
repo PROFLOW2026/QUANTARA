@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
 
-from quantara_engine.broker.accounts import LIVE_SIM_10K_ACCOUNT_SLUG, LIVE_SIM_VIRTUAL_PORTFOLIO_ID
+from quantara_engine.broker.accounts import LIVE_SIM_VIRTUAL_PORTFOLIO_ID
 from quantara_engine.broker.execution_bridge import execute_through_broker
 from quantara_engine.broker.execution_service import BrokerExecutionService
 from quantara_engine.domain.types import Direction
@@ -106,27 +106,10 @@ def _collect_research_work(
 
 
 def _collect_live_sim_rows(store: TradingStore) -> list[dict[str, Any]]:
-    account = store.session.execute(
-        text("SELECT id::text FROM broker_accounts WHERE slug = :slug"),
-        {"slug": LIVE_SIM_10K_ACCOUNT_SLUG},
-    ).mappings().first()
-    if not account:
-        return []
+    from quantara_engine.live_sim.execution_routing import query_open_live_sim_position_rows
 
-    rows = store.session.execute(
-        text(
-            """
-            SELECT p.id::text, p.instrument_id::text, p.direction::text, p.quantity,
-                   p.entry_price, p.stop_loss, p.take_profit, p.timeframe,
-                   p.canonical_opportunity_key, i.symbol
-            FROM live_sim_positions p
-            JOIN instruments i ON i.id = p.instrument_id
-            WHERE p.broker_account_id = :aid AND p.status = 'open'
-            """
-        ),
-        {"aid": account["id"]},
-    ).mappings().all()
-    return [dict(row) for row in rows if _symbol_filter(row["symbol"])]
+    rows = query_open_live_sim_position_rows(store)
+    return [row for row in rows if _symbol_filter(row["symbol"])]
 
 
 def _symbols_with_open_positions(
@@ -305,6 +288,7 @@ def _process_live_sim(
     closed = 0
     for row in rows:
         pos_id = row["id"]
+        account_slug = str(row["broker_account_slug"])
         instrument = store.get_instrument_by_id(row["instrument_id"])
         if not instrument:
             continue
@@ -360,7 +344,7 @@ def _process_live_sim(
             )
             purpose = "sl" if reason.value == "sl" else "tp"
             idem = live_sim_execution_idempotency_key(
-                LIVE_SIM_10K_ACCOUNT_SLUG,
+                account_slug,
                 f"exit1m:{pos_id}:{candle.timestamp.isoformat()}:{purpose}",
             )
             broker_res = execute_through_broker(
@@ -377,7 +361,7 @@ def _process_live_sim(
                 strategy_position_id=pos_id,
                 order_purpose=purpose,
                 skip_if_not_competition=False,
-                account_slug=LIVE_SIM_10K_ACCOUNT_SLUG,
+                account_slug=account_slug,
             )
             if broker_res and broker_res.accepted:
                 store.session.execute(
@@ -390,7 +374,7 @@ def _process_live_sim(
                     ),
                     {"id": pos_id, "ts": candle.timestamp},
                 )
-                svc = BrokerExecutionService(store, account_slug=LIVE_SIM_10K_ACCOUNT_SLUG)
+                svc = BrokerExecutionService(store, account_slug=account_slug)
                 svc.mark_to_market({instrument.symbol.upper(): candle.close}, at=candle.timestamp)
                 cursors.pop(pos_id, None)
                 closed += 1

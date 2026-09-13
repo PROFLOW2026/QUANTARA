@@ -273,6 +273,7 @@ def _initialize_simulation_vendor_accounts_on_activation(store: TradingStore) ->
                       WHEN broker_vendor = 'KRAKEN' THEN :cap
                       ELSE spot_crypto_cash
                     END,
+                    execution_model = 'realistic_broker_v1',
                     is_active = TRUE,
                     pending_owner_reset = FALSE,
                     account_state = 'active',

@@ -290,4 +290,19 @@ class OwnerPortfolioService:
                 {"pid": portfolio["id"]},
             ).scalar()
             return str(row) if row else LIVE_SIM_10K_ACCOUNT_SLUG
-        return LIVE_SIM_10K_ACCOUNT_SLUG
+        row = self.store.session.execute(
+            text(
+                """
+                SELECT ba.slug
+                FROM portfolio_broker_accounts pba
+                JOIN broker_accounts ba ON ba.id = pba.broker_account_id
+                WHERE pba.owner_portfolio_id = CAST(:pid AS uuid)
+                  AND pba.enabled = TRUE
+                  AND NOT pba.is_legacy_primary
+                ORDER BY ba.slug ASC
+                LIMIT 1
+                """
+            ),
+            {"pid": portfolio["id"]},
+        ).scalar()
+        return str(row) if row else LIVE_SIM_10K_ACCOUNT_SLUG

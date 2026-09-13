@@ -58,7 +58,11 @@ _STANDARD_ASSET_RULES: dict[str, AssetClassRules] = {
     ),
 }
 
-from quantara_engine.broker.accounts import LIVE_SIM_10K_ACCOUNT_SLUG, RESEARCH_PAPER_ACCOUNT_SLUG
+from quantara_engine.broker.accounts import (
+    LIVE_SIM_10K_ACCOUNT_SLUG,
+    LIVE_SIM_VENDOR_ACCOUNT_SLUGS,
+    RESEARCH_PAPER_ACCOUNT_SLUG,
+)
 
 QUANTARA_STANDARD_PAPER = BrokerProfile(
     slug="quantara_standard_paper",
@@ -92,6 +96,6 @@ QUANTARA_LIVE_SIM_10K = BrokerProfile(
 
 
 def profile_for_account_slug(account_slug: str) -> BrokerProfile:
-    if account_slug == LIVE_SIM_10K_ACCOUNT_SLUG:
+    if account_slug == LIVE_SIM_10K_ACCOUNT_SLUG or account_slug in LIVE_SIM_VENDOR_ACCOUNT_SLUGS:
         return QUANTARA_LIVE_SIM_10K
     return QUANTARA_STANDARD_PAPER

@@ -166,9 +166,7 @@ def route_to_broker(
     if vendor is None:
         route_source = "legacy_fallback"
         if sym in ("BTCUSD", "ETHUSD") and uses_realistic_broker(execution_model):
-            vendor = BrokerVendor.KRAKEN if dir_norm == "short" or product == ExecutionProduct.CRYPTO_DERIVATIVE else BrokerVendor.KRAKEN
-            if product == ExecutionProduct.CRYPTO_SPOT and dir_norm == "long":
-                vendor = BrokerVendor.KRAKEN
+            vendor = BrokerVendor.KRAKEN
         elif sym in ("BTCUSD", "ETHUSD"):
             vendor = BrokerVendor.SIMULATED
         elif sym in ("NVDA", "TSLA", "AMD", "COIN", "GBPJPY", "XAUUSD"):

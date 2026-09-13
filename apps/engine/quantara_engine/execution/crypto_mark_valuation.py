@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from quantara_engine.broker.accounts import LIVE_SIM_10K_ACCOUNT_SLUG
+from quantara_engine.live_sim.execution_routing import list_active_live_sim_broker_account_slugs
 from quantara_engine.broker.execution_service import BrokerExecutionService
 from quantara_engine.broker.instruments import get_instrument_spec
 from quantara_engine.broker.pnl import unrealized_pnl_usd
@@ -140,17 +140,20 @@ def _has_open_exposure(store: TradingStore, db_symbol: str) -> bool:
     ).first()
     if research:
         return True
+    slugs = list_active_live_sim_broker_account_slugs(store)
+    if not slugs:
+        return False
     live = store.session.execute(
         text(
             """
             SELECT 1 FROM live_sim_positions p
             JOIN broker_accounts a ON a.id = p.broker_account_id
             WHERE p.instrument_id = :iid AND p.status = 'open'
-              AND a.slug = :slug
+              AND a.slug = ANY(:slugs)
             LIMIT 1
             """
         ),
-        {"iid": instrument.id, "slug": LIVE_SIM_10K_ACCOUNT_SLUG},
+        {"iid": instrument.id, "slugs": slugs},
     ).first()
     return live is not None
 
@@ -260,11 +263,10 @@ def _update_live_sim_position_marks(
     instrument: Instrument,
     mark: Decimal,
 ) -> int:
-    account = store.session.execute(
-        text("SELECT id::text FROM broker_accounts WHERE slug = :slug"),
-        {"slug": LIVE_SIM_10K_ACCOUNT_SLUG},
-    ).mappings().first()
-    if not account:
+    from quantara_engine.live_sim.execution_routing import list_active_live_sim_broker_account_ids
+
+    account_ids = list_active_live_sim_broker_account_ids(store)
+    if not account_ids:
         return 0
 
     rows = store.session.execute(
@@ -272,10 +274,11 @@ def _update_live_sim_position_marks(
             """
             SELECT id::text, direction::text, quantity, entry_price
             FROM live_sim_positions
-            WHERE broker_account_id = :aid AND instrument_id = :iid AND status = 'open'
+            WHERE broker_account_id = ANY(CAST(:aids AS uuid[]))
+              AND instrument_id = :iid AND status = 'open'
             """
         ),
-        {"aid": account["id"], "iid": instrument.id},
+        {"aids": account_ids, "iid": instrument.id},
     ).mappings().all()
     if not rows:
         return 0
@@ -343,9 +346,10 @@ def apply_fast_1m_marks(
 
         if sym_research or sym_live:
             BrokerExecutionService(store).mark_to_market({db_sym: price}, at=at)
-            BrokerExecutionService(
-                store, account_slug=LIVE_SIM_10K_ACCOUNT_SLUG
-            ).mark_to_market({db_sym: price}, at=at)
+            for slug in list_active_live_sim_broker_account_slugs(store):
+                BrokerExecutionService(store, account_slug=slug).mark_to_market(
+                    {db_sym: price}, at=at
+                )
         applied.append(db_sym)
         logger.debug("Fast 1m mark %s = %s @ %s", db_sym, price, at.isoformat())
 

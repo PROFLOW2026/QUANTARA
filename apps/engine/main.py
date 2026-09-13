@@ -50,6 +50,18 @@ async def lifespan(app: FastAPI):
     clear_dashboard_caches()
     clear_process_settings_cache()
     init_db()
+    from quantara_engine.db.session import SessionLocal
+    from quantara_engine.broker.broker_recovery import recover_active_live_sim_brokers_on_startup
+    from quantara_engine.persistence.store import TradingStore
+
+    session = SessionLocal()
+    try:
+        recover_active_live_sim_brokers_on_startup(TradingStore(session))
+        session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()
     origins = resolve_cors_origins()
     print(f"QUANTARA CORS origins: {', '.join(origins)}")
     start_stream_manager()

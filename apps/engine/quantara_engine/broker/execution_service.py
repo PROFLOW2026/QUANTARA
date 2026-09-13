@@ -429,6 +429,22 @@ class BrokerExecutionService:
                 ),
             )
 
+        from quantara_engine.live_sim.execution_routing import assert_live_sim_execution_target_allowed
+
+        allowed_target, block_reason = assert_live_sim_execution_target_allowed(
+            self.store, self.account_slug
+        )
+        if not allowed_target:
+            return BrokerExecutionResult(
+                accepted=False,
+                decision=BrokerOrderDecision(
+                    accepted=False,
+                    accepted_quantity=Decimal("0"),
+                    rejection_reason=BrokerRejectionReason.ACCOUNT_PAUSED,
+                    rejection_detail=block_reason,
+                ),
+            )
+
         account_id = account_row["id"]
         if account_row.get("reconciliation_halted"):
             return BrokerExecutionResult(

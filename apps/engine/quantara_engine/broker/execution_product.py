@@ -126,11 +126,10 @@ def _route_open(sym: str, dir_norm: str, execution_model: ExecutionModelVersion)
     realistic = uses_realistic_broker(execution_model)
 
     if sym in ("BTCUSD", "ETHUSD"):
-        if is_short:
-            if realistic:
-                product = ExecutionProduct.CRYPTO_DERIVATIVE
-            else:
-                product = ExecutionProduct.CRYPTO_SPOT  # legacy: blocked by shorting_allowed=False
+        if realistic:
+            product = ExecutionProduct.CRYPTO_DERIVATIVE
+        elif is_short:
+            product = ExecutionProduct.CRYPTO_SPOT  # legacy: blocked by shorting_allowed=False
         else:
             product = ExecutionProduct.CRYPTO_SPOT
         rules = EXECUTION_PRODUCT_RULES[product]

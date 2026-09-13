@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
-from quantara_engine.broker.accounts import LIVE_SIM_10K_ACCOUNT_SLUG, LIVE_SIM_VIRTUAL_PORTFOLIO_ID
+from quantara_engine.broker.accounts import LIVE_SIM_VIRTUAL_PORTFOLIO_ID
 from quantara_engine.domain.types import (
     DecisionLogEntry,
     DecisionType,
@@ -267,9 +267,10 @@ def close_live_sim_position(
         text(
             """
             SELECT p.id::text, p.instrument_id::text, p.direction::text, p.quantity,
-                   p.timeframe, i.symbol
+                   p.timeframe, i.symbol, ba.slug AS broker_account_slug
             FROM live_sim_positions p
             JOIN instruments i ON i.id = p.instrument_id
+            JOIN broker_accounts ba ON ba.id = p.broker_account_id
             WHERE p.id = :pid AND p.status = 'open'
             """
         ),
@@ -320,8 +321,9 @@ def close_live_sim_position(
     from quantara_engine.broker.execution_bridge import execute_through_broker
     from quantara_engine.live_sim.opportunity import live_sim_execution_idempotency_key
 
+    account_slug = str(row["broker_account_slug"])
     idem = live_sim_execution_idempotency_key(
-        LIVE_SIM_10K_ACCOUNT_SLUG,
+        account_slug,
         f"manual:close:{position_id}",
     )
     broker_res = execute_through_broker(
@@ -338,7 +340,7 @@ def close_live_sim_position(
         strategy_position_id=position_id,
         order_purpose="close",
         skip_if_not_competition=False,
-        account_slug=LIVE_SIM_10K_ACCOUNT_SLUG,
+        account_slug=account_slug,
     )
 
     if broker_res is not None and not broker_res.accepted:
@@ -368,7 +370,7 @@ def close_live_sim_position(
 
     from quantara_engine.broker.execution_service import BrokerExecutionService
 
-    svc = BrokerExecutionService(store, account_slug=LIVE_SIM_10K_ACCOUNT_SLUG)
+    svc = BrokerExecutionService(store, account_slug=account_slug)
     svc.mark_to_market({instrument.symbol.upper(): candle.close}, at=candle.timestamp)
 
     realized = float(broker_res.realized_pnl) if broker_res and broker_res.realized_pnl else None

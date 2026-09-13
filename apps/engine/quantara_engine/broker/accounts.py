@@ -10,6 +10,11 @@ RESEARCH_PAPER_ACCOUNT_SLUG = "quantara_paper_competition"
 
 # Live simulation of future real account.
 LIVE_SIM_10K_ACCOUNT_SLUG = "live-sim-10k"
+LIVE_SIM_IBKR_LIKE_SLUG = "live-sim-ibkr-like"
+LIVE_SIM_KRAKEN_LIKE_SLUG = "live-sim-kraken-like"
+LIVE_SIM_VENDOR_ACCOUNT_SLUGS = frozenset(
+    {LIVE_SIM_IBKR_LIKE_SLUG, LIVE_SIM_KRAKEN_LIKE_SLUG}
+)
 
 # Fixed virtual portfolio id for live-sim broker attribution (not a research portfolio).
 LIVE_SIM_VIRTUAL_PORTFOLIO_ID = "00000000-0000-4000-8000-000000000001"
@@ -54,7 +59,7 @@ def get_execution_account(slug: str) -> ExecutionAccountSpec | None:
 
 
 def is_live_sim_account(slug: str) -> bool:
-    return slug == LIVE_SIM_10K_ACCOUNT_SLUG
+    return slug == LIVE_SIM_10K_ACCOUNT_SLUG or slug in LIVE_SIM_VENDOR_ACCOUNT_SLUGS
 
 
 def is_research_paper_account(slug: str) -> bool:

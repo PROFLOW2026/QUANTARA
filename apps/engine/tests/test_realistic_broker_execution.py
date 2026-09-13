@@ -61,6 +61,24 @@ def test_btc_short_routes_to_crypto_derivative_realistic():
     assert route.short_capable
 
 
+def test_btc_long_routes_to_crypto_derivative_realistic():
+    route = route_execution_product(
+        "BTCUSD",
+        "long",
+        execution_model=ExecutionModelVersion.REALISTIC_BROKER_V1,
+    )
+    assert route.product == ExecutionProduct.CRYPTO_DERIVATIVE
+
+
+def test_eth_long_routes_to_crypto_derivative_realistic():
+    route = route_execution_product(
+        "ETHUSD",
+        "long",
+        execution_model=ExecutionModelVersion.REALISTIC_BROKER_V1,
+    )
+    assert route.product == ExecutionProduct.CRYPTO_DERIVATIVE
+
+
 def test_btc_short_legacy_still_spot_blocked():
     route = route_execution_product(
         "BTCUSD",

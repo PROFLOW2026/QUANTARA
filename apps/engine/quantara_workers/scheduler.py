@@ -170,6 +170,19 @@ class WorkerScheduler:
             self.register_jobs()
             register_scheduler_listeners(self.scheduler)
             self.scheduler.start()
+            from quantara_engine.broker.broker_recovery import recover_active_live_sim_brokers_on_startup
+            from quantara_engine.db.session import SessionLocal
+            from quantara_engine.persistence.store import TradingStore
+
+            session = SessionLocal()
+            try:
+                recover_active_live_sim_brokers_on_startup(TradingStore(session))
+                session.commit()
+            except Exception:
+                session.rollback()
+                logger.exception("Live Sim broker startup recovery failed")
+            finally:
+                session.close()
             from quantara_engine.market_data.credits import maybe_refresh_twelve_data_health
 
             self.scheduler.add_job(

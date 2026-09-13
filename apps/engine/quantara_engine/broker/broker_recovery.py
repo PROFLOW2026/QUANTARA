@@ -89,6 +89,16 @@ def recover_broker_on_startup(store: TradingStore, *, account_slug: str) -> dict
     }
 
 
+def recover_active_live_sim_brokers_on_startup(store: TradingStore) -> dict[str, dict]:
+    """Run startup recovery for each active Live Sim broker account (multi-broker aware)."""
+    from quantara_engine.live_sim.execution_routing import list_active_live_sim_broker_account_slugs
+
+    reports: dict[str, dict] = {}
+    for slug in list_active_live_sim_broker_account_slugs(store):
+        reports[slug] = recover_broker_on_startup(store, account_slug=slug)
+    return reports
+
+
 def recover_order_by_client_id(
     store: TradingStore,
     *,

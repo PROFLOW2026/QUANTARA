@@ -60,6 +60,23 @@ def execute_through_broker(
     if skip_if_not_competition and not should_use_broker_realism(portfolio_id):
         return None
 
+    if account_slug:
+        from quantara_engine.live_sim.execution_routing import assert_live_sim_execution_target_allowed
+
+        allowed, block_reason = assert_live_sim_execution_target_allowed(store, account_slug)
+        if not allowed:
+            from quantara_engine.broker.types import BrokerOrderDecision, BrokerRejectionReason
+
+            return BrokerExecutionResult(
+                accepted=False,
+                decision=BrokerOrderDecision(
+                    accepted=False,
+                    accepted_quantity=Decimal("0"),
+                    rejection_reason=BrokerRejectionReason.ACCOUNT_PAUSED,
+                    rejection_detail=block_reason,
+                ),
+            )
+
     svc = BrokerExecutionService(store, account_slug=account_slug)
     account_id = svc.get_account_id()
     if is_close and account_id:
