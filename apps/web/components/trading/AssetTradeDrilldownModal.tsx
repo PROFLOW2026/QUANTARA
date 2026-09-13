@@ -14,9 +14,10 @@ import {
   type Trade,
 } from "@/lib/api-client";
 import {
-  extractAssetFromPortfolioName,
-  instrumentMatchesAsset,
-} from "@/lib/portfolio-hierarchy";
+  fetchCompetitionClosedTrades,
+  selectClosedTradesForAsset,
+} from "@/lib/closed-trades-drilldown";
+import { extractAssetFromPortfolioName } from "@/lib/portfolio-hierarchy";
 import {
   translateExitReason,
   translateRobotStrategyLabel,
@@ -35,8 +36,6 @@ function invalidateCompetitionCache() {
   competitionCache = null;
   competitionPromise = null;
 }
-let tradesCache: Trade[] | null = null;
-let tradesPromise: Promise<Trade[]> | null = null;
 
 async function loadCompetitionDetail(): Promise<CompetitionResponse> {
   if (competitionCache) return competitionCache;
@@ -47,17 +46,6 @@ async function loadCompetitionDetail(): Promise<CompetitionResponse> {
     });
   }
   return competitionPromise;
-}
-
-async function loadCompetitionTrades(): Promise<Trade[]> {
-  if (tradesCache) return tradesCache;
-  if (!tradesPromise) {
-    tradesPromise = api.getTrades({ portfolio_id: "competition" }).then((rows) => {
-      tradesCache = rows;
-      return rows;
-    });
-  }
-  return tradesPromise;
 }
 
 function directionLabel(direction?: string | null): string {
@@ -107,8 +95,11 @@ export function AssetTradeDrilldownModal({
           );
           if (!cancelled) setOpenRows(rows);
         } else {
-          const trades = await loadCompetitionTrades();
-          const rows = trades.filter((row) => instrumentMatchesAsset(row.instrument, asset));
+          // Always fetch current competition trades — never reuse a permanent snapshot.
+          const trades = await fetchCompetitionClosedTrades((params) =>
+            api.getTrades(params)
+          );
+          const rows = selectClosedTradesForAsset(trades, asset);
           if (!cancelled) setClosedRows(rows);
         }
       } catch {

@@ -280,10 +280,17 @@ class TradingStore:
         )
 
     def list_competition_trades_all(self, *, limit: int = 500) -> list[Trade]:
+        """Closed Research trades across Robots A–E (same portfolio set as asset cards)."""
         trades: list[Trade] = []
-        for portfolio in self.list_competition_portfolios():
-            trades.extend(self.list_trades(portfolio.id, limit=limit, paper_only=True))
-        trades.sort(key=lambda row: row.closed_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+        _, _, combined = self.list_all_competition_entries()
+        for entry in combined:
+            trades.extend(
+                self.list_trades(entry["portfolio"].id, limit=limit, paper_only=True)
+            )
+        trades.sort(
+            key=lambda row: row.closed_at or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )
         return trades[:limit]
 
     def set_competition_portfolio_status(self, status: PortfolioStatus) -> None:
