@@ -254,16 +254,18 @@ export function ActiveAssetsTable({
               className="overflow-hidden rounded-md border border-border bg-surface text-sm shadow-card"
             >
               <div className="border-b border-border-nested bg-surface-header px-4 py-3.5">
-                <AssetSymbolButton asset={asset} onOpen={() => setChartAsset(asset)} className="font-medium" />
-                <p className="mt-1.5 text-xs text-text-subtle">
+                <div className="flex items-start justify-between gap-2">
+                  <AssetSymbolButton asset={asset} onOpen={() => setChartAsset(asset)} className="font-medium" />
+                  <AssetLivePrice
+                    dbSymbol={asset.db_symbol}
+                    price={asset.latest_price}
+                    className="shrink-0 text-base"
+                  />
+                </div>
+                <p className="mt-0.5 h-4 truncate text-xs leading-4 text-text-subtle">
                   {providerLabel(asset.provider)} · {t(`home.session_${asset.session_status}`)}
                 </p>
-                <AssetLivePrice
-                  dbSymbol={asset.db_symbol}
-                  price={asset.latest_price}
-                  className="mt-1.5"
-                />
-                <div className="mt-2 flex flex-wrap items-center gap-2">
+                <div className="mt-1 flex min-h-5 flex-wrap items-center gap-2">
                   {statusBadge(
                     asset.data_status,
                     asset.stale,
