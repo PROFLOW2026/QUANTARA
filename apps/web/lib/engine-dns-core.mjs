@@ -86,6 +86,12 @@ export function systemLookupSuccess(records) {
   return [...new Set(addresses)];
 }
 
+/** Transient system resolver failures that should trigger DoH fallback on Vercel/serverless. */
 export function isSystemDnsRetryable(code) {
-  return code === "ENOTFOUND" || code === "EAI_AGAIN";
+  return (
+    code === "ENOTFOUND" ||
+    code === "EAI_AGAIN" ||
+    code === "EBUSY" ||
+    code === "EAGAIN"
+  );
 }

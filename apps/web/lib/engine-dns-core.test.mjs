@@ -85,6 +85,8 @@ test("systemLookupSuccess keeps only valid IPv4 records", () => {
 test("system DNS retryable codes", () => {
   assert.equal(isSystemDnsRetryable("ENOTFOUND"), true);
   assert.equal(isSystemDnsRetryable("EAI_AGAIN"), true);
+  assert.equal(isSystemDnsRetryable("EBUSY"), true);
+  assert.equal(isSystemDnsRetryable("EAGAIN"), true);
   assert.equal(isSystemDnsRetryable("ECONNREFUSED"), false);
 });
 

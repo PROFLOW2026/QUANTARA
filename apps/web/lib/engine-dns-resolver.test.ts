@@ -98,6 +98,24 @@ test("system DNS EAI_AGAIN falls back to DoH", async () => {
   assert.equal(getEngineDnsStats().dohFallbackUses, 1);
 });
 
+test("system DNS EBUSY falls back to DoH (Vercel serverless incident path)", async () => {
+  setEngineDnsTestHooks({
+    systemLookup: async () => {
+      throw systemError("EBUSY");
+    },
+    dohFetch: async () =>
+      new Response(JSON.stringify(dohJson(["185.40.234.37"])), {
+        status: 200,
+        headers: { "Content-Type": "application/dns-json" },
+      }),
+  });
+
+  const resolved = await lookupAsync(ENGINE_HOST);
+  assert.equal(resolved.address, "185.40.234.37");
+  assert.equal(getEngineDnsStats().dohFallbackUses, 1);
+  assert.equal(getEngineDnsStats().dnsFailures, 0);
+});
+
 test("DNS cache hit avoids repeat system lookup", async () => {
   let systemCalls = 0;
   setEngineDnsTestHooks({
