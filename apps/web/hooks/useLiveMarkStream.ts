@@ -9,8 +9,8 @@ import {
   type LiveMarkMap,
 } from "@/lib/live-mark-stream";
 
-const RECONNECT_BASE_MS = 1000;
-const RECONNECT_MAX_MS = 30000;
+const RECONNECT_BASE_MS = 2000;
+const RECONNECT_MAX_MS = 60000;
 
 export function useLiveMarkStream() {
   const [liveMarks, setLiveMarks] = useState<LiveMarkMap>(new Map());
@@ -19,6 +19,7 @@ export function useLiveMarkStream() {
   const retryRef = useRef(0);
   const latestRef = useRef<LiveMarkMap>(new Map());
   const visibleRef = useRef(true);
+  const connectGenRef = useRef(0);
 
   const applyMarks = useCallback((marks: LiveMarkMap) => {
     latestRef.current = marks;
@@ -47,25 +48,37 @@ export function useLiveMarkStream() {
     let cancelled = false;
     let reconnectTimer: number | undefined;
 
+    const closeSource = () => {
+      sourceRef.current?.close();
+      sourceRef.current = null;
+    };
+
     const connect = async () => {
-      if (cancelled) {
+      if (cancelled || !visibleRef.current) {
         return;
       }
+
+      const generation = ++connectGenRef.current;
+
       try {
         const tokenRes = await fetch("/api/engine/stream-token");
-        if (!tokenRes.ok) {
+        if (!tokenRes.ok || cancelled || generation !== connectGenRef.current) {
           throw new Error("stream token unavailable");
         }
         const { token } = (await tokenRes.json()) as { token?: string };
-        if (!token || cancelled) {
+        if (!token || cancelled || generation !== connectGenRef.current) {
           return;
         }
 
-        sourceRef.current?.close();
+        closeSource();
         const es = new EventSource(buildLiveStreamUrl(baseUrl, token));
         sourceRef.current = es;
 
         es.onopen = () => {
+          if (cancelled || generation !== connectGenRef.current) {
+            es.close();
+            return;
+          }
           retryRef.current = 0;
           setConnected(true);
         };
@@ -78,10 +91,13 @@ export function useLiveMarkStream() {
         };
 
         es.onerror = () => {
+          if (generation !== connectGenRef.current) {
+            return;
+          }
           setConnected(false);
           es.close();
           sourceRef.current = null;
-          if (cancelled) {
+          if (cancelled || !visibleRef.current) {
             return;
           }
           const delay = Math.min(
@@ -94,8 +110,11 @@ export function useLiveMarkStream() {
           }, delay);
         };
       } catch {
+        if (cancelled || generation !== connectGenRef.current) {
+          return;
+        }
         setConnected(false);
-        if (!cancelled) {
+        if (!cancelled && visibleRef.current) {
           reconnectTimer = window.setTimeout(() => {
             void connect();
           }, RECONNECT_MAX_MS);
@@ -103,15 +122,34 @@ export function useLiveMarkStream() {
       }
     };
 
+    const onVisibility = () => {
+      visibleRef.current = document.visibilityState === "visible";
+      if (!visibleRef.current) {
+        connectGenRef.current += 1;
+        if (reconnectTimer !== undefined) {
+          window.clearTimeout(reconnectTimer);
+          reconnectTimer = undefined;
+        }
+        closeSource();
+        setConnected(false);
+        return;
+      }
+      if (!sourceRef.current) {
+        void connect();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
     void connect();
 
     return () => {
       cancelled = true;
+      connectGenRef.current += 1;
+      document.removeEventListener("visibilitychange", onVisibility);
       if (reconnectTimer !== undefined) {
         window.clearTimeout(reconnectTimer);
       }
-      sourceRef.current?.close();
-      sourceRef.current = null;
+      closeSource();
       setConnected(false);
     };
   }, [applyMarks]);

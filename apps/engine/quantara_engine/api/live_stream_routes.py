@@ -9,12 +9,15 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
+from quantara_engine.api.cors import cors_response_headers, is_allowed_origin
 from quantara_engine.api.deps import verify_api_key
 from quantara_engine.market_data.streaming.hub import get_live_mark_hub
 from quantara_engine.market_data.streaming.stream_manager import stream_manager_status
 from quantara_engine.market_data.streaming.stream_token import verify_stream_token
 
 live_stream_router = APIRouter(prefix="/api/v1/market-data", tags=["market-data-stream"])
+
+SSE_HEARTBEAT_SEC = 5.0
 
 
 def verify_stream_access(
@@ -46,6 +49,12 @@ async def live_mark_sse(
     hub = get_live_mark_hub()
     hub.bind_loop(asyncio.get_running_loop())
     queue = hub.subscribe()
+    if queue is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Too many live stream subscribers",
+        )
+    origin = request.headers.get("origin")
 
     async def event_generator():
         try:
@@ -54,21 +63,28 @@ async def live_mark_sse(
                 if await request.is_disconnected():
                     break
                 try:
-                    payload = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    payload = await asyncio.wait_for(queue.get(), timeout=SSE_HEARTBEAT_SEC)
+                    if await request.is_disconnected():
+                        break
                     yield f"data: {json.dumps(payload)}\n\n"
                 except asyncio.TimeoutError:
+                    if await request.is_disconnected():
+                        break
                     yield ": heartbeat\n\n"
         finally:
             hub.unsubscribe(queue)
 
+    headers = {
+        "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
+    }
+    if origin and is_allowed_origin(origin):
+        headers.update(cors_response_headers(origin))
+
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        headers=headers,
     )
 
 

@@ -56,3 +56,11 @@ def test_hub_get_entry():
     entry = hub.get_entry("ETHUSD")
     assert entry is not None
     assert entry.price == Decimal("2000")
+
+
+def test_hub_subscriber_cap():
+    hub = LiveMarkHub()
+    queues = [hub.subscribe(max_subscribers=2) for _ in range(3)]
+    assert queues[0] is not None
+    assert queues[1] is not None
+    assert queues[2] is None

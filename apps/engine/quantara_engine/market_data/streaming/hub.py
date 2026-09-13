@@ -92,9 +92,11 @@ class LiveMarkHub:
                 else 0,
             }
 
-    def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
+    def subscribe(self, *, max_subscribers: int = 8) -> asyncio.Queue[dict[str, Any]] | None:
         q: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=4)
         with self._lock:
+            if len(self._subscribers) >= max_subscribers:
+                return None
             self._subscribers.add(q)
         return q
 

@@ -23,6 +23,8 @@ const MEDIUM_INTERVAL_MS = 120_000;
 const SLOW_INTERVAL_MS = 300_000;
 /** Fallback when SSE is disconnected — restore prior safe REST cadence for prices. */
 const SSE_FALLBACK_INTERVAL_MS = 30_000;
+/** Never leave the Home shell in loading state longer than this on initial load. */
+const INITIAL_LOAD_CAP_MS = 45_000;
 
 async function settle<T>(
   promise: Promise<T>
@@ -69,6 +71,11 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
   const hadCompetitionRef = useRef(false);
   const lastMediumRef = useRef(0);
   const lastSlowRef = useRef(0);
+  const liveStreamConnectedRef = useRef(liveStreamConnected);
+
+  useEffect(() => {
+    liveStreamConnectedRef.current = liveStreamConnected;
+  }, [liveStreamConnected]);
 
   const mergeAnalyticsSummary = useCallback(
     (
@@ -218,10 +225,14 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
 
   const fetchAll = useCallback(
     async (showLoading = false) => {
-      if (inFlightRef.current) return;
+      if (inFlightRef.current) {
+        return;
+      }
       inFlightRef.current = true;
 
-      if (showLoading) setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
 
       try {
         await fetchFast();
@@ -236,14 +247,18 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
         setDataRefreshError(down ? null : t("home.data_refresh_stale"));
       } finally {
         inFlightRef.current = false;
-        setLoading(false);
+        if (showLoading) {
+          setLoading(false);
+        }
       }
     },
     [fetchFast, fetchMedium, fetchSlow]
   );
 
   const runTieredPoll = useCallback(async () => {
-    if (inFlightRef.current) return;
+    if (inFlightRef.current) {
+      return;
+    }
     inFlightRef.current = true;
     try {
       await fetchFast();
@@ -266,40 +281,49 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
   }, [fetchAll]);
 
   useEffect(() => {
-    void fetchAll(true);
+    const loadCapTimer = window.setTimeout(() => {
+      setLoading(false);
+    }, INITIAL_LOAD_CAP_MS);
 
-    let intervalId: number | undefined;
+    void fetchAll(true).finally(() => {
+      window.clearTimeout(loadCapTimer);
+    });
 
-    const pollIntervalMs = liveStreamConnected
-      ? FAST_INTERVAL_MS
-      : SSE_FALLBACK_INTERVAL_MS;
+    let pollTimerId: number | undefined;
 
-    const tick = () => {
+    const stopPolling = () => {
+      if (pollTimerId === undefined) {
+        return;
+      }
+      window.clearTimeout(pollTimerId);
+      pollTimerId = undefined;
+    };
+
+    const schedulePoll = () => {
+      stopPolling();
       if (document.visibilityState !== "visible") {
         return;
       }
-      if (liveStreamConnected) {
-        void runTieredPoll();
-      } else {
-        void runFallbackPoll();
-      }
-    };
-
-    const startPolling = () => {
-      if (intervalId !== undefined) return;
-      intervalId = window.setInterval(tick, pollIntervalMs);
-    };
-
-    const stopPolling = () => {
-      if (intervalId === undefined) return;
-      window.clearInterval(intervalId);
-      intervalId = undefined;
+      const pollIntervalMs = liveStreamConnectedRef.current
+        ? FAST_INTERVAL_MS
+        : SSE_FALLBACK_INTERVAL_MS;
+      pollTimerId = window.setTimeout(() => {
+        pollTimerId = undefined;
+        if (document.visibilityState === "visible") {
+          if (liveStreamConnectedRef.current) {
+            void runTieredPoll();
+          } else {
+            void runFallbackPoll();
+          }
+        }
+        schedulePoll();
+      }, pollIntervalMs);
     };
 
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         void fetchAll(false);
-        startPolling();
+        schedulePoll();
       } else {
         stopPolling();
       }
@@ -307,14 +331,15 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
 
     document.addEventListener("visibilitychange", onVisibilityChange);
     if (document.visibilityState === "visible") {
-      startPolling();
+      schedulePoll();
     }
 
     return () => {
+      window.clearTimeout(loadCapTimer);
       stopPolling();
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [fetchAll, liveStreamConnected, runFallbackPoll, runTieredPoll]);
+  }, [fetchAll, runFallbackPoll, runTieredPoll]);
 
   return {
     assetDecisions,
