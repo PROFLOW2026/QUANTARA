@@ -12,10 +12,13 @@ from quantara_engine.api.live_stream_routes import live_stream_router
 from quantara_engine.api.routes import router
 from quantara_engine.core.config import settings
 from quantara_engine.db.session import init_db
+from quantara_engine.api.dashboard_cache import clear_dashboard_caches
 from quantara_engine.market_data.streaming.stream_manager import (
+    prepare_stream_manager_for_startup,
     start_stream_manager,
     stop_stream_manager,
 )
+from quantara_engine.persistence.settings_cache import clear_process_settings_cache
 
 
 class QuantaCORSMiddleware(BaseHTTPMiddleware):
@@ -43,6 +46,9 @@ class QuantaCORSMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    prepare_stream_manager_for_startup()
+    clear_dashboard_caches()
+    clear_process_settings_cache()
     init_db()
     origins = resolve_cors_origins()
     print(f"QUANTARA CORS origins: {', '.join(origins)}")

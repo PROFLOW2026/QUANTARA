@@ -59,11 +59,30 @@ def test_hub_get_entry():
 
 
 def test_hub_subscriber_cap():
-    hub = LiveMarkHub()
-    queues = [hub.subscribe(max_subscribers=2) for _ in range(3)]
-    assert queues[0] is not None
-    assert queues[1] is not None
-    assert queues[2] is None
+    async def _run() -> None:
+        hub = LiveMarkHub()
+        loop = asyncio.get_running_loop()
+        queues = [hub.subscribe(loop, max_subscribers=2) for _ in range(3)]
+        assert queues[0] is not None
+        assert queues[1] is not None
+        assert queues[2] is None
+
+    asyncio.run(_run())
+
+
+def test_deliver_payload_uses_subscriber_loop():
+    async def _run() -> None:
+        hub = LiveMarkHub()
+        loop = asyncio.get_running_loop()
+        queue = hub.subscribe(loop)
+        assert queue is not None
+        sub = next(iter(hub._subscribers))
+        payload = {"type": "marks", "marks": {"BTCUSD": {"price": 100.0}}, "ts": "now"}
+        hub._deliver_payload(payload, [sub])
+        received = await asyncio.wait_for(queue.get(), timeout=1.0)
+        assert received == payload
+
+    asyncio.run(_run())
 
 
 def test_broadcast_loop_does_not_deadlock_on_dirty_marks():

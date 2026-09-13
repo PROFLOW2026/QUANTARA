@@ -29,14 +29,20 @@ class LiveMarkEntry:
         }
 
 
+@dataclass(frozen=True)
+class _Subscriber:
+    loop: asyncio.AbstractEventLoop
+    queue: asyncio.Queue[dict[str, Any]]
+
+
 @dataclass
 class LiveMarkHub:
     """Thread-safe latest marks; SSE broadcast coalesced to ~1 Hz."""
 
     broadcast_interval_sec: float = 1.0
-    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    _lock: threading.RLock = field(default_factory=threading.RLock, init=False, repr=False)
     _marks: dict[str, LiveMarkEntry] = field(default_factory=dict, init=False, repr=False)
-    _subscribers: set[asyncio.Queue[dict[str, Any]]] = field(default_factory=set, init=False, repr=False)
+    _subscribers: set[_Subscriber] = field(default_factory=set, init=False, repr=False)
     _dirty: bool = field(default=False, init=False, repr=False)
     _loop: asyncio.AbstractEventLoop | None = field(default=None, init=False, repr=False)
     _broadcast_task: asyncio.Task | None = field(default=None, init=False, repr=False)
@@ -45,11 +51,25 @@ class LiveMarkHub:
     _broadcasts_sent: int = field(default=0, init=False, repr=False)
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Bind the stream thread loop once for coalesced fan-out."""
         with self._lock:
+            if self._loop is not None and self._loop is not loop:
+                return
             self._loop = loop
             if self._broadcast_task is None or self._broadcast_task.done():
                 self._broadcast_task = loop.create_task(self._broadcast_loop())
                 self._started_at = time.monotonic()
+
+    def reset_runtime_state(self) -> None:
+        """Clear subscribers/broadcast state on Engine startup/shutdown."""
+        with self._lock:
+            task = self._broadcast_task
+            self._broadcast_task = None
+            self._loop = None
+            self._subscribers.clear()
+            self._dirty = False
+        if task is not None and not task.done():
+            task.cancel()
 
     def update(
         self,
@@ -92,22 +112,54 @@ class LiveMarkHub:
                 else 0,
             }
 
-    def subscribe(self, *, max_subscribers: int = 8) -> asyncio.Queue[dict[str, Any]] | None:
+    def subscribe(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        *,
+        max_subscribers: int = 8,
+    ) -> asyncio.Queue[dict[str, Any]] | None:
         q: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=4)
+        sub = _Subscriber(loop=loop, queue=q)
         with self._lock:
             if len(self._subscribers) >= max_subscribers:
                 return None
-            self._subscribers.add(q)
+            self._subscribers.add(sub)
         return q
 
     def unsubscribe(self, q: asyncio.Queue[dict[str, Any]]) -> None:
         with self._lock:
-            self._subscribers.discard(q)
+            self._subscribers = {s for s in self._subscribers if s.queue is not q}
+
+    def _deliver_payload(self, payload: dict[str, Any], subs: list[_Subscriber]) -> None:
+        for sub in subs:
+            loop = sub.loop
+            queue = sub.queue
+
+            def _put(q: asyncio.Queue[dict[str, Any]] = queue, data: dict[str, Any] = payload) -> None:
+                try:
+                    q.put_nowait(data)
+                except asyncio.QueueFull:
+                    try:
+                        q.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+                    try:
+                        q.put_nowait(data)
+                    except asyncio.QueueFull:
+                        pass
+
+            try:
+                if loop.is_closed():
+                    continue
+                loop.call_soon_threadsafe(_put)
+            except RuntimeError:
+                continue
 
     async def _broadcast_loop(self) -> None:
         while True:
             await asyncio.sleep(self.broadcast_interval_sec)
             payload: dict[str, Any] | None = None
+            subs: list[_Subscriber] = []
             with self._lock:
                 if self._dirty and self._marks:
                     marks = {sym: entry.to_dict() for sym, entry in self._marks.items()}
@@ -121,18 +173,7 @@ class LiveMarkHub:
                 subs = list(self._subscribers)
             if payload is None:
                 continue
-            for q in subs:
-                try:
-                    q.put_nowait(payload)
-                except asyncio.QueueFull:
-                    try:
-                        q.get_nowait()
-                    except asyncio.QueueEmpty:
-                        pass
-                    try:
-                        q.put_nowait(payload)
-                    except asyncio.QueueFull:
-                        pass
+            self._deliver_payload(payload, subs)
 
     def note_provider_message(self) -> None:
         with self._lock:
@@ -144,3 +185,7 @@ _HUB = LiveMarkHub()
 
 def get_live_mark_hub() -> LiveMarkHub:
     return _HUB
+
+
+def reset_live_mark_hub() -> None:
+    _HUB.reset_runtime_state()

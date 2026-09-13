@@ -12,7 +12,7 @@ from decimal import Decimal
 from quantara_engine.core.config import settings
 from quantara_engine.market_data.streaming.alpaca_ws import run_alpaca_iex_trade_stream
 from quantara_engine.market_data.streaming.coinbase_ws import run_coinbase_ticker_stream
-from quantara_engine.market_data.streaming.hub import get_live_mark_hub
+from quantara_engine.market_data.streaming.hub import get_live_mark_hub, reset_live_mark_hub
 from quantara_engine.market_data.streaming.mark_persist import get_mark_persister
 
 logger = logging.getLogger(__name__)
@@ -83,11 +83,11 @@ def _thread_main() -> None:
 
 def start_stream_manager() -> None:
     global _thread
+    if _thread is not None and _thread.is_alive():
+        return
     if not _streaming_enabled():
         logger.info("Live mark streaming disabled (MARKET_DATA_STREAMING or mock provider)")
         _status["enabled"] = False
-        return
-    if _thread is not None and _thread.is_alive():
         return
     _thread = threading.Thread(target=_thread_main, name="live-mark-streams", daemon=True)
     _thread.start()
@@ -95,10 +95,29 @@ def start_stream_manager() -> None:
 
 
 def stop_stream_manager() -> None:
-    global _running, _thread
+    global _running, _thread, _loop
     _running = False
-    if _loop is not None and _loop.is_running():
-        _loop.call_soon_threadsafe(lambda: None)
+    loop = _loop
+    if loop is not None and loop.is_running():
+        def _cancel_tasks() -> None:
+            for task in asyncio.all_tasks(loop):
+                task.cancel()
+
+        try:
+            loop.call_soon_threadsafe(_cancel_tasks)
+        except RuntimeError:
+            pass
     if _thread is not None:
-        _thread.join(timeout=5)
+        _thread.join(timeout=10)
     _thread = None
+    _loop = None
+    reset_live_mark_hub()
+    _status["enabled"] = False
+    _status["coinbase"] = "stopped"
+    _status["alpaca"] = "stopped"
+
+
+def prepare_stream_manager_for_startup() -> None:
+    """Ensure a clean hub/stream state before binding a new Engine process."""
+    stop_stream_manager()
+    reset_live_mark_hub()

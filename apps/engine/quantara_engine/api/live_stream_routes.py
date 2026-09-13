@@ -47,8 +47,8 @@ async def live_mark_sse(
     _: Annotated[None, Depends(verify_stream_access)],
 ):
     hub = get_live_mark_hub()
-    hub.bind_loop(asyncio.get_running_loop())
-    queue = hub.subscribe()
+    loop = asyncio.get_running_loop()
+    queue = hub.subscribe(loop)
     if queue is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
