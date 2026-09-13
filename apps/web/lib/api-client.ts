@@ -620,6 +620,9 @@ export interface AssetAnalyticsRow {
   db_symbol: string;
   provider: string;
   canonical_provider?: string;
+  strategy_provider?: string;
+  protection_provider?: string;
+  live_mark_provider?: string;
   validation_provider?: string | null;
   validation_status?: string | null;
   latest_price?: number | null;

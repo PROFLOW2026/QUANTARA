@@ -176,6 +176,12 @@ def display_price_from_canonical_mark(
     symbol: str,
 ) -> tuple[Decimal, datetime] | None:
     """UI/API display price from stored canonical 1m mark when available."""
+    if is_fast_protection_equity(symbol):
+        from quantara_engine.execution.equity_live_mark import resolve_equity_live_mark
+
+        resolved = resolve_equity_live_mark(store, symbol)
+        if resolved:
+            return resolved[0], resolved[1]
     if not is_fast_1m_protected_symbol(symbol):
         return None
     return get_fast_canonical_mark(store, symbol)

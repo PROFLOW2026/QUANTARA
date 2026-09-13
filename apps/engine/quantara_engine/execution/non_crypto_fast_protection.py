@@ -29,6 +29,7 @@ from quantara_engine.execution.crypto_mark_valuation import (
     latest_completed_1m_close,
     prune_fast_canonical_marks,
 )
+from quantara_engine.execution.equity_live_mark import store_equity_alpaca_fallback_mark
 from quantara_engine.execution.exit_triggers import detect_exit_trigger
 from quantara_engine.execution.fx_fast_credit_guard import (
     can_run_fast_fx_fetch,
@@ -534,11 +535,24 @@ def run_non_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[s
         if latest:
             marks_to_apply[db_sym] = latest
 
-    mark_report = (
-        apply_fast_1m_marks(store, marks_to_apply, flush=False)
-        if marks_to_apply
-        else {"applied_symbols": []}
-    )
+    applied_symbols: list[str] = []
+    if marks_to_apply:
+        fx_marks: dict[str, tuple[Decimal, datetime]] = {}
+        for db_sym, mark in marks_to_apply.items():
+            if is_fast_protection_equity(db_sym):
+                store_equity_alpaca_fallback_mark(
+                    store,
+                    db_sym,
+                    mark[0],
+                    mark[1],
+                )
+                applied_symbols.append(db_sym)
+            else:
+                fx_marks[db_sym] = mark
+        if fx_marks:
+            fx_report = apply_fast_1m_marks(store, fx_marks, flush=False)
+            applied_symbols.extend(fx_report.get("applied_symbols") or [])
+    mark_report = {"applied_symbols": applied_symbols}
 
     return {
         "status": "success",

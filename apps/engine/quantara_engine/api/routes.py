@@ -558,12 +558,25 @@ def analytics_assets(store: StoreDep):
                     }
 
         validation_row = validation_by_asset.get(asset.db_symbol) or {}
+        from quantara_engine.execution.equity_live_mark import (
+            equity_mark_providers,
+            resolve_equity_live_mark,
+        )
+
+        mark_providers = equity_mark_providers(asset.db_symbol)
+        live_mark_source = mark_providers["live_mark_provider"]
+        resolved_equity = resolve_equity_live_mark(store, asset.db_symbol, now=now)
+        if resolved_equity:
+            live_mark_source = resolved_equity[2]
         rows.append(
             {
                 "symbol": asset.display_symbol,
                 "db_symbol": asset.db_symbol,
                 "provider": live_provider,
-                "canonical_provider": asset.primary_provider.value,
+                "canonical_provider": live_mark_source,
+                "strategy_provider": mark_providers["strategy_provider"],
+                "protection_provider": mark_providers["protection_provider"],
+                "live_mark_provider": mark_providers["live_mark_provider"],
                 "validation_provider": (
                     validation_row.get("validation_provider") if finnhub_configured() else None
                 ),

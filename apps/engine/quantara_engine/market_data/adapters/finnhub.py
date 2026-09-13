@@ -55,18 +55,26 @@ def finnhub_configured() -> bool:
 
 
 def quota_snapshot() -> dict[str, Any]:
-    assets = 8
     from quantara_engine.market_data.finnhub_capabilities import (
         expected_validation_calls_per_day,
         expected_validation_calls_per_hour,
     )
 
+    equity_live_per_hour = 4 * 60
+    validation_per_hour = expected_validation_calls_per_hour(8)
+    total_per_hour = equity_live_per_hour + validation_per_hour
+    total_per_min = round(total_per_hour / 60, 2)
+
     return {
         "verified_limit_per_minute": VERIFIED_RATE_LIMIT_PER_MINUTE,
         "configured_internal_minute_limit": INTERNAL_MINUTE_LIMIT,
         "configured_internal_hourly_limit": INTERNAL_HOURLY_LIMIT,
-        "expected_validation_calls_per_hour": expected_validation_calls_per_hour(assets),
-        "expected_validation_calls_per_day": expected_validation_calls_per_day(assets),
+        "expected_validation_calls_per_hour": validation_per_hour,
+        "expected_validation_calls_per_day": expected_validation_calls_per_day(8),
+        "expected_equity_live_mark_calls_per_hour": equity_live_per_hour,
+        "expected_total_calls_per_hour": total_per_hour,
+        "expected_total_calls_per_minute": total_per_min,
+        "expected_total_calls_per_day": total_per_hour * 24,
     }
 
 
