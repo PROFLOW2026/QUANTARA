@@ -38,6 +38,16 @@ See `broker_fee_profiles` table. Supports `max(calculated, minimum_per_order)`.
 
 `packages/db/migrations/0015_multi_broker_foundation.sql`
 
+DB enforces:
+- `allocated_capital >= 0`, `allocation_pct` in 0–100
+- `SUM(enabled allocated_capital) <= target_capital` (trigger + row lock)
+- `target_capital` cannot drop below enabled allocation sum
+- New broker accounts default `connection_state = DISCONNECTED`
+- Known sim brokers (`quantara_paper_competition`, `live-sim-10k`) explicitly `CONNECTED`
+
+Virtual IBKR/Kraken accounts are created by `OwnerPortfolioService.configure_multi_broker_allocations()`
+when owner first opens allocation settings — not seeded in 0015.
+
 ## Activation
 
 1. Owner sets IBKR + Kraken allocations via `/live-sim/allocation-settings`

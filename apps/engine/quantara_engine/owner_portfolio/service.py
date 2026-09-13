@@ -104,6 +104,8 @@ class OwnerPortfolioService:
             return {"ok": False, "error": "portfolio_not_found"}
 
         target = Decimal(str(portfolio["target_capital"]))
+        if ibkr_allocation < 0 or kraken_allocation < 0:
+            return {"ok": False, "error": "negative_allocation_not_allowed"}
         validation = validate_allocation_sum(
             target,
             {"ibkr": ibkr_allocation, "kraken": kraken_allocation},
@@ -121,9 +123,13 @@ class OwnerPortfolioService:
                 "validation": validation.__dict__,
             }
 
-        self._ensure_vendor_accounts(portfolio["id"], slug)
-        self._update_vendor_allocation(portfolio["id"], IBKR_LIKE_SLUG, ibkr_allocation, activate)
-        self._update_vendor_allocation(portfolio["id"], KRAKEN_LIKE_SLUG, kraken_allocation, activate)
+        try:
+            self._ensure_vendor_accounts(portfolio["id"], slug)
+            self._update_vendor_allocation(portfolio["id"], IBKR_LIKE_SLUG, ibkr_allocation, activate)
+            self._update_vendor_allocation(portfolio["id"], KRAKEN_LIKE_SLUG, kraken_allocation, activate)
+        except Exception as exc:
+            self.store.session.rollback()
+            return {"ok": False, "error": "allocation_db_rejected", "detail": str(exc)}
 
         if activate:
             self.store.session.execute(
@@ -148,7 +154,12 @@ class OwnerPortfolioService:
                 {"pid": portfolio["id"]},
             )
 
-        self.store.session.commit()
+        try:
+            self.store.session.commit()
+        except Exception as exc:
+            self.store.session.rollback()
+            return {"ok": False, "error": "allocation_db_rejected", "detail": str(exc)}
+
         return {
             "ok": True,
             "activated": activate,

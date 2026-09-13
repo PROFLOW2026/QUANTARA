@@ -140,6 +140,8 @@ def load_fee_profile(
                     FROM broker_fee_profiles
                     WHERE broker_vendor = CAST(:vendor AS broker_vendor)
                       AND execution_product = CAST(:product AS execution_product)
+                      AND COALESCE(fee_model->>'active', 'true') <> 'false'
+                      AND slug NOT LIKE '%-inactive'
                     ORDER BY created_at DESC
                     LIMIT 1
                     """

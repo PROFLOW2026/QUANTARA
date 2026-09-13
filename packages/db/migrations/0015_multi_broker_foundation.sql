@@ -53,8 +53,110 @@ CREATE TABLE portfolio_broker_accounts (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT portfolio_broker_account_uq UNIQUE (owner_portfolio_id, broker_account_id),
-  CONSTRAINT portfolio_broker_account_single_uq UNIQUE (broker_account_id)
+  CONSTRAINT portfolio_broker_account_single_uq UNIQUE (broker_account_id),
+  CONSTRAINT portfolio_broker_allocated_nonneg CHECK (
+    allocated_capital IS NULL OR allocated_capital >= 0
+  ),
+  CONSTRAINT portfolio_broker_allocation_pct_range CHECK (
+    allocation_pct IS NULL OR (allocation_pct >= 0 AND allocation_pct <= 100)
+  )
 );
+
+-- Serialize allocation writes per owner portfolio; enforce SUM(enabled allocated) <= target.
+CREATE OR REPLACE FUNCTION enforce_portfolio_allocation_invariant()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_owner_id UUID;
+  v_target NUMERIC(18, 2);
+  v_sum NUMERIC(18, 2);
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    v_owner_id := OLD.owner_portfolio_id;
+  ELSE
+    v_owner_id := NEW.owner_portfolio_id;
+    IF NEW.allocated_capital IS NOT NULL AND NEW.allocated_capital < 0 THEN
+      RAISE EXCEPTION 'allocated_capital cannot be negative';
+    END IF;
+    IF NEW.allocation_pct IS NOT NULL AND (NEW.allocation_pct < 0 OR NEW.allocation_pct > 100) THEN
+      RAISE EXCEPTION 'allocation_pct must be between 0 and 100';
+    END IF;
+  END IF;
+
+  SELECT target_capital INTO v_target
+  FROM owner_trading_portfolios
+  WHERE id = v_owner_id
+  FOR UPDATE;
+
+  IF v_target IS NULL THEN
+    RAISE EXCEPTION 'owner portfolio not found for allocation row';
+  END IF;
+
+  SELECT COALESCE(SUM(
+    CASE
+      WHEN TG_OP IN ('INSERT', 'UPDATE') AND pba.id = NEW.id THEN 0
+      WHEN pba.enabled THEN COALESCE(pba.allocated_capital, 0)
+      ELSE 0
+    END
+  ), 0)
+  INTO v_sum
+  FROM portfolio_broker_accounts pba
+  WHERE pba.owner_portfolio_id = v_owner_id;
+
+  IF TG_OP IN ('INSERT', 'UPDATE') AND NEW.enabled THEN
+    v_sum := v_sum + COALESCE(NEW.allocated_capital, 0);
+  END IF;
+
+  IF v_sum > v_target THEN
+    RAISE EXCEPTION USING
+      MESSAGE = format(
+        'enabled allocated capital (%%s) exceeds owner target capital (%%s)',
+        v_sum, v_target
+      );
+  END IF;
+
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN
+    RETURN NEW;
+  END IF;
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER portfolio_broker_accounts_allocation_invariant
+  BEFORE INSERT OR UPDATE OR DELETE ON portfolio_broker_accounts
+  FOR EACH ROW
+  EXECUTE FUNCTION enforce_portfolio_allocation_invariant();
+
+CREATE OR REPLACE FUNCTION enforce_owner_target_capital_floor()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_sum NUMERIC(18, 2);
+BEGIN
+  IF NEW.target_capital IS NOT DISTINCT FROM OLD.target_capital THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT COALESCE(SUM(COALESCE(pba.allocated_capital, 0)), 0)
+  INTO v_sum
+  FROM portfolio_broker_accounts pba
+  WHERE pba.owner_portfolio_id = NEW.id
+    AND pba.enabled = TRUE;
+
+  IF NEW.target_capital < v_sum THEN
+    RAISE EXCEPTION USING
+      MESSAGE = format(
+        'target_capital (%%s) cannot be below sum of enabled allocations (%%s)',
+        NEW.target_capital, v_sum
+      );
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER owner_trading_portfolios_target_capital_floor
+  BEFORE UPDATE OF target_capital ON owner_trading_portfolios
+  FOR EACH ROW
+  EXECUTE FUNCTION enforce_owner_target_capital_floor();
 
 CREATE INDEX portfolio_broker_accounts_portfolio_idx
   ON portfolio_broker_accounts (owner_portfolio_id, enabled);
@@ -66,7 +168,10 @@ CREATE INDEX portfolio_broker_accounts_portfolio_idx
 ALTER TABLE broker_accounts
   ADD COLUMN IF NOT EXISTS broker_vendor broker_vendor NOT NULL DEFAULT 'SIMULATED',
   ADD COLUMN IF NOT EXISTS broker_environment broker_environment NOT NULL DEFAULT 'SIMULATION',
-  ADD COLUMN IF NOT EXISTS connection_state broker_connection_state NOT NULL DEFAULT 'CONNECTED';
+  ADD COLUMN IF NOT EXISTS connection_state broker_connection_state NOT NULL DEFAULT 'DISCONNECTED';
+
+ALTER TABLE broker_accounts
+  ALTER COLUMN connection_state SET DEFAULT 'DISCONNECTED';
 
 -- Research paper broker
 UPDATE broker_accounts
@@ -131,6 +236,14 @@ INSERT INTO instrument_execution_mappings (
    1, 0.01, 1, 1, 1, FALSE, 'equity', '{"simulation_assumption": true}'::jsonb),
   ('COIN', 'COIN', 'COIN', NULL, 'equity_cash', 'IBKR', 'SMART', 'stock', 'COIN', 'USD',
    1, 0.01, 1, 1, 1, FALSE, 'equity', '{"simulation_assumption": true}'::jsonb),
+  ('NVDA', 'NVDA', 'NVDA', NULL, 'equity_margin_short', 'IBKR', 'SMART', 'stock', 'NVDA', 'USD',
+   1, 0.01, 1, 1, 1, FALSE, 'equity_short', '{"simulation_assumption": true}'::jsonb),
+  ('TSLA', 'TSLA', 'TSLA', NULL, 'equity_margin_short', 'IBKR', 'SMART', 'stock', 'TSLA', 'USD',
+   1, 0.01, 1, 1, 1, FALSE, 'equity_short', '{"simulation_assumption": true}'::jsonb),
+  ('AMD', 'AMD', 'AMD', NULL, 'equity_margin_short', 'IBKR', 'SMART', 'stock', 'AMD', 'USD',
+   1, 0.01, 1, 1, 1, FALSE, 'equity_short', '{"simulation_assumption": true}'::jsonb),
+  ('COIN', 'COIN', 'COIN', NULL, 'equity_margin_short', 'IBKR', 'SMART', 'stock', 'COIN', 'USD',
+   1, 0.01, 1, 1, 1, FALSE, 'equity_short', '{"simulation_assumption": true}'::jsonb),
   ('GBPJPY', 'GBP/JPY', 'GBPJPY', NULL, 'margin_fx', 'IBKR', 'IDEALPRO', 'forex', 'GBP', 'JPY',
    1, 0.001, 1000, 1000, 1000, FALSE, 'fx', '{"simulation_assumption": true}'::jsonb),
   ('XAUUSD', 'XAU/USD', 'XAUUSD', NULL, 'margin_gold', 'IBKR', 'SMART', 'commodity', 'XAU', 'USD',
@@ -224,9 +337,12 @@ INSERT INTO broker_fee_profiles (slug, broker_vendor, execution_product, label_h
   ('ibkr-fx-tiered-v1', 'IBKR', 'margin_fx', 'IBKR — FX (סימולציה)',
    '{"fee_kind": "bps_notional", "bps_rate": "0.20", "minimum_per_order": "2.00"}'::jsonb,
    '{"source": "IBKR spot FX tier I — SIMULATION ASSUMPTION", "dated": "2026-09"}'::jsonb),
-  ('ibkr-gold-futures-v1', 'IBKR', 'margin_gold', 'IBKR — זהב (סימולציה)',
-   '{"fee_kind": "per_contract", "per_contract_rate": "0.85", "minimum_per_order": "0.85"}'::jsonb,
-   '{"source": "Placeholder per-contract — SIMULATION ASSUMPTION until product selected", "dated": "2026-09"}'::jsonb),
+  ('ibkr-gold-cfd-v1', 'IBKR', 'margin_gold', 'IBKR — זהב CFD-like (סימולציה)',
+   '{"fee_kind": "bps_notional", "bps_rate": "0.20", "minimum_per_order": "2.00"}'::jsonb,
+   '{"source": "Generic XAUUSD margin_gold notional fee — SIMULATION ASSUMPTION", "product_semantics": "gold_cfd", "dated": "2026-09"}'::jsonb),
+  ('ibkr-gold-mgc-futures-inactive', 'IBKR', 'margin_gold', 'IBKR — MGC futures (לא פעיל)',
+   '{"fee_kind": "per_contract", "per_contract_rate": "0.85", "minimum_per_order": "0.85", "active": false}'::jsonb,
+   '{"source": "INACTIVE until owner selects MGC — do not use for margin_gold CFD simulation", "dated": "2026-09"}'::jsonb),
   ('simulated-generic-v1', 'SIMULATED', NULL, 'ברוקר סימולציה כללי',
    '{"fee_kind": "percentage_notional", "taker_rate": "0.0004"}'::jsonb,
    '{"note": "legacy single-account simulation"}'::jsonb);

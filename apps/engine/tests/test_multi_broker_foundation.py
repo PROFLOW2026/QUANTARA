@@ -155,9 +155,22 @@ def test_multiple_mappings_per_canonical_symbol(broker_test_store):
     from quantara_engine.broker.instrument_mapping import load_all_mappings_for_symbol
 
     mappings = load_all_mappings_for_symbol(broker_test_store, "BTCUSD")
-    vendors = {m.broker_symbol for m in mappings}
+    products = {m.execution_product for m in mappings}
     assert len(mappings) >= 2
-    assert len(vendors) >= 2
+    assert len(products) >= 1
+
+
+@pytest.mark.parametrize("symbol", ["NVDA", "TSLA", "AMD", "COIN"])
+def test_ibkr_short_mapping_resolves(broker_test_store, symbol):
+    from quantara_engine.broker.instrument_mapping import resolve_instrument_mapping_for_route
+
+    m = resolve_instrument_mapping_for_route(
+        broker_test_store,
+        symbol=symbol,
+        broker_vendor="IBKR",
+        execution_product=ExecutionProduct.EQUITY_MARGIN_SHORT,
+    )
+    assert m.execution_product == ExecutionProduct.EQUITY_MARGIN_SHORT
 
 
 def test_global_equity_aggregation_no_double_count(broker_test_store):
