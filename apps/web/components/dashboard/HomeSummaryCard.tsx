@@ -6,18 +6,22 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   label: string;
+  hint?: string;
   children: React.ReactNode;
   className?: string;
 };
 
-/** Home top summary — title then large value only (no header hints). */
-export function HomeSummaryCard({ label, children, className }: Props) {
+/** Home top summary — title, value, optional hint. */
+export function HomeSummaryCard({ label, hint, children, className }: Props) {
   return (
     <Card className={cn("flex h-full flex-col", className)}>
       <CardHeader className="mb-3">
-        <CardTitle>{label}</CardTitle>
+        <CardTitle title={hint}>{label}</CardTitle>
       </CardHeader>
-      <CardContent>{children}</CardContent>
+      <CardContent>
+        {children}
+        {hint ? <p className="mt-1 text-xs text-muted">{hint}</p> : null}
+      </CardContent>
     </Card>
   );
 }

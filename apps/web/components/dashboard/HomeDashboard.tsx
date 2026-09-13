@@ -56,21 +56,25 @@ function HomeDashboardContent() {
 
   const competitionReady = Boolean(competition?.active && !competitionUnavailable);
   const portfolios = competitionReady ? (competition?.portfolios ?? []) : [];
-  const combinedEquity = competitionReady ? competition?.combined?.current_equity : null;
   const shadowReferenceCapital = competitionReady
     ? (competition?.experiment?.shadow_reference_capital ??
       competition?.combined?.initial_equity ??
       competition?.experiment?.total_initial_capital ??
       null)
     : null;
-  const physicalBrokerCapital =
-    brokerAccount?.equity != null ? 320_000 : competitionReady ? 320_000 : null;
   const combinedRealized = competitionReady
     ? portfolios.reduce((sum, row) => sum + row.realized_pnl, 0)
     : null;
   const combinedUnrealized = competitionReady
     ? portfolios.reduce((sum, row) => sum + row.unrealized_pnl, 0)
     : null;
+  const brokerEquity = brokerAccount?.equity ?? null;
+  const brokerRealizedPnl =
+    brokerAccount?.net_realized_pnl ?? brokerAccount?.realized_pnl ?? null;
+  const researchDynamicEquity =
+    shadowReferenceCapital != null && combinedRealized != null && combinedUnrealized != null
+      ? shadowReferenceCapital + combinedRealized + combinedUnrealized
+      : null;
   const combinedTotalPnl =
     combinedRealized != null && combinedUnrealized != null
       ? combinedRealized + combinedUnrealized
@@ -158,21 +162,36 @@ function HomeDashboardContent() {
             <HomeSummaryValue>{portfolioCount ?? "—"}</HomeSummaryValue>
           )}
         </HomeSummaryCard>
-        <HomeSummaryCard label={t("home.shadow_reference_capital")}>
+        <HomeSummaryCard
+          label={t("home.shadow_reference_capital")}
+          hint={t("home.shadow_reference_hint")}
+        >
           {competitionUnavailable ? (
             <p className="text-sm text-muted">{t("common.section_unavailable")}</p>
           ) : (
             <HomeSummaryValue>{formatCurrency(shadowReferenceCapital ?? 0)}</HomeSummaryValue>
           )}
         </HomeSummaryCard>
-        <HomeSummaryCard label={t("home.physical_broker_capital")}>
-          <HomeSummaryValue>{formatCurrency(physicalBrokerCapital ?? 0)}</HomeSummaryValue>
-        </HomeSummaryCard>
-        <HomeSummaryCard label={t("home.competition_combined_equity")}>
-          {competitionUnavailable ? (
-            <p className="text-sm text-muted">{t("common.section_unavailable")}</p>
+        <HomeSummaryCard
+          label={t("home.research_broker_equity")}
+          hint={t("home.research_broker_equity_hint")}
+        >
+          {loading && brokerEquity == null ? (
+            <span className="text-sm text-muted">{t("common.loading")}</span>
           ) : (
-            <HomeSummaryValue>{formatCurrency(combinedEquity ?? 0)}</HomeSummaryValue>
+            <HomeSummaryValue>{formatCurrency(brokerEquity ?? 0)}</HomeSummaryValue>
+          )}
+        </HomeSummaryCard>
+        <HomeSummaryCard
+          label={t("home.research_broker_realized_pnl")}
+          hint={t("home.research_broker_realized_pnl_hint")}
+        >
+          {loading && brokerRealizedPnl == null ? (
+            <span className="text-sm text-muted">{t("common.loading")}</span>
+          ) : brokerRealizedPnl == null ? (
+            <span className="text-sm text-muted">{t("common.section_unavailable")}</span>
+          ) : (
+            <PnLDisplay value={brokerRealizedPnl} size="lg" />
           )}
         </HomeSummaryCard>
       </div>
@@ -186,11 +205,16 @@ function HomeDashboardContent() {
         <div className="mb-3">
           <h2 className="text-base font-semibold text-foreground">{t("home.strategy_layer_title")}</h2>
           <p className="text-xs text-muted">{t("home.strategy_layer_hint")}</p>
+          {researchDynamicEquity != null ? (
+            <p className="mt-1 text-xs text-muted" title={t("home.research_dynamic_equity_hint")}>
+              {t("home.research_dynamic_equity")}: {formatCurrency(researchDynamicEquity)}
+            </p>
+          ) : null}
         </div>
         <ExposureRiskSummaryCards summary={exposureSummary} loading={loading && !exposureSummary} />
         <div className="mt-4 grid auto-rows-fr gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Card className="flex min-h-[7.25rem] flex-col">
-            <CardHeader className="mb-2 shrink-0"><CardTitle>{t("home.realized_pnl")}</CardTitle></CardHeader>
+            <CardHeader className="mb-2 shrink-0"><CardTitle>{t("home.strategy_realized_pnl")}</CardTitle></CardHeader>
             <CardContent className="mt-auto flex min-h-[2.25rem] items-end pb-0.5">
               {loading ? (
                 <span className="text-muted">{t("common.loading")}</span>
@@ -202,7 +226,7 @@ function HomeDashboardContent() {
             </CardContent>
           </Card>
           <Card className="flex min-h-[7.25rem] flex-col">
-            <CardHeader className="mb-2 shrink-0"><CardTitle>{t("home.unrealized_pnl")}</CardTitle></CardHeader>
+            <CardHeader className="mb-2 shrink-0"><CardTitle>{t("home.strategy_unrealized_pnl")}</CardTitle></CardHeader>
             <CardContent className="mt-auto flex min-h-[2.25rem] items-end pb-0.5">
               {loading ? (
                 <span className="text-muted">{t("common.loading")}</span>
@@ -214,7 +238,7 @@ function HomeDashboardContent() {
             </CardContent>
           </Card>
           <Card className="flex min-h-[7.25rem] flex-col">
-            <CardHeader className="mb-2 shrink-0"><CardTitle>{t("home.total_pnl")}</CardTitle></CardHeader>
+            <CardHeader className="mb-2 shrink-0"><CardTitle>{t("home.strategy_total_pnl")}</CardTitle></CardHeader>
             <CardContent className="mt-auto flex min-h-[2.25rem] items-end pb-0.5">
               {loading ? (
                 <span className="text-muted">{t("common.loading")}</span>

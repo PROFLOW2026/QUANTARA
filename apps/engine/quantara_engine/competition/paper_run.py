@@ -191,6 +191,53 @@ def repair_positions_paper_run_from_lineage(store: TradingStore) -> dict:
     }
 
 
+def count_trades_missing_paper_run_with_position_lineage(store: TradingStore) -> dict:
+    """Read-only diagnostic: trades NULL on paper_run_id but position proves the run.
+
+    Production ``trades`` rows are append-only; scope reads must use
+    ``trade_scope_clause`` position-lineage fallback instead of UPDATE backfill.
+    """
+    if not paper_run_columns_ready(store):
+        return {"count": 0, "realized_pnl": Decimal("0"), "trade_ids": []}
+    rows = store.session.execute(
+        text(
+            """
+            SELECT t.id::text, t.realized_pnl
+            FROM trades t
+            JOIN positions p ON p.id = t.position_id
+            WHERE t.paper_run_id IS NULL
+              AND p.paper_run_id IS NOT NULL
+              AND t.backtest_run_id IS NULL
+            """
+        )
+    ).all()
+    pnl = sum((Decimal(str(r[1] or 0)) for r in rows), Decimal("0"))
+    return {
+        "count": len(rows),
+        "realized_pnl": pnl,
+        "trade_ids": [str(r[0]) for r in rows],
+    }
+
+
+def resolve_trade_paper_run_id(store: TradingStore, *, position_id: str) -> str | None:
+    """Inherit paper_run_id from the closed position when available."""
+    if not paper_run_columns_ready(store):
+        return get_current_paper_run_id(store)
+    row = store.session.execute(
+        text(
+            """
+            SELECT paper_run_id::text
+            FROM positions
+            WHERE id = CAST(:id AS uuid) AND paper_run_id IS NOT NULL
+            """
+        ),
+        {"id": position_id},
+    ).scalar()
+    if row:
+        return str(row)
+    return get_current_paper_run_id(store)
+
+
 def _scoped_run_id(store: TradingStore) -> str | None:
     if not paper_run_columns_ready(store):
         return None
@@ -256,9 +303,13 @@ def trade_scope_clause(store: TradingStore):
 
     run_id = get_current_paper_run_id(store)
     if paper_run_columns_ready(store) and run_id:
-        return text("trades.paper_run_id = CAST(:paper_run_id AS uuid)").bindparams(
-            paper_run_id=run_id
-        )
+        return text(
+            "(trades.paper_run_id = CAST(:paper_run_id AS uuid) "
+            "OR (trades.paper_run_id IS NULL AND EXISTS ("
+            "SELECT 1 FROM positions p "
+            "WHERE p.id = trades.position_id "
+            "AND p.paper_run_id = CAST(:paper_run_id AS uuid))))"
+        ).bindparams(paper_run_id=run_id)
     return OrmTrade.backtest_run_id.is_(None)
 
 

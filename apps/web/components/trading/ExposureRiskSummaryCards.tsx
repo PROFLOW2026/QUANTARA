@@ -46,7 +46,7 @@ function formatRemainingMetric(
   if ((summary.open_position_count ?? 0) === 0) {
     return field === "remaining_sl_risk_usd"
       ? formatCurrencyOrUnavailable(0)
-      : formatCurrencyOrUnavailable(summary.total_equity ?? 0);
+      : "—";
   }
   return t("common.metric_unavailable");
 }

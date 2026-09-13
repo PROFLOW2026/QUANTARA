@@ -2046,6 +2046,11 @@ class TradingStore:
         return Decimal(str(row[0])), Decimal(str(row[1]))
 
     def save_trade(self, trade: Trade) -> None:
+        from quantara_engine.competition.paper_run import (
+            paper_run_columns_ready,
+            resolve_trade_paper_run_id,
+        )
+
         strategy_version_id = trade.strategy_version_id
         if not _is_uuid(strategy_version_id):
             strategy_version_id = self.resolve_strategy_version_id(trade.strategy_instance_id)
@@ -2056,6 +2061,7 @@ class TradingStore:
             if looked_up:
                 target_risk = target_risk if target_risk > 0 else looked_up[0]
                 actual_risk = actual_risk if actual_risk > 0 else looked_up[1]
+        paper_run_id = resolve_trade_paper_run_id(self, position_id=trade.position_id)
         row = OrmTrade(
             id=_uuid(trade.id),
             position_id=_uuid(trade.position_id),
@@ -2080,11 +2086,10 @@ class TradingStore:
             closed_at=trade.closed_at,
             mode=_mode_to_orm(self.mode),
             backtest_run_id=self._bt_uuid(),
+            paper_run_id=_uuid(paper_run_id) if paper_run_id and paper_run_columns_ready(self) else None,
         )
         self.session.merge(row)
-        from quantara_engine.competition.paper_run import stamp_paper_run_id
-
-        stamp_paper_run_id(self, table="trades", row_id=trade.id)
+        self.session.flush()
 
     def hydrate_position_risk_from_intents(self, positions: list[Position]) -> None:
         """Fill in-memory risk amounts from entry order intents when missing."""
@@ -2626,7 +2631,9 @@ class TradingStore:
         if portfolio_id:
             stmt = stmt.where(OrmTrade.portfolio_id == _uuid(portfolio_id))
         if paper_only:
-            stmt = stmt.where(OrmTrade.backtest_run_id.is_(None))
+            from quantara_engine.competition.paper_run import trade_scope_clause
+
+            stmt = stmt.where(trade_scope_clause(self))
         stmt = stmt.offset(offset).limit(limit)
         rows = self.session.scalars(stmt).all()
         return [self._trade_to_domain(row) for row in rows]
