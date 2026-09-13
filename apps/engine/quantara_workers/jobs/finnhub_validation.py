@@ -12,6 +12,7 @@ from sqlalchemy.exc import OperationalError
 from quantara_engine.db.session import session_scope
 from quantara_engine.market_data.finnhub_validation import run_finnhub_validation
 from quantara_engine.persistence.store import TradingStore
+from quantara_workers.jobs.worker_run_helpers import save_scheduled_worker_run
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +28,14 @@ def finnhub_validation_job(store: TradingStore | None = None) -> None:
         report = run_finnhub_validation(s, now=started_at)
         s.session.commit()
         duration_ms = round((time.perf_counter() - t0) * 1000, 1)
-        status = report.get("status", "success")
-        worker_status = "healthy" if status in ("success", "skipped") else "degraded"
+        worker_status, _run_status = save_scheduled_worker_run(
+            s,
+            worker_name="finnhub_validation",
+            run_id=str(uuid.uuid4()),
+            started_at=started_at,
+            jobs_processed=int(report.get("checked") or 0),
+            report=report,
+        )
 
         s.update_worker_status(
             "finnhub_validation",
@@ -41,29 +48,46 @@ def finnhub_validation_job(store: TradingStore | None = None) -> None:
                 "skip_reason": report.get("reason"),
             },
         )
-        s.save_worker_run(
-            run_id=str(uuid.uuid4()),
-            worker_name="finnhub_validation",
-            started_at=started_at,
-            jobs_processed=int(report.get("checked") or 0),
-            jobs_failed=0 if worker_status == "healthy" else 1,
-            duration_ms=duration_ms,
-            status=worker_status,
-            metadata=report,
-        )
         return report
 
-    if store is not None:
-        _run(store)
-        return
-
-    for attempt in range(MAX_DEADLOCK_RETRIES):
+    try:
+        last_exc: Exception | None = None
+        for attempt in range(MAX_DEADLOCK_RETRIES):
+            try:
+                if store is not None:
+                    _run(store)
+                else:
+                    with session_scope() as session:
+                        _run(TradingStore(session))
+                return
+            except OperationalError as exc:
+                last_exc = exc
+                if "deadlock" not in str(exc).lower() or attempt >= MAX_DEADLOCK_RETRIES - 1:
+                    raise
+                time.sleep(DEADLOCK_RETRY_BASE_SECONDS * (2**attempt))
+        if last_exc is not None:
+            raise last_exc
+    except Exception as exc:
+        logger.exception("finnhub_validation_job failed")
         try:
             with session_scope() as session:
-                _run(TradingStore(session))
-            return
-        except OperationalError as exc:
-            if "deadlock" not in str(exc).lower() or attempt >= MAX_DEADLOCK_RETRIES - 1:
-                logger.exception("finnhub_validation_job failed")
-                raise
-            time.sleep(DEADLOCK_RETRY_BASE_SECONDS * (2**attempt))
+                s = TradingStore(session)
+                s.update_worker_status(
+                    "finnhub_validation",
+                    {
+                        "status": "error",
+                        "last_run": started_at.isoformat(),
+                        "error": str(exc),
+                    },
+                )
+                s.save_worker_run(
+                    run_id=str(uuid.uuid4()),
+                    worker_name="finnhub_validation",
+                    started_at=started_at,
+                    status="failed",
+                    errors={"message": str(exc)},
+                )
+                s.session.commit()
+        except Exception:
+            logger.exception("Failed to persist finnhub_validation error status")
+        raise
