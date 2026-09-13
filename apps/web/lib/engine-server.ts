@@ -1,8 +1,3 @@
-import dns from "node:dns";
-
-/** Tailscale Funnel DNS can return AAAA first; Vercel serverless often fails IPv6 connect. */
-dns.setDefaultResultOrder("ipv4first");
-
 const LOCAL_ENGINE = "http://localhost:8000";
 const DEFAULT_PROXY_TIMEOUT_MS = 60_000;
 
@@ -17,7 +12,7 @@ function parseProxyTimeoutMs(): number {
 export const ENGINE_PROXY_TIMEOUT_MS = parseProxyTimeoutMs();
 
 function isLocalhostUrl(url: string): boolean {
-  return /localhost|127\.0\.1/.test(url);
+  return /localhost|127\.0\.0\.1/.test(url);
 }
 
 /** Server-only: resolve Engine base URL (never localhost on Vercel). */
@@ -58,50 +53,4 @@ export function resolveServerApiKey(): string {
   }
 
   return "dev-api-key";
-}
-
-function isFetchTimeout(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error.name === "TimeoutError" || error.name === "AbortError")
-  );
-}
-
-export function describeUpstreamFetchError(error: unknown): {
-  message: string;
-  cause?: string;
-} {
-  if (!(error instanceof Error)) {
-    return { message: "Failed to reach engine" };
-  }
-
-  const nested = error.cause;
-  const cause =
-    nested instanceof Error
-      ? nested.message
-      : nested && typeof nested === "object" && "code" in nested
-        ? String((nested as NodeJS.ErrnoException).code)
-        : nested != null
-          ? String(nested)
-          : undefined;
-
-  return {
-    message: error.message,
-    ...(cause ? { cause } : {}),
-  };
-}
-
-/** One retry on transient connect failures (not timeouts). */
-export async function fetchEngineUpstream(
-  target: string,
-  init: RequestInit
-): Promise<Response> {
-  try {
-    return await fetch(target, init);
-  } catch (first) {
-    if (isFetchTimeout(first)) {
-      throw first;
-    }
-    return fetch(target, init);
-  }
 }

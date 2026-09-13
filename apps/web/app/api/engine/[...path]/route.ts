@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  describeUpstreamFetchError,
   ENGINE_PROXY_TIMEOUT_MS,
-  fetchEngineUpstream,
   resolveServerApiKey,
   resolveServerEngineUrl,
 } from "@/lib/engine-server";
+import {
+  describeUpstreamFetchError,
+  fetchEngineUpstream,
+} from "@/lib/engine-upstream";
 
 export const dynamic = "force-dynamic";
 /** Cloudflare tunnel + remote Supabase responses often exceed the default 10s Vercel limit. */
