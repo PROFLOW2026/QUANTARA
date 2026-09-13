@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AssetChartModal } from "@/components/trading/AssetChartModal";
 import { AssetMetricsGrid } from "@/components/trading/AssetMetricsGrid";
 import { AssetTradeDrilldownModal } from "@/components/trading/AssetTradeDrilldownModal";
+import { AssetLivePrice } from "@/components/trading/AssetLivePrice";
 import { FinancialValue } from "@/components/trading/FinancialValue";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -170,9 +171,11 @@ function DesktopActiveAssetCard({
       <div className="shrink-0 border-b border-border-nested bg-surface-header p-3">
         <div className="flex items-start justify-between gap-2">
           <AssetSymbolButton asset={asset} onOpen={onChartOpen} className="text-base text-foreground" />
-          <FinancialValue variant="compact" className="shrink-0 text-base">
-            {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
-          </FinancialValue>
+          <AssetLivePrice
+            dbSymbol={asset.db_symbol}
+            price={asset.latest_price}
+            className="shrink-0 text-base"
+          />
         </div>
         <p className="mt-0.5 h-4 truncate text-xs leading-4 text-text-subtle">
           {providerLabel(asset.provider)} · {t(`home.session_${asset.session_status}`)}
@@ -249,9 +252,11 @@ export function ActiveAssetsTable({
                 <p className="mt-1.5 text-xs text-text-subtle">
                   {providerLabel(asset.provider)} · {t(`home.session_${asset.session_status}`)}
                 </p>
-                <FinancialValue variant="compact" className="mt-1.5">
-                  {asset.latest_price != null ? formatCurrency(asset.latest_price) : "—"}
-                </FinancialValue>
+                <AssetLivePrice
+                  dbSymbol={asset.db_symbol}
+                  price={asset.latest_price}
+                  className="mt-1.5"
+                />
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {statusBadge(
                     asset.data_status,

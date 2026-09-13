@@ -322,6 +322,16 @@ def market_data_status(store: StoreDep):
                 stale = is_data_stale_while_session_open(
                     asset.trading_sessions, last_candle, now
                 )
+            from quantara_engine.api.display_price import resolve_asset_display_price
+
+            latest_price, mark_at = resolve_asset_display_price(
+                store,
+                asset.db_symbol,
+                fallback_price=latest_price,
+                fallback_candle=last_candle,
+            )
+            if mark_at is not None:
+                last_candle = mark_at
         asset_health = (worker_raw.get("assets") or {}).get(asset.db_symbol, {})
         status = asset_health.get("status") or ("stale" if stale else "healthy")
         if session_status == "closed" and last_candle and status not in ("error", "blocked"):
@@ -451,23 +461,22 @@ def analytics_assets(store: StoreDep):
                     asset.trading_sessions, last_candle, now
                 )
 
+            from quantara_engine.api.display_price import resolve_asset_display_price
+
+            latest_price, mark_at = resolve_asset_display_price(
+                store,
+                asset.db_symbol,
+                fallback_price=latest_price,
+                fallback_candle=last_candle,
+            )
+            if mark_at is not None:
+                last_candle = mark_at
+
             metrics = asset_metrics.get(inst.id, {})
             open_positions = int(metrics.get("open_positions", 0))
             closed_trades = int(metrics.get("closed_trades", 0))
             realized_pnl = float(metrics.get("realized_pnl", 0.0))
             unrealized_pnl = float(metrics.get("unrealized_pnl", 0.0))
-
-            if open_positions > 0:
-                from quantara_engine.execution.crypto_mark_valuation import (
-                    get_fast_canonical_mark,
-                    is_fast_1m_protected_symbol,
-                )
-
-                if is_fast_1m_protected_symbol(asset.db_symbol):
-                    canon = get_fast_canonical_mark(store, asset.db_symbol)
-                    if canon:
-                        latest_price = float(canon[0])
-                        last_candle = canon[1]
 
         risk_metrics = exposure_by_instrument.get(inst.id if inst else "", None)
         if open_positions > 0 and risk_metrics is not None:

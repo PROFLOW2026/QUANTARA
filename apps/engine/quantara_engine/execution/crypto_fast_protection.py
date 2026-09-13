@@ -41,6 +41,8 @@ from quantara_engine.execution.crypto_mark_valuation import (
     is_fast_protection_crypto,
 )
 
+CONTINUOUS_MARK_CRYPTO_SYMBOLS = FAST_CRYPTO_DB_SYMBOLS
+
 CRYPTO_FAST_PROTECTION_CURSORS_KEY = "crypto_fast_protection_cursors"
 FAST_PROTECTION_IDEMPOTENCY_PREFIX = "pm1m"
 FAST_FETCH_LOOKBACK_MINUTES = 10
@@ -351,16 +353,8 @@ def run_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[str, 
 
     research_work = _collect_research_crypto_work(store)
     live_sim_rows = _collect_live_sim_crypto_rows(store)
-    symbols_needed = _symbols_with_open_crypto(research_work, live_sim_rows)
-
-    if not symbols_needed:
-        return {
-            "status": "skipped",
-            "reason": "no_open_crypto_positions",
-            "fetches": 0,
-            "research_checked": 0,
-            "live_sim_checked": 0,
-        }
+    open_symbols = _symbols_with_open_crypto(research_work, live_sim_rows)
+    mark_symbols = set(CONTINUOUS_MARK_CRYPTO_SYMBOLS) | open_symbols
 
     cursors = _get_fast_cursors(store)
     position_ids_by_instrument: dict[str, list[str]] = {}
@@ -371,7 +365,7 @@ def run_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[str, 
 
     fetches = 0
     candles_by_instrument: dict[str, list] = {}
-    for db_sym in sorted(symbols_needed):
+    for db_sym in sorted(mark_symbols):
         instrument = store.get_instrument_by_symbol(db_sym)
         if not instrument:
             continue
@@ -392,19 +386,27 @@ def run_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[str, 
         )
         candles_by_instrument[instrument.id] = stored or fetched
 
-    research_result = _process_research_crypto(
-        store,
-        research_work,
-        now=now,
-        cursors=cursors,
-        candles_by_instrument=candles_by_instrument,
+    research_result = (
+        _process_research_crypto(
+            store,
+            research_work,
+            now=now,
+            cursors=cursors,
+            candles_by_instrument=candles_by_instrument,
+        )
+        if research_work
+        else {"checked": 0, "closed": 0}
     )
-    live_sim_result = _process_live_sim_crypto(
-        store,
-        live_sim_rows,
-        now=now,
-        cursors=cursors,
-        candles_by_instrument=candles_by_instrument,
+    live_sim_result = (
+        _process_live_sim_crypto(
+            store,
+            live_sim_rows,
+            now=now,
+            cursors=cursors,
+            candles_by_instrument=candles_by_instrument,
+        )
+        if live_sim_rows
+        else {"checked": 0, "closed": 0}
     )
     _save_fast_cursors(store, cursors)
 
@@ -414,9 +416,9 @@ def run_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[str, 
         prune_crypto_canonical_marks,
     )
 
-    prune_crypto_canonical_marks(store, symbols_needed)
+    prune_crypto_canonical_marks(store, mark_symbols)
     marks_to_apply: dict[str, tuple[Decimal, datetime]] = {}
-    for db_sym in symbols_needed:
+    for db_sym in mark_symbols:
         instrument = store.get_instrument_by_symbol(db_sym)
         if not instrument:
             continue
@@ -434,7 +436,8 @@ def run_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[str, 
     return {
         "status": "success",
         "fetches": fetches,
-        "symbols": sorted(symbols_needed),
+        "symbols": sorted(mark_symbols),
+        "open_symbols": sorted(open_symbols),
         "research": research_result,
         "live_sim": live_sim_result,
         "marks_applied": mark_report.get("applied_symbols", []),

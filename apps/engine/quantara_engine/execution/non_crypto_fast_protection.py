@@ -418,14 +418,18 @@ def run_non_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[s
 
     research_work = _collect_research_work(store)
     live_sim_rows = _collect_live_sim_rows(store)
-    all_symbols, equity_symbols, fx_symbols = _symbols_with_open_positions(
+    open_symbols, _, open_fx_symbols = _symbols_with_open_positions(
         research_work, live_sim_rows
     )
+    mark_equity_symbols = (
+        set(FAST_EQUITY_DB_SYMBOLS) if is_us_equity_rth(now) else set()
+    )
+    mark_symbols = mark_equity_symbols | open_symbols
 
-    if not all_symbols:
+    if not mark_symbols and not research_work and not live_sim_rows:
         return {
             "status": "skipped",
-            "reason": "no_open_non_crypto_positions",
+            "reason": "no_mark_or_protection_work",
             "fetches": 0,
             "research_checked": 0,
             "live_sim_checked": 0,
@@ -439,17 +443,23 @@ def run_non_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[s
         position_ids_by_instrument.setdefault(row["instrument_id"], []).append(row["id"])
 
     since_by_instrument: dict[str, datetime] = {}
-    for db_sym in all_symbols:
+    for db_sym in mark_symbols:
         instrument = store.get_instrument_by_symbol(db_sym)
         if not instrument:
             continue
-        since_by_instrument[instrument.id] = _fetch_since_for_instrument(
-            store,
-            instrument.id,
-            position_ids_by_instrument.get(instrument.id, []),
-            cursors,
-            now,
-        )
+        pids = position_ids_by_instrument.get(instrument.id, [])
+        if pids:
+            since_by_instrument[instrument.id] = _fetch_since_for_instrument(
+                store,
+                instrument.id,
+                pids,
+                cursors,
+                now,
+            )
+        else:
+            since_by_instrument[instrument.id] = now - timedelta(
+                minutes=FAST_FETCH_LOOKBACK_MINUTES
+            )
 
     fetches = 0
     candles_by_instrument: dict[str, list] = {}
@@ -458,11 +468,11 @@ def run_non_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[s
     fx_skipped_credit: list[str] = []
     fx_skipped_session: list[str] = []
 
-    if equity_symbols:
+    if mark_equity_symbols:
         if is_us_equity_rth(now):
             alpaca_batches, equity_candles = _fetch_alpaca_1m_batch(
                 store,
-                equity_symbols,
+                mark_equity_symbols,
                 since_by_instrument=since_by_instrument,
                 now=now,
             )
@@ -471,9 +481,9 @@ def run_non_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[s
         else:
             logger.debug("Skipping equity 1m — outside US RTH")
 
-    if fx_symbols and is_forex_session(now):
+    if open_fx_symbols and is_forex_session(now):
         if can_run_fast_fx_fetch(store):
-            selected = select_fx_symbols_this_cycle(sorted(fx_symbols), now=now)
+            selected = select_fx_symbols_this_cycle(sorted(open_fx_symbols), now=now)
             for db_sym in selected:
                 instrument = store.get_instrument_by_symbol(db_sym)
                 if not instrument:
@@ -489,13 +499,13 @@ def run_non_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[s
                 )
                 candles_by_instrument[instrument.id] = stored or fetched
                 fx_fetched.append(db_sym)
-            not_selected = sorted(set(fx_symbols) - set(selected))
+            not_selected = sorted(set(open_fx_symbols) - set(selected))
             for sym in not_selected:
                 fx_skipped_credit.append(f"{sym}:budget_alternate")
         else:
-            fx_skipped_credit.extend(sorted(fx_symbols))
-    elif fx_symbols:
-        fx_skipped_session.extend(sorted(fx_symbols))
+            fx_skipped_credit.extend(sorted(open_fx_symbols))
+    elif open_fx_symbols:
+        fx_skipped_session.extend(sorted(open_fx_symbols))
 
     research_result = _process_research(
         store,
@@ -513,9 +523,9 @@ def run_non_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[s
     )
     _save_fast_cursors(store, cursors)
 
-    prune_fast_canonical_marks(store, all_symbols)
+    prune_fast_canonical_marks(store, mark_symbols)
     marks_to_apply: dict[str, tuple[Decimal, datetime]] = {}
-    for db_sym in all_symbols:
+    for db_sym in mark_symbols:
         instrument = store.get_instrument_by_symbol(db_sym)
         if not instrument:
             continue
@@ -534,9 +544,10 @@ def run_non_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[s
         "status": "success",
         "fetches": fetches,
         "alpaca_batches": alpaca_batches,
-        "symbols": sorted(all_symbols),
-        "equity_symbols": sorted(equity_symbols),
-        "fx_symbols": sorted(fx_symbols),
+        "symbols": sorted(mark_symbols),
+        "open_symbols": sorted(open_symbols),
+        "equity_mark_symbols": sorted(mark_equity_symbols),
+        "fx_symbols": sorted(open_fx_symbols),
         "fx_fetched": fx_fetched,
         "fx_skipped_credit": fx_skipped_credit,
         "fx_skipped_session": fx_skipped_session,

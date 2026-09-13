@@ -12,6 +12,7 @@ class AssetClass(str, enum.Enum):
 
 
 class Timeframe(str, enum.Enum):
+    M1 = "1m"
     M5 = "5m"
     M15 = "15m"
     H1 = "1h"
@@ -161,6 +162,7 @@ def coerce_worker_run_status(status: str) -> WorkerRunStatus:
     aliases = {
         "healthy": WorkerRunStatus.SUCCESS,
         "success": WorkerRunStatus.SUCCESS,
+        "skipped": WorkerRunStatus.SUCCESS,
         "waiting": WorkerRunStatus.SUCCESS,
         "running": WorkerRunStatus.SUCCESS,
         "degraded": WorkerRunStatus.PARTIAL,

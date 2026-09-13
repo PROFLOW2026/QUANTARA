@@ -171,6 +171,7 @@ def test_symbol_classifiers():
 def test_no_fetch_without_open_positions():
     store = MagicMock()
     store.get_settings_dict.return_value = {"paper_trading_enabled": True}
+    after_hours = datetime(2026, 9, 14, 21, 0, tzinfo=TZ)
     with ExitStack() as stack:
         _pm_patch_stack(stack)
         stack.enter_context(
@@ -185,10 +186,15 @@ def test_no_fetch_without_open_positions():
                 return_value=[],
             )
         )
-        report = run_non_crypto_fast_protection(store, RTH_OPEN)
+        stack.enter_context(
+            patch(
+                "quantara_engine.execution.non_crypto_fast_protection._fetch_alpaca_1m_batch",
+            )
+        )
+        report = run_non_crypto_fast_protection(store, after_hours)
 
     assert report["status"] == "skipped"
-    assert report["reason"] == "no_open_non_crypto_positions"
+    assert report["reason"] == "no_mark_or_protection_work"
     assert report["fetches"] == 0
 
 

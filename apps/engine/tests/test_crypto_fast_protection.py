@@ -263,7 +263,7 @@ def test_1m_tp_closes_before_strategy_bar(strategy_tf: str):
     assert any(d.decision_type == DecisionType.TP_TRIGGERED for d in store.decisions)
 
 
-def test_no_fetch_without_open_crypto_positions():
+def test_fetches_btc_eth_even_without_open_positions():
     store = MagicMock()
     store.get_settings_dict.return_value = {"paper_trading_enabled": True}
     with patch(
@@ -278,12 +278,23 @@ def test_no_fetch_without_open_crypto_positions():
     ), patch(
         "quantara_engine.execution.crypto_fast_protection._collect_live_sim_crypto_rows",
         return_value=[],
+    ), patch(
+        "quantara_engine.execution.crypto_fast_protection._fetch_and_store_1m",
+        return_value=[],
+    ) as fetch_mock, patch(
+        "quantara_engine.execution.crypto_mark_valuation.apply_crypto_1m_marks",
+        return_value={"applied_symbols": []},
+    ), patch(
+        "quantara_engine.execution.crypto_mark_valuation.prune_crypto_canonical_marks",
     ):
+        store.get_instrument_by_symbol.return_value = MagicMock(id="eth")
+        store.latest_candle_timestamp.return_value = None
+        store.list_candles.return_value = []
         report = run_crypto_fast_protection(store, datetime.now(timezone.utc))
 
-    assert report["status"] == "skipped"
-    assert report["reason"] == "no_open_crypto_positions"
-    assert report["fetches"] == 0
+    assert report["status"] == "success"
+    assert fetch_mock.call_count == 2
+    assert report["fetches"] == 2
 
 
 def test_btc_eth_both_open_two_fetches():

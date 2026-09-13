@@ -165,12 +165,20 @@ def crypto_mark_owned_by_1m(store: TradingStore, symbol: str) -> bool:
 
 
 def fast_mark_owned_by_1m(store: TradingStore, symbol: str) -> bool:
-    """True when symbol has a fresher 1m canonical mark and open exposure."""
+    """True when a canonical 1m mark should block stale 5m refresh."""
     if not is_fast_1m_protected_symbol(symbol):
         return False
-    if get_fast_canonical_mark(store, symbol) is None:
-        return False
-    return _has_open_exposure(store, normalize_db_symbol(symbol))
+    return get_fast_canonical_mark(store, symbol) is not None
+
+
+def display_price_from_canonical_mark(
+    store: TradingStore,
+    symbol: str,
+) -> tuple[Decimal, datetime] | None:
+    """UI/API display price from stored canonical 1m mark when available."""
+    if not is_fast_1m_protected_symbol(symbol):
+        return None
+    return get_fast_canonical_mark(store, symbol)
 
 
 def latest_completed_1m_close(
@@ -322,13 +330,16 @@ def apply_fast_1m_marks(
             continue
 
         stored[db_sym] = {"price": str(price), "at": at.isoformat()}
-        research_rows += _update_research_position_marks(store, instrument, price)
-        live_sim_rows += _update_live_sim_position_marks(store, instrument, price)
+        sym_research = _update_research_position_marks(store, instrument, price)
+        sym_live = _update_live_sim_position_marks(store, instrument, price)
+        research_rows += sym_research
+        live_sim_rows += sym_live
 
-        BrokerExecutionService(store).mark_to_market({db_sym: price}, at=at)
-        BrokerExecutionService(
-            store, account_slug=LIVE_SIM_10K_ACCOUNT_SLUG
-        ).mark_to_market({db_sym: price}, at=at)
+        if sym_research or sym_live:
+            BrokerExecutionService(store).mark_to_market({db_sym: price}, at=at)
+            BrokerExecutionService(
+                store, account_slug=LIVE_SIM_10K_ACCOUNT_SLUG
+            ).mark_to_market({db_sym: price}, at=at)
         applied.append(db_sym)
         logger.debug("Fast 1m mark %s = %s @ %s", db_sym, price, at.isoformat())
 
@@ -359,8 +370,6 @@ def canonical_mark_for_instrument(
     instrument_id: str,
     symbol: str,
 ) -> Decimal | None:
-    """Dashboard/snapshot helper — canonical 1m mark when active."""
-    if not fast_mark_owned_by_1m(store, symbol):
-        return None
-    canon = get_fast_canonical_mark(store, symbol)
+    """Dashboard/snapshot helper — canonical 1m mark when stored."""
+    canon = display_price_from_canonical_mark(store, symbol)
     return canon[0] if canon else None
