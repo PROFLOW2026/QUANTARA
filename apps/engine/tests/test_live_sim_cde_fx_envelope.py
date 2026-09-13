@@ -21,7 +21,7 @@ from quantara_engine.competition.multi_strategy_constants import (
 )
 from quantara_engine.competition.robot_registry import MULTI_STRATEGY_SLUGS
 from quantara_engine.domain.types import Direction, ExecutionAssumptions, Instrument, SignalAction
-from quantara_engine.live_sim.sizing import max_safe_quantity_for_live_sim, size_live_sim_entry
+from quantara_engine.live_sim.sizing import max_safe_quantity_for_live_sim
 from quantara_engine.owner_portfolio.asset_risk import evaluate_asset_envelope_risk
 from quantara_engine.owner_portfolio.constants import LIVE_SIM_PER_ASSET_CAPITAL
 from quantara_engine.portfolio.currency import FxRateTable
