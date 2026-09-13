@@ -42,9 +42,6 @@ type CacheEntry = {
 
 type NegativeCacheEntry = { expiresAt: number };
 
-const positiveCache = new Map<string, CacheEntry>();
-const negativeCache = new Map<string, NegativeCacheEntry>();
-
 export type EngineDnsStats = {
   systemDnsSuccesses: number;
   dohFallbackUses: number;
@@ -52,12 +49,29 @@ export type EngineDnsStats = {
   dnsFailures: number;
 };
 
-const stats: EngineDnsStats = {
-  systemDnsSuccesses: 0,
-  dohFallbackUses: 0,
-  cacheHits: 0,
-  dnsFailures: 0,
+type EngineDnsGlobal = typeof globalThis & {
+  __quantaraEngineDnsStats?: EngineDnsStats;
+  __quantaraEngineDnsPositiveCache?: Map<string, CacheEntry>;
+  __quantaraEngineDnsNegativeCache?: Map<string, NegativeCacheEntry>;
 };
+
+const engineDnsGlobal = globalThis as EngineDnsGlobal;
+
+const stats: EngineDnsStats =
+  engineDnsGlobal.__quantaraEngineDnsStats ??
+  (engineDnsGlobal.__quantaraEngineDnsStats = {
+    systemDnsSuccesses: 0,
+    dohFallbackUses: 0,
+    cacheHits: 0,
+    dnsFailures: 0,
+  });
+
+const positiveCache =
+  engineDnsGlobal.__quantaraEngineDnsPositiveCache ??
+  (engineDnsGlobal.__quantaraEngineDnsPositiveCache = new Map<string, CacheEntry>());
+const negativeCache =
+  engineDnsGlobal.__quantaraEngineDnsNegativeCache ??
+  (engineDnsGlobal.__quantaraEngineDnsNegativeCache = new Map<string, NegativeCacheEntry>());
 
 let pendingDnsError: EngineDnsError | null = null;
 
