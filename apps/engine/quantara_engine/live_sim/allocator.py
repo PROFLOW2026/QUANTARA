@@ -76,7 +76,8 @@ def _current_asset_notional_usd(store: TradingStore, account_id: str, db_symbol:
             """
             SELECT bp.net_quantity, bp.mark_price
             FROM broker_positions bp
-            WHERE bp.broker_account_id = :aid AND bp.symbol = :sym
+            JOIN instruments i ON i.id = bp.instrument_id
+            WHERE bp.broker_account_id = :aid AND i.symbol = :sym
             """
         ),
         {"aid": account_id, "sym": db_symbol.upper().replace("/", "")},

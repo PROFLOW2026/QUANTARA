@@ -4,17 +4,24 @@ import { SectionPanel } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { t } from "@/lib/i18n";
 import { formatRelativeTime } from "@/lib/utils";
-import type { StrategyFreshness } from "@/lib/api-client";
+import type { StrategyCandleHealthRow, StrategyFreshness } from "@/lib/api-client";
 
 function statusBadge(freshness: StrategyFreshness) {
-  if (freshness.status === "error" || freshness.error) {
+  const display = freshness.display_status ?? freshness.status;
+  if (display === "error" || freshness.error) {
     return <Badge variant="danger">{t("home.strategy_error")}</Badge>;
   }
-  if (freshness.stalled) {
+  if (display === "stalled" || freshness.stalled) {
     return <Badge variant="warning">{t("home.strategy_stalled")}</Badge>;
   }
-  if (freshness.status === "paused") {
+  if (display === "paused" || freshness.status === "paused") {
     return <Badge variant="warning">{t("home.strategy_degraded")}</Badge>;
+  }
+  if (display === "market_stale") {
+    return <Badge variant="warning">{t("home.strategy_market_stale")}</Badge>;
+  }
+  if (display === "session_closed" || freshness.market_health_status === "session_closed") {
+    return <Badge variant="muted">{t("home.strategy_session_closed")}</Badge>;
   }
   if (freshness.healthy) {
     const historical = freshness.historical_backlog ?? freshness.backlog ?? 0;
@@ -25,6 +32,15 @@ function statusBadge(freshness: StrategyFreshness) {
     return <Badge variant="success">{t("home.strategy_healthy")}</Badge>;
   }
   return <Badge variant="warning">{t("home.strategy_unhealthy")}</Badge>;
+}
+
+function healthLabel(classification?: string) {
+  if (classification === "session_closed") return t("home.strategy_asset_session_closed");
+  if (classification === "healthy") return t("home.strategy_asset_fresh");
+  if (classification === "latency_ok") return t("home.strategy_asset_latency_ok");
+  if (classification === "stale") return t("home.strategy_asset_stale");
+  if (classification === "missing") return t("home.strategy_asset_missing");
+  return classification ?? "—";
 }
 
 function MetricTile({ label, children }: { label: string; children: React.ReactNode }) {
@@ -54,7 +70,13 @@ export function StrategyFreshnessPanel({
     );
   }
 
-  const marketRows = Object.entries(freshness.market_candle_age_minutes ?? {});
+  const marketHealth = freshness.market_candle_health ?? {};
+  const marketRows: Array<[string, StrategyCandleHealthRow]> = Object.keys(marketHealth).length
+    ? Object.entries(marketHealth)
+    : Object.entries(freshness.market_candle_age_minutes ?? {}).map(([sym, age]) => [
+        sym,
+        { age_minutes: age, classification: "unknown" },
+      ]);
   const liveBacklog = freshness.live_backlog ?? 0;
   const historicalBacklog =
     freshness.historical_backlog ?? freshness.backlog ?? 0;
@@ -82,15 +104,18 @@ export function StrategyFreshnessPanel({
           <div className="rounded-md border border-border-nested bg-surface-inner p-3">
             <p className="mb-2 text-xs text-muted">{t("home.market_candle_age")}</p>
             <ul className="space-y-1 font-mono text-xs text-text-normal">
-              {marketRows.map(([sym, age]) => (
+              {marketRows.map(([sym, health]) => (
                 <li key={sym}>
-                  {sym}: {age != null ? `${age}m` : "—"}
+                  {sym}: {health.age_minutes != null ? `${health.age_minutes}m` : "—"} ·{" "}
+                  {healthLabel(health.classification)}
                 </li>
               ))}
             </ul>
           </div>
         ) : null}
-        <p className="text-xs text-muted">{t("home.strategy_backlog_hint")}</p>
+        {historicalBacklog > 0 ? (
+          <p className="text-xs text-muted">{t("home.strategy_backlog_hint")}</p>
+        ) : null}
       </div>
     </SectionPanel>
   );

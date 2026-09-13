@@ -385,11 +385,24 @@ export interface WorkerTimeframeStatus {
   status?: string;
 }
 
+export interface StrategyCandleHealthRow {
+  classification?: string;
+  session_open?: boolean;
+  age_minutes?: number | null;
+  staleness_since_close_minutes?: number | null;
+  freshness_limit_minutes?: number | null;
+  last_candle_at?: string | null;
+  display_symbol?: string;
+}
+
 export interface StrategyFreshness {
   healthy: boolean;
   stalled: boolean;
   status?: string;
+  display_status?: string;
   error?: string | null;
+  live_error?: string | null;
+  historical_error?: string | null;
   mode?: string;
   last_evaluation_at?: string | null;
   evaluation_age_minutes?: number | null;
@@ -397,6 +410,10 @@ export interface StrategyFreshness {
   live_backlog?: number;
   historical_backlog?: number;
   market_candle_age_minutes?: Record<string, number | null>;
+  market_candle_health?: Record<string, StrategyCandleHealthRow>;
+  market_health_status?: string;
+  stale_open_assets?: string[];
+  session_closed_assets?: string[];
   fetch_status?: string;
 }
 

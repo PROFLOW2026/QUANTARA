@@ -67,7 +67,13 @@ def _check_eligibility(
     if not last_ts:
         return False, "no_data"
 
-    if not is_market_data_fresh(last_ts, timeframe, now):
+    if asset:
+        from quantara_engine.market_data.strategy_freshness_health import is_strategy_candle_eligible
+
+        eligible, reason = is_strategy_candle_eligible(asset, last_ts, now, timeframe=timeframe)
+        if not eligible:
+            return False, reason
+    elif not is_market_data_fresh(last_ts, timeframe, now):
         stale_after_close = round(bar_staleness_minutes(last_ts, timeframe, now), 1)
         limit = round(max_staleness_minutes(timeframe), 1)
         return False, f"stale_data ({stale_after_close}m since close, limit {limit}m)"
@@ -878,27 +884,30 @@ def _process_competition(
         return 0
 
     overall_status = "catching_up" if overall_backlog > 0 else "healthy"
-    s.update_worker_status(
-        "strategy_runner",
-        {
-            "status": overall_status,
-            "mode": "historical" if historical_only else "live",
-            "last_run": started_at.isoformat(),
-            "last_finish": datetime.now(timezone.utc).isoformat(),
-            "duration_ms": duration_ms,
-            "robot_a_duration_ms": robot_a_duration_ms,
-            "robot_b_duration_ms": robot_b_duration_ms,
-            "robot_a_groups_evaluated": groups_a,
-            "robot_b_groups_evaluated": groups_b,
-            "jobs_pending": overall_backlog,
-            "decisions": total_decisions,
-            "competition_portfolios": entries_count,
-            "timeframe_groups_evaluated": groups_evaluated,
-            "timeframes": timeframe_status,
-            "instruments": instrument_status,
-            "last_evaluation_at": datetime.now(timezone.utc).isoformat(),
-        },
-    )
+    status_patch: dict = {
+        "status": overall_status,
+        "mode": "historical" if historical_only else "live",
+        "last_run": started_at.isoformat(),
+        "last_finish": datetime.now(timezone.utc).isoformat(),
+        "duration_ms": duration_ms,
+        "robot_a_duration_ms": robot_a_duration_ms,
+        "robot_b_duration_ms": robot_b_duration_ms,
+        "robot_a_groups_evaluated": groups_a,
+        "robot_b_groups_evaluated": groups_b,
+        "jobs_pending": overall_backlog,
+        "decisions": total_decisions,
+        "competition_portfolios": entries_count,
+        "timeframe_groups_evaluated": groups_evaluated,
+        "timeframes": timeframe_status,
+        "instruments": instrument_status,
+        "last_evaluation_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if historical_only:
+        status_patch["historical_error"] = None
+    else:
+        status_patch["live_error"] = None
+        status_patch["error"] = None
+    s.update_worker_status("strategy_runner", status_patch)
     s.save_worker_run(
         run_id=run_id,
         worker_name="strategy_runner",
@@ -1019,16 +1028,21 @@ def _execute_strategy_cycle(
         try:
             with session_scope() as session:
                 s = TradingStore(session)
-                s.update_worker_status(
-                    "strategy_runner",
-                    {
-                        "status": "error",
-                        "mode": mode,
-                        "last_run": started_at.isoformat(),
-                        "duration_ms": duration_ms,
-                        "error": str(exc),
-                    },
-                )
+                err_key = "historical_error" if historical_only else "live_error"
+                prev = dict(s.get_settings_dict().get("worker_status:strategy_runner") or {})
+                patch = {
+                    "status": "error",
+                    "mode": mode,
+                    "last_run": started_at.isoformat(),
+                    "duration_ms": duration_ms,
+                    err_key: str(exc),
+                }
+                if historical_only and prev.get("last_evaluation_at"):
+                    patch["status"] = prev.get("status", "catching_up")
+                    patch["last_evaluation_at"] = prev.get("last_evaluation_at")
+                else:
+                    patch["error"] = str(exc)
+                s.update_worker_status("strategy_runner", patch)
                 s.save_worker_run(
                     run_id=run_id,
                     worker_name="strategy_runner",
@@ -1089,20 +1103,31 @@ def strategy_freshness_summary(store: TradingStore, now: datetime | None = None)
         except ValueError:
             pass
 
+    from quantara_engine.market_data.registry import list_target_assets
+    from quantara_engine.market_data.strategy_freshness_health import (
+        aggregate_market_health,
+        classify_strategy_candle_health,
+    )
     from quantara_engine.persistence.batch_summary import batch_latest_candle_timestamps
 
-    robot_symbols = _robot_a_symbols()
+    target_assets = list_target_assets()
     symbol_to_inst = {
-        sym: store.get_instrument_by_symbol(sym) for sym in robot_symbols
+        asset.db_symbol: store.get_instrument_by_symbol(asset.db_symbol)
+        for asset in target_assets
     }
     inst_ids = [inst.id for inst in symbol_to_inst.values() if inst]
     latest_by_inst = batch_latest_candle_timestamps(store, inst_ids, "5m")
     market_ages: dict[str, float | None] = {}
-    for sym, inst in symbol_to_inst.items():
+    market_health: dict[str, dict] = {}
+    for asset in target_assets:
+        inst = symbol_to_inst.get(asset.db_symbol)
         if not inst:
             continue
         ts = latest_by_inst.get(inst.id)
-        market_ages[sym] = round((now - ts).total_seconds() / 60, 1) if ts else None
+        market_ages[asset.db_symbol] = round((now - ts).total_seconds() / 60, 1) if ts else None
+        market_health[asset.db_symbol] = classify_strategy_candle_health(asset, ts, now)
+
+    market_summary = aggregate_market_health(market_health)
 
     backlog = int(runner.get("jobs_pending") or 0)
     timeframe_status = runner.get("timeframes") or {}
@@ -1116,15 +1141,34 @@ def strategy_freshness_summary(store: TradingStore, now: datetime | None = None)
         historical_backlog = backlog
         live_backlog = 0
     status = runner.get("status")
-    has_error = bool(runner.get("error"))
+    mode = runner.get("mode")
+    live_error = runner.get("live_error")
+    historical_error = runner.get("historical_error")
+    legacy_error = runner.get("error")
+    if (
+        legacy_error
+        and not live_error
+        and status in ("healthy", "catching_up", "waiting")
+        and eval_age_min is not None
+        and eval_age_min < STRATEGY_STALL_THRESHOLD_MINUTES
+    ):
+        legacy_error = None
+    has_live_error = bool(live_error or (legacy_error and mode != "historical"))
+    has_historical_error = bool(historical_error or (legacy_error and mode == "historical"))
 
     if status == "running":
-        healthy = not running_stalled and not has_error
+        healthy = not running_stalled and not has_live_error
     elif status in ("healthy", "catching_up", "waiting"):
         healthy = (
             not running_stalled
-            and not has_error
+            and not has_live_error
             and (eval_age_min is None or eval_age_min < STRATEGY_STALL_THRESHOLD_MINUTES)
+        )
+    elif status == "error" and has_historical_error and not has_live_error:
+        healthy = (
+            not running_stalled
+            and eval_age_min is not None
+            and eval_age_min < STRATEGY_STALL_THRESHOLD_MINUTES
         )
     else:
         healthy = False
@@ -1135,17 +1179,41 @@ def strategy_freshness_summary(store: TradingStore, now: datetime | None = None)
         and eval_age_min >= STRATEGY_STALL_THRESHOLD_MINUTES
     )
 
+    stale_open = market_summary.get("stale_open_assets") or []
+    display_status = status
+    if has_live_error or (status == "error" and not has_historical_error):
+        display_status = "error"
+    elif stalled:
+        display_status = "stalled"
+    elif status == "paused":
+        display_status = "paused"
+    elif stale_open:
+        display_status = "market_stale"
+    elif healthy:
+        display_status = "catching_up" if historical_backlog > 0 else "healthy"
+    elif market_summary.get("market_health_status") == "session_closed" and not has_live_error:
+        display_status = "session_closed"
+    else:
+        display_status = status or "unhealthy"
+
     return {
         "healthy": healthy,
         "stalled": stalled,
         "status": runner.get("status"),
-        "error": runner.get("error"),
-        "mode": runner.get("mode"),
+        "display_status": display_status,
+        "error": live_error or (legacy_error if status == "error" and not has_historical_error else None),
+        "live_error": live_error,
+        "historical_error": historical_error or (legacy_error if has_historical_error else None),
+        "mode": mode,
         "last_evaluation_at": last_eval,
         "evaluation_age_minutes": eval_age_min,
         "backlog": backlog,
         "live_backlog": live_backlog,
         "historical_backlog": historical_backlog if timeframe_status else backlog,
         "market_candle_age_minutes": market_ages,
+        "market_candle_health": market_health,
+        "market_health_status": market_summary.get("market_health_status"),
+        "stale_open_assets": stale_open,
+        "session_closed_assets": market_summary.get("session_closed_assets") or [],
         "fetch_status": fetcher.get("status"),
     }
