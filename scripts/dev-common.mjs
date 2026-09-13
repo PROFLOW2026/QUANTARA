@@ -1,5 +1,5 @@
 /**
- * Shared helpers for QUANTARA local dev scripts (dev:all / dev:remote).
+ * Shared helpers for QUANTARA local dev scripts (dev:all / start:quantara).
  */
 import { spawn, spawnSync } from "child_process";
 import fs from "fs";
@@ -187,6 +187,7 @@ export async function resolveWebService() {
   return webService();
 }
 
+/** Detect legacy cloudflared Quick Tunnel processes (cleanup only — transport is Tailscale Funnel). */
 export function isTunnelRunning() {
   if (process.platform !== "win32") {
     const result = spawnSync("pgrep", ["-f", "cloudflared.*(localhost:8000|quantara-engine|trycloudflare)"], {
@@ -198,76 +199,6 @@ export function isTunnelRunning() {
     encoding: "utf8",
   });
   return /cloudflared\.exe/i.test(String(result.stdout || ""));
-}
-
-export function isStableTunnelConfigured() {
-  const configPath = path.resolve(
-    ROOT,
-    process.env.CLOUDFLARE_TUNNEL_CONFIG || "scripts/cloudflare-tunnel.local.yml"
-  );
-  return Boolean(getStableEngineUrl() && fs.existsSync(configPath));
-}
-
-export function resolveTunnelService(onLine) {
-  if (isStableTunnelConfigured()) {
-    return namedTunnelService();
-  }
-  return quickTunnelService(onLine);
-}
-
-export function requireStableTunnelService() {
-  if (!isStableTunnelConfigured()) {
-    console.error("");
-    console.error("Stable Cloudflare tunnel is not configured.");
-    console.error("");
-    console.error("One-time setup (double-click):");
-    console.error("  SETUP_STABLE_TUNNEL.bat");
-    console.error("");
-    console.error("Or:");
-    console.error("  npm run setup:tunnel");
-    console.error("");
-    process.exit(1);
-  }
-  return namedTunnelService();
-}
-
-export function quickTunnelService(onLine) {
-  return {
-    name: "tunnel",
-    label: "TUNNEL",
-    color: "\x1b[33m",
-    cwd: ROOT,
-    command: "cloudflared",
-    args: ["tunnel", "--url", "http://localhost:8000"],
-    onLine,
-  };
-}
-
-export function namedTunnelService() {
-  const configPath = path.resolve(
-    ROOT,
-    process.env.CLOUDFLARE_TUNNEL_CONFIG || "scripts/cloudflare-tunnel.local.yml"
-  );
-  if (!fs.existsSync(configPath)) {
-    console.error("");
-    console.error("Missing Cloudflare tunnel config:", configPath);
-    console.error("");
-    console.error("One-time setup (requires domain in Cloudflare):");
-    console.error("  npm run setup:tunnel -- --hostname engine.yourdomain.com");
-    console.error("");
-    console.error("Then add STABLE_ENGINE_URL to .env and run dev:remote again.");
-    process.exit(1);
-  }
-
-  const tunnelName = (process.env.CLOUDFLARE_TUNNEL_NAME || "quantara-engine").trim();
-  return {
-    name: "tunnel",
-    label: "TUNNEL",
-    color: "\x1b[33m",
-    cwd: ROOT,
-    command: "cloudflared",
-    args: ["tunnel", "--config", configPath, "run", tunnelName],
-  };
 }
 
 const reset = "\x1b[0m";
@@ -338,38 +269,6 @@ export function startServices(services) {
   return { children, shutdown };
 }
 
-export function printTunnelBanner(publicUrl) {
-  console.log("");
-  console.log("=".repeat(72));
-  console.log("PUBLIC ENGINE URL — copy to Vercel ENGINE_URL:");
-  console.log(publicUrl);
-  console.log("");
-  console.log("Also set in Vercel: NEXT_PUBLIC_API_KEY = same as QUANTARA_API_KEY");
-  console.log("Then Redeploy the Vercel project.");
-  console.log("=".repeat(72));
-  console.log("");
-}
-
-export function printStableEngineBanner(stableUrl) {
-  console.log("");
-  console.log("=".repeat(72));
-  console.log("STABLE ENGINE URL (same every restart):");
-  console.log(stableUrl);
-  console.log("");
-  console.log("Vercel one-time config:");
-  console.log(`  NEXT_PUBLIC_ENGINE_URL=${stableUrl}`);
-  console.log("  NEXT_PUBLIC_API_KEY=dev-api-key");
-  console.log("=".repeat(72));
-  console.log("");
-}
-
-export function getStableEngineUrl() {
-  const raw = (process.env.STABLE_ENGINE_URL || "").trim();
-  if (!raw) return null;
-  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw.replace(/\/+$/, "");
-  return `https://${raw.replace(/\/+$/, "")}`;
-}
-
 export function startWindowsTerminal(service) {
   if (!service) return false;
   const runtimeDir = path.join(ROOT, ".quantara-runtime");
@@ -420,31 +319,6 @@ export async function waitForWorker(maxMs = 30000) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
   return false;
-}
-
-export async function waitForTunnel(maxMs = 30000) {
-  const start = Date.now();
-  while (Date.now() - start < maxMs) {
-    if (isTunnelRunning()) return true;
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-  return false;
-}
-
-export async function checkStableTunnelHealth() {
-  const stableUrl = getStableEngineUrl();
-  if (!stableUrl) return { ok: false, reason: "STABLE_ENGINE_URL not configured" };
-  const apiKey = (process.env.QUANTARA_API_KEY || "dev-api-key").trim();
-  try {
-    const res = await fetch(`${stableUrl}/api/v1/health`, {
-      headers: { "X-API-Key": apiKey },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) return { ok: false, reason: `HTTP ${res.status}` };
-    return { ok: true, url: stableUrl };
-  } catch (err) {
-    return { ok: false, reason: err instanceof Error ? err.message : String(err), url: stableUrl };
-  }
 }
 
 export async function checkProductionEngine() {

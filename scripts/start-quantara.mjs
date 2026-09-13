@@ -173,7 +173,7 @@ async function launchTailscaleFunnel(stableUrl) {
 async function main() {
   if (process.platform !== "win32") {
     console.error("START_QUANTARA is intended for Windows double-click use.");
-    console.error("On this platform, use: npm run dev:remote");
+    console.error("On this platform, use: npm run dev:all (local) or npm run setup:tailscale (remote transport).");
     process.exit(1);
   }
 

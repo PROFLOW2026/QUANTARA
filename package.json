@@ -8,7 +8,6 @@
   ],
   "scripts": {
     "dev:all": "node scripts/dev-all.mjs",
-    "dev:remote": "node scripts/dev-remote.mjs",
     "start:quantara": "node scripts/start-quantara.mjs",
     "stop:quantara": "node scripts/stop-quantara.mjs",
     "setup:tailscale": "node scripts/setup-tailscale-funnel.mjs",

@@ -10,11 +10,11 @@ QUANTARA runtime no longer depends on Supabase. The canonical production databas
 | **Engine API** | Owner PC | FastAPI (`apps/engine`); sole DB writer for trading |
 | **Worker** | Owner PC | Scheduled jobs (market data, signals, PM) |
 | **PostgreSQL** | Owner PC | Canonical DB `quantara_prod` — **localhost only** |
-| **Cloudflare Tunnel** | Owner PC | Exposes Engine HTTP API only (port 8000) |
+| **Tailscale Funnel** | Owner PC | Stable `*.ts.net` URL exposing Engine HTTP API only (port 8000) |
 | **Supabase** | Cloud | **LEGACY ARCHIVE / NOT RUNTIME** — read-only historical reference |
 
 ```
-Browser (Vercel) ──HTTPS──► Cloudflare Tunnel ──► Engine :8000 ──► PostgreSQL :5432 (localhost)
+Browser (Vercel) ──HTTPS──► Tailscale Funnel ──► Engine :8000 ──► PostgreSQL :5432 (localhost)
                                     │
                                     └── PostgreSQL port is NOT tunneled or public
 ```
@@ -81,7 +81,7 @@ Do **not** run `packages/db/owner/0006_owner_recovery.sql` — that was Supabase
 
 ## Owner start / stop
 
-- **START**: `START_QUANTARA.bat` — preflight (PostgreSQL + schema), then Engine, Worker, Tunnel
+- **START**: `START_QUANTARA.bat` — preflight (PostgreSQL + schema), then Engine, Worker, Tailscale Funnel
 - **STOP**: `STOP_QUANTARA.bat` — safe shutdown; does not expose PostgreSQL
 
 If Windows service `postgresql-x64-17` is stopped, START shows a clear error.
@@ -109,6 +109,6 @@ The application already uses generic PostgreSQL via `DATABASE_URL`. To move off 
 1. Provision managed PostgreSQL (or VPS Postgres).
 2. `pg_dump` / `pg_restore` from `quantara_prod`.
 3. Point Owner `.env` `DATABASE_URL` at the new host (keep Engine + Worker on Owner or co-locate).
-4. Keep Cloudflare Tunnel on Engine HTTP only — still do not expose Postgres publicly.
+4. Keep Tailscale Funnel (or equivalent HTTP-only proxy) on Engine — still do not expose Postgres publicly.
 
 No application architecture change required; only connection string and network path.
