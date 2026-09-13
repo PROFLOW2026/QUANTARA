@@ -64,3 +64,17 @@ def test_hub_subscriber_cap():
     assert queues[0] is not None
     assert queues[1] is not None
     assert queues[2] is None
+
+
+def test_broadcast_loop_does_not_deadlock_on_dirty_marks():
+    async def _run() -> None:
+        hub = LiveMarkHub(broadcast_interval_sec=0.01)
+        hub.bind_loop(asyncio.get_running_loop())
+        now = datetime.now(timezone.utc)
+        hub.update("BTCUSD", Decimal("100"), now, source="test")
+        await asyncio.sleep(0.05)
+        assert hub.get_entry("BTCUSD") is not None
+        assert hub.stats()["broadcasts_sent"] >= 1
+        hub._broadcast_task.cancel()
+
+    asyncio.run(_run())

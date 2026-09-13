@@ -36,6 +36,45 @@ async function settle<T>(
   }
 }
 
+function mergeAnalyticsResponse(
+  prev: AssetAnalyticsResponse | null,
+  next: AssetAnalyticsResponse
+): AssetAnalyticsResponse {
+  const merged: AssetAnalyticsResponse = { ...next };
+
+  if (prev?.assets?.length && (!next.assets || next.assets.length === 0)) {
+    merged.assets = prev.assets;
+  }
+
+  if (!next.summary) {
+    merged.summary = prev?.summary;
+    return merged;
+  }
+  if (!prev?.summary) {
+    return merged;
+  }
+
+  const mergedSummary = { ...prev.summary, ...next.summary };
+  if (next.summary.open_exposure == null && prev.summary.open_exposure != null) {
+    mergedSummary.open_exposure = prev.summary.open_exposure;
+  }
+  if (next.summary.open_risk_usd == null && prev.summary.open_risk_usd != null) {
+    mergedSummary.open_risk_usd = prev.summary.open_risk_usd;
+  }
+  if (next.summary.open_risk_pct == null && prev.summary.open_risk_pct != null) {
+    mergedSummary.open_risk_pct = prev.summary.open_risk_pct;
+  }
+  if (
+    (next.summary.total_equity == null || next.summary.total_equity === 0) &&
+    prev.summary.total_equity != null &&
+    prev.summary.total_equity !== 0
+  ) {
+    mergedSummary.total_equity = prev.summary.total_equity;
+  }
+  merged.summary = mergedSummary;
+  return merged;
+}
+
 type PollOptions = {
   /** When true, prices come from direct Engine SSE; REST uses slower tiers. */
   liveStreamConnected?: boolean;
@@ -65,43 +104,21 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
   const [competitionUnavailable, setCompetitionUnavailable] = useState(false);
   const [todayError, setTodayError] = useState<string | null>(null);
   const [dataRefreshError, setDataRefreshError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
 
   const inFlightRef = useRef(false);
   const hadCompetitionRef = useRef(false);
+  const hasLoadedOnceRef = useRef(false);
   const lastMediumRef = useRef(0);
   const lastSlowRef = useRef(0);
   const liveStreamConnectedRef = useRef(liveStreamConnected);
+  const fetchAllRef = useRef<(showLoading?: boolean) => Promise<void>>(async () => {});
+  const runTieredPollRef = useRef<() => Promise<void>>(async () => {});
+  const runFallbackPollRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     liveStreamConnectedRef.current = liveStreamConnected;
   }, [liveStreamConnected]);
-
-  const mergeAnalyticsSummary = useCallback(
-    (
-      prev: AssetAnalyticsResponse | null,
-      next: AssetAnalyticsResponse
-    ): AssetAnalyticsResponse => {
-      if (!next.summary) {
-        return prev?.summary ? { ...next, summary: prev.summary } : next;
-      }
-      if (!prev?.summary) {
-        return next;
-      }
-      const mergedSummary = { ...prev.summary, ...next.summary };
-      if (next.summary.open_exposure == null && prev.summary.open_exposure != null) {
-        mergedSummary.open_exposure = prev.summary.open_exposure;
-      }
-      if (next.summary.open_risk_usd == null && prev.summary.open_risk_usd != null) {
-        mergedSummary.open_risk_usd = prev.summary.open_risk_usd;
-      }
-      if (next.summary.open_risk_pct == null && prev.summary.open_risk_pct != null) {
-        mergedSummary.open_risk_pct = prev.summary.open_risk_pct;
-      }
-      return { ...next, summary: mergedSummary };
-    },
-    []
-  );
 
   const applyHealthResult = useCallback(
     (healthResult: { ok: true; value: Awaited<ReturnType<typeof api.getEngineHealth>> } | { ok: false; error: unknown }) => {
@@ -135,7 +152,7 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
 
     const analyticsResult = await settle(api.getAssetAnalytics());
     if (analyticsResult.ok) {
-      setAssetAnalytics((prev) => mergeAnalyticsSummary(prev, analyticsResult.value));
+      setAssetAnalytics((prev) => mergeAnalyticsResponse(prev, analyticsResult.value));
     } else {
       partialFailure = true;
     }
@@ -147,14 +164,16 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
       setCompetitionUnavailable(false);
     } else {
       partialFailure = true;
-      setCompetitionUnavailable(!hadCompetitionRef.current);
+      if (!hadCompetitionRef.current) {
+        setCompetitionUnavailable(true);
+      }
     }
 
     setDataRefreshError(
       partialFailure && !healthDown ? t("home.data_refresh_stale") : null
     );
     return partialFailure;
-  }, [applyHealthResult, mergeAnalyticsSummary]);
+  }, [applyHealthResult]);
 
   const fetchMedium = useCallback(async () => {
     let partialFailure = false;
@@ -230,8 +249,9 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
       }
       inFlightRef.current = true;
 
-      if (showLoading) {
-        setLoading(true);
+      const useInitialLoading = showLoading && !hasLoadedOnceRef.current;
+      if (useInitialLoading) {
+        setInitialLoading(true);
       }
 
       try {
@@ -240,6 +260,7 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
         await fetchSlow();
         lastMediumRef.current = Date.now();
         lastSlowRef.current = Date.now();
+        hasLoadedOnceRef.current = true;
       } catch (e) {
         const down = isEngineConnectionError(e);
         setEngineConnectionError(down);
@@ -247,8 +268,8 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
         setDataRefreshError(down ? null : t("home.data_refresh_stale"));
       } finally {
         inFlightRef.current = false;
-        if (showLoading) {
-          setLoading(false);
+        if (useInitialLoading || hasLoadedOnceRef.current) {
+          setInitialLoading(false);
         }
       }
     },
@@ -271,6 +292,8 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
         await fetchSlow();
         lastSlowRef.current = now;
       }
+      hasLoadedOnceRef.current = true;
+      setInitialLoading(false);
     } finally {
       inFlightRef.current = false;
     }
@@ -280,12 +303,16 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
     await fetchAll(false);
   }, [fetchAll]);
 
+  fetchAllRef.current = fetchAll;
+  runTieredPollRef.current = runTieredPoll;
+  runFallbackPollRef.current = runFallbackPoll;
+
   useEffect(() => {
     const loadCapTimer = window.setTimeout(() => {
-      setLoading(false);
+      setInitialLoading(false);
     }, INITIAL_LOAD_CAP_MS);
 
-    void fetchAll(true).finally(() => {
+    void fetchAllRef.current(true).finally(() => {
       window.clearTimeout(loadCapTimer);
     });
 
@@ -311,9 +338,9 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
         pollTimerId = undefined;
         if (document.visibilityState === "visible") {
           if (liveStreamConnectedRef.current) {
-            void runTieredPoll();
+            void runTieredPollRef.current();
           } else {
-            void runFallbackPoll();
+            void runFallbackPollRef.current();
           }
         }
         schedulePoll();
@@ -322,7 +349,7 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
 
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        void fetchAll(false);
+        void fetchAllRef.current(false);
         schedulePoll();
       } else {
         stopPolling();
@@ -339,7 +366,7 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
       stopPolling();
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [fetchAll, runFallbackPoll, runTieredPoll]);
+  }, []);
 
   return {
     assetDecisions,
@@ -357,7 +384,7 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
     competitionUnavailable,
     todayError,
     dataRefreshError,
-    loading,
-    refresh: () => fetchAll(true),
+    loading: initialLoading,
+    refresh: () => fetchAll(false),
   };
 }

@@ -1223,12 +1223,27 @@ class TradingStore:
     def get_settings_dict(self) -> dict[str, Any]:
         if self._settings_cache is not None:
             return self._settings_cache
+        import time
+
+        from quantara_engine.persistence.settings_cache import load_process_settings_cache
+
+        cached = load_process_settings_cache()
+        if cached is not None:
+            self._settings_cache = cached
+            return self._settings_cache
         rows = self.session.scalars(select(OrmSetting)).all()
-        self._settings_cache = {row.key: row.value for row in rows}
+        loaded = {row.key: row.value for row in rows}
+        from quantara_engine.persistence.settings_cache import store_process_settings_cache
+
+        store_process_settings_cache(loaded, now=time.monotonic())
+        self._settings_cache = loaded
         return self._settings_cache
 
     def invalidate_settings_cache(self) -> None:
         self._settings_cache = None
+        from quantara_engine.persistence.settings_cache import clear_process_settings_cache
+
+        clear_process_settings_cache()
 
     def update_settings(
         self,

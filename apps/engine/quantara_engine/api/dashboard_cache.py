@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from threading import Lock
 from typing import TYPE_CHECKING, Any, Callable
@@ -14,6 +15,7 @@ _HOME_TTL_SECONDS = 45.0
 _lock = Lock()
 _candle_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
 _home_cache: dict[str, tuple[float, Any]] = {}
+_home_loading: dict[str, Any] = {}
 
 
 def dashboard_candle_bundle(
@@ -51,10 +53,35 @@ def cached_home_payload(cache_key: str, loader: Callable[[], Any]) -> Any:
         hit = _home_cache.get(cache_key)
         if hit and now - hit[0] < _HOME_TTL_SECONDS:
             return hit[1]
-    payload = loader()
-    with _lock:
-        _home_cache[cache_key] = (now, payload)
-    return payload
+        wait_event = _home_loading.get(cache_key)
+        if wait_event is None:
+            wait_event = threading.Event()
+            _home_loading[cache_key] = wait_event
+            leader = True
+        else:
+            leader = False
+
+    if not leader:
+        wait_event.wait(timeout=_HOME_TTL_SECONDS + 10.0)
+        with _lock:
+            hit = _home_cache.get(cache_key)
+            if hit:
+                return hit[1]
+        payload = loader()
+        with _lock:
+            _home_cache[cache_key] = (time.monotonic(), payload)
+        return payload
+
+    try:
+        payload = loader()
+        with _lock:
+            _home_cache[cache_key] = (time.monotonic(), payload)
+        return payload
+    finally:
+        with _lock:
+            event = _home_loading.pop(cache_key, None)
+        if event is not None:
+            event.set()
 
 
 def clear_dashboard_caches() -> None:
@@ -62,3 +89,4 @@ def clear_dashboard_caches() -> None:
     with _lock:
         _candle_cache.clear()
         _home_cache.clear()
+        _home_loading.clear()

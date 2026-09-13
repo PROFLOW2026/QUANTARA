@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import queue
 import threading
 import time
 from datetime import datetime
@@ -20,6 +21,7 @@ from quantara_engine.market_data.symbols import normalize_db_symbol
 from quantara_engine.persistence.store import TradingStore
 
 logger = logging.getLogger(__name__)
+
 
 def _default_persist_interval_sec() -> float:
     raw = os.environ.get("STREAM_MARK_PERSIST_SEC", "15").strip()
@@ -40,10 +42,46 @@ class ThrottledMarkPersister:
         self._lock = threading.Lock()
         self._last_persist_mono: dict[str, float] = {}
         self._writes = 0
+        self._queue: queue.SimpleQueue[
+            tuple[str, Decimal, datetime, str] | None
+        ] = queue.SimpleQueue()
+        self._worker = threading.Thread(
+            target=self._persist_worker,
+            name="mark-persist-worker",
+            daemon=True,
+        )
+        self._worker.start()
 
     @property
     def writes(self) -> int:
         return self._writes
+
+    def _persist_worker(self) -> None:
+        while True:
+            item = self._queue.get()
+            if item is None:
+                return
+            sym, price, at, source = item
+            started = time.perf_counter()
+            try:
+                with session_scope() as session:
+                    store = TradingStore(session)
+                    if source.startswith("alpaca"):
+                        apply_equity_ws_live_mark(store, sym, price, at)
+                    else:
+                        apply_fast_1m_marks(store, {sym: (price, at)}, flush=False)
+                        stored = load_fast_canonical_marks(store)
+                        entry = dict(stored.get(sym) or {})
+                        entry["source"] = source
+                        stored[sym] = entry
+                        store.update_settings(FAST_CANONICAL_MARKS_KEY, stored, flush=False)
+                    session.commit()
+                    self._writes += 1
+                elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+                if elapsed_ms > 500:
+                    logger.warning("Slow stream mark persist for %s: %sms", sym, elapsed_ms)
+            except Exception:
+                logger.exception("Stream mark persist failed for %s", sym)
 
     def maybe_persist(
         self,
@@ -61,22 +99,7 @@ class ThrottledMarkPersister:
                 return
             self._last_persist_mono[sym] = now_mono
 
-        try:
-            with session_scope() as session:
-                store = TradingStore(session)
-                if source.startswith("alpaca"):
-                    apply_equity_ws_live_mark(store, sym, price, at)
-                else:
-                    apply_fast_1m_marks(store, {sym: (price, at)}, flush=False)
-                    stored = load_fast_canonical_marks(store)
-                    entry = dict(stored.get(sym) or {})
-                    entry["source"] = source
-                    stored[sym] = entry
-                    store.update_settings(FAST_CANONICAL_MARKS_KEY, stored, flush=False)
-                session.commit()
-                self._writes += 1
-        except Exception:
-            logger.exception("Stream mark persist failed for %s", sym)
+        self._queue.put((sym, price, at, source))
 
 
 _PERSISTER = ThrottledMarkPersister()

@@ -277,8 +277,7 @@ def candles_latest(
     }
 
 
-@router.get("/market-data/status")
-def market_data_status(store: StoreDep):
+def _build_market_data_status_payload(store: StoreDep):
     from quantara_engine.market_data.provider_budgets import all_provider_status
     from quantara_engine.market_data.registry import list_target_assets
     from quantara_engine.market_data.sessions import (
@@ -391,8 +390,16 @@ def market_data_status(store: StoreDep):
     }
 
 
-@router.get("/analytics/assets")
-def analytics_assets(store: StoreDep):
+@router.get("/market-data/status")
+def market_data_status(store: StoreDep):
+    from quantara_engine.api.dashboard_cache import cached_home_payload
+
+    return cached_home_payload(
+        "market_data_status_v2", lambda: _build_market_data_status_payload(store)
+    )
+
+
+def _build_analytics_assets_payload(store: StoreDep):
     """Per-asset market + competition P&L summary for the Home dashboard."""
     from quantara_engine.market_data.polling import STRATEGY_MIN_CANDLES
     from quantara_engine.market_data.registry import list_target_assets
@@ -448,6 +455,10 @@ def analytics_assets(store: StoreDep):
         store, [asset.db_symbol for asset in assets], timeframe="15m"
     )
 
+    from quantara_engine.execution.crypto_mark_valuation import load_fast_canonical_marks
+
+    canonical_marks = load_fast_canonical_marks(store)
+
     for asset in assets:
         inst = instrument_by_symbol.get(asset.db_symbol)
         counts = {"5m": 0, "15m": 0, "1h": 0}
@@ -480,13 +491,17 @@ def analytics_assets(store: StoreDep):
                     asset.trading_sessions, last_candle, now
                 )
 
-            from quantara_engine.api.display_price import (
-                display_price_from_canonical_mark,
-                resolve_asset_display_price,
-            )
+            from quantara_engine.api.display_price import resolve_asset_display_price
+            from quantara_engine.market_data.streaming.live_mark_read import hub_mark_price
 
-            persisted_mark = display_price_from_canonical_mark(store, asset.db_symbol)
-            persisted_price = float(persisted_mark[0]) if persisted_mark else latest_price
+            canon_entry = canonical_marks.get(asset.db_symbol) or {}
+            if canon_entry.get("price") is not None:
+                try:
+                    persisted_price = float(canon_entry["price"])
+                except (TypeError, ValueError):
+                    persisted_price = latest_price
+            else:
+                persisted_price = latest_price
 
             latest_price, mark_at = resolve_asset_display_price(
                 store,
@@ -503,17 +518,10 @@ def analytics_assets(store: StoreDep):
             realized_pnl = float(metrics.get("realized_pnl", 0.0))
             unrealized_pnl = float(metrics.get("unrealized_pnl", 0.0))
 
-            from quantara_engine.market_data.streaming.live_mark_read import (
-                hub_mark_for_symbol,
-                hub_mark_fresh,
-                recompute_unrealized_pnl_at_mark,
-            )
-
-            hub_entry = hub_mark_for_symbol(asset.db_symbol)
-            if hub_entry and hub_mark_fresh(hub_entry, now=now) and open_positions > 0:
-                unrealized_pnl = recompute_unrealized_pnl_at_mark(
-                    store, inst.id, hub_entry.price
-                )
+            live = hub_mark_price(asset.db_symbol)
+            if live and open_positions > 0 and persisted_price and persisted_price > 0:
+                mark_ratio = float(live[0]) / persisted_price
+                unrealized_pnl = round(unrealized_pnl * mark_ratio, 2)
 
         risk_metrics = exposure_by_instrument.get(inst.id if inst else "", None)
         if open_positions > 0 and risk_metrics is not None:
@@ -683,6 +691,13 @@ def analytics_assets(store: StoreDep):
         "summary": summary_payload,
         "assets": rows,
     }
+
+
+@router.get("/analytics/assets")
+def analytics_assets(store: StoreDep):
+    from quantara_engine.api.dashboard_cache import cached_home_payload
+
+    return cached_home_payload("analytics_assets_v4", lambda: _build_analytics_assets_payload(store))
 
 
 @router.get("/portfolio")
@@ -1606,8 +1621,7 @@ def _analytics_today_payload(store: StoreDep):
     }
 
 
-@router.get("/workers/status")
-def workers_status(store: StoreDep):
+def _build_workers_status_payload(store: StoreDep):
     from quantara_workers.jobs.run_strategy import strategy_freshness_summary
 
     db_runs = store.latest_worker_runs()
@@ -1647,6 +1661,13 @@ def workers_status(store: StoreDep):
         "workers": workers,
         "strategy_freshness": strategy_freshness,
     }
+
+
+@router.get("/workers/status")
+def workers_status(store: StoreDep):
+    from quantara_engine.api.dashboard_cache import cached_home_payload
+
+    return cached_home_payload("workers_status_v2", lambda: _build_workers_status_payload(store))
 
 
 @router.post("/paper/start")

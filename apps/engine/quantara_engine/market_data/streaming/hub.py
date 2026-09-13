@@ -110,7 +110,12 @@ class LiveMarkHub:
             payload: dict[str, Any] | None = None
             with self._lock:
                 if self._dirty and self._marks:
-                    payload = self.snapshot()
+                    marks = {sym: entry.to_dict() for sym, entry in self._marks.items()}
+                    payload = {
+                        "type": "marks",
+                        "marks": marks,
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                    }
                     self._dirty = False
                     self._broadcasts_sent += 1
                 subs = list(self._subscribers)
