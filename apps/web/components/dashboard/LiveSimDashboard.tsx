@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { LiveSimAllocationSettingsPanel } from "@/components/dashboard/LiveSimAllocationSettings";
 import { HomeSummaryCard, HomeSummaryValue } from "@/components/dashboard/HomeSummaryCard";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,8 +54,31 @@ export function LiveSimDashboard({ data, loading }: Props) {
     ? t("home.live_sim_hide_recent_decisions")
     : t("home.live_sim_show_recent_decisions", { count: decisionCount });
 
+  const owner = data.owner_portfolio;
+  const showOwnerTotals = owner?.multi_broker_mode_enabled && owner;
+
   return (
     <>
+      {showOwnerTotals ? (
+        <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <HomeSummaryCard label={t("home.live_sim_owner_total_equity")}>
+            <HomeSummaryValue>{formatCurrency(owner.total_equity ?? data.equity ?? 0)}</HomeSummaryValue>
+          </HomeSummaryCard>
+          <HomeSummaryCard label={t("home.live_sim_owner_total_cash")}>
+            <HomeSummaryValue>{formatCurrency(owner.total_cash ?? data.cash ?? 0)}</HomeSummaryValue>
+          </HomeSummaryCard>
+          <HomeSummaryCard label={t("home.live_sim_owner_total_pnl")}>
+            <PnLDisplay
+              value={(owner.total_realized_pnl ?? 0) + (owner.total_unrealized_pnl ?? 0)}
+              size="lg"
+            />
+          </HomeSummaryCard>
+          <HomeSummaryCard label={t("home.gross_exposure")}>
+            <HomeSummaryValue>{formatCurrency(owner.total_gross_exposure ?? data.gross_exposure ?? 0)}</HomeSummaryValue>
+          </HomeSummaryCard>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <HomeSummaryCard label={t("home.live_sim_starting_capital")}>
           <HomeSummaryValue>{formatCurrency(data.starting_capital ?? 10000)}</HomeSummaryValue>
@@ -99,6 +123,26 @@ export function LiveSimDashboard({ data, loading }: Props) {
           <HomeSummaryValue>{data.runtime_duration_he ?? "—"}</HomeSummaryValue>
         </HomeSummaryCard>
       </div>
+
+      {data.broker_breakdown?.length ? (
+        <Card className="mt-4">
+          <CardHeader><CardTitle>{t("home.live_sim_broker_breakdown")}</CardTitle></CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            {data.broker_breakdown.map((b) => (
+              <div key={b.slug} className="rounded-md border border-border/60 p-3 text-sm">
+                <p className="font-medium">{b.label_he}</p>
+                <p>{t("home.live_sim_allocated_capital")}: {formatCurrency(b.allocated_capital)}</p>
+                <p>{t("home.live_sim_cash")}: {formatCurrency(b.cash)}</p>
+                <p>{t("home.live_sim_equity")}: {formatCurrency(b.equity)}</p>
+                <p>{t("home.live_sim_available_margin")}: {formatCurrency(b.available_margin)}</p>
+                <PnLDisplay value={b.realized_pnl + b.unrealized_pnl} size="sm" />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <LiveSimAllocationSettingsPanel />
 
       {data.risk_settings ? (
         <Card className="mt-4">

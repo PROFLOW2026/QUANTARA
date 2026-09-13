@@ -1033,10 +1033,52 @@ export interface LiveSimAllocation {
   created_at: string;
 }
 
+export interface LiveSimOwnerPortfolioSummary {
+  slug?: string;
+  target_capital?: number;
+  total_equity?: number;
+  total_cash?: number;
+  total_realized_pnl?: number;
+  total_unrealized_pnl?: number;
+  total_gross_exposure?: number;
+  total_net_exposure?: number;
+  allocated_capital_sum?: number;
+  allocation_remaining?: number;
+  multi_broker_mode_enabled?: boolean;
+  global_execution_halted?: boolean;
+}
+
+export interface LiveSimBrokerBreakdown {
+  slug: string;
+  vendor: string;
+  label_he: string;
+  allocated_capital: number;
+  cash: number;
+  equity: number;
+  available_margin: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  gross_exposure: number;
+  connection_state: string;
+  enabled: boolean;
+}
+
+export interface LiveSimAllocationSettings {
+  available: boolean;
+  target_capital?: number;
+  ibkr_allocation?: number;
+  kraken_allocation?: number;
+  remaining?: number;
+  multi_broker_mode_enabled?: boolean;
+  can_activate?: boolean;
+}
+
 export interface LiveSimAccountSummary {
   available: boolean;
   slug?: string;
   label_he?: string;
+  owner_portfolio?: LiveSimOwnerPortfolioSummary | null;
+  broker_breakdown?: LiveSimBrokerBreakdown[] | null;
   starting_capital?: number;
   equity?: number;
   cash?: number;
@@ -1137,6 +1179,17 @@ export const api = {
   getBrokerAccount: () => apiFetch<BrokerAccountSummary>("/broker/account"),
   getLiveSimAccount: () => apiFetch<LiveSimAccountSummary>("/live-sim/account"),
   getLiveSimCompare: () => apiFetch<LiveSimCompareSummary>("/live-sim/compare"),
+  getLiveSimAllocationSettings: () =>
+    apiFetch<LiveSimAllocationSettings>("/live-sim/allocation-settings"),
+  updateLiveSimAllocationSettings: (body: {
+    ibkr_allocation: number;
+    kraken_allocation: number;
+    activate?: boolean;
+  }) =>
+    apiFetch<{ ok: boolean; error?: string; activated?: boolean }>(
+      "/live-sim/allocation-settings",
+      { method: "POST", body: JSON.stringify(body) }
+    ),
   getBrokerRejections: (limit = 100) =>
     apiFetch<{ available: boolean; rejections: BrokerRejection[] }>(
       `/broker/rejections?limit=${limit}`

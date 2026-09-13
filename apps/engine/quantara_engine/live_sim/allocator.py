@@ -864,6 +864,26 @@ def maybe_allocate_live_sim(
     if not gate.allowed:
         return _reject(gate.reason or "GATE", gate.detail or REJECTION_HE.get(gate.reason or "", ""))
 
+    from quantara_engine.broker.reconciliation_orchestrator import is_broker_execution_allowed
+    from quantara_engine.owner_portfolio.global_risk import evaluate_owner_global_risk
+    from quantara_engine.owner_portfolio.service import LIVE_SIM_OWNER_SLUG
+
+    if not is_broker_execution_allowed(store, LIVE_SIM_10K_ACCOUNT_SLUG):
+        return _reject("BROKER_HALTED", REJECTION_HE.get("BROKER_HALTED", "broker halted"))
+
+    global_verdict = evaluate_owner_global_risk(
+        store,
+        owner_slug=LIVE_SIM_OWNER_SLUG,
+        symbol=instrument.symbol,
+        incremental_sl_risk_usd=expected_risk or Decimal("0"),
+        broker_local_allowed=True,
+    )
+    if not global_verdict.allowed:
+        return _reject(
+            global_verdict.reason or "OWNER_GLOBAL_RISK",
+            REJECTION_HE.get(global_verdict.reason or "", global_verdict.reason or ""),
+        )
+
     from quantara_engine.broker.profile import profile_for_account_slug
 
     mark = entry_mark_price_for_sizing(entry_ref, dir_enum, assumptions)

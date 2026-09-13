@@ -356,8 +356,39 @@ class BrokerExecutionService:
             return BrokerExecutionResult(accepted=False, broker_order_id=row["order_id"])
         return None
 
-    def _execution_fees(self, fill: FillResult) -> Decimal:
+    def _execution_fees(
+        self,
+        fill: FillResult,
+        *,
+        instrument: Instrument | None = None,
+        execution_product: str | None = None,
+        quantity: Decimal | None = None,
+    ) -> Decimal:
         """Explicit commission only — spread/slippage are embedded in fill price."""
+        if instrument and execution_product and quantity is not None:
+            try:
+                from quantara_engine.broker.execution_product import ExecutionProduct
+                from quantara_engine.broker.fees import calculate_commission, load_fee_profile
+                from quantara_engine.broker.vendor import parse_vendor
+
+                row = self.get_account_row() or {}
+                vendor_row = self.store.session.execute(
+                    text("SELECT broker_vendor::text FROM broker_accounts WHERE slug = :slug"),
+                    {"slug": self.account_slug},
+                ).scalar()
+                vendor = parse_vendor(str(vendor_row) if vendor_row else "SIMULATED")
+                fee_model = load_fee_profile(
+                    self.store,
+                    broker_vendor=vendor,
+                    execution_product=ExecutionProduct(execution_product),
+                )
+                if fee_model:
+                    notional = quantity * fill.fill_price
+                    return calculate_commission(
+                        fee_model=fee_model, notional=notional, quantity=quantity
+                    ).commission
+            except Exception:
+                pass
         return fill.fees.quantize(Decimal("0.0001"))
 
     def execute_order(

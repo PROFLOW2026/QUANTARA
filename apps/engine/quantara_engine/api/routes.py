@@ -854,6 +854,79 @@ def live_sim_compare(store: StoreDep):
     return build_comparison_summary(store)
 
 
+@router.get("/live-sim/owner-portfolio")
+def live_sim_owner_portfolio(store: StoreDep):
+    from quantara_engine.owner_portfolio.aggregation import aggregate_owner_portfolio
+    from quantara_engine.owner_portfolio.service import LIVE_SIM_OWNER_SLUG, OwnerPortfolioService
+
+    snapshot = aggregate_owner_portfolio(store, slug=LIVE_SIM_OWNER_SLUG)
+    if not snapshot:
+        return {"available": False}
+    svc = OwnerPortfolioService(store)
+    portfolio = svc.get_portfolio_row(LIVE_SIM_OWNER_SLUG)
+    allocations = svc.list_allocations(LIVE_SIM_OWNER_SLUG)
+    return {
+        "available": True,
+        "portfolio": portfolio,
+        "snapshot": {
+            "target_capital": float(snapshot.target_capital),
+            "total_equity": float(snapshot.total_equity),
+            "total_cash": float(snapshot.total_cash),
+            "total_realized_pnl": float(snapshot.total_realized_pnl),
+            "total_unrealized_pnl": float(snapshot.total_unrealized_pnl),
+            "total_gross_exposure": float(snapshot.total_gross_exposure),
+            "allocated_capital_sum": float(snapshot.allocated_capital_sum),
+            "allocation_remaining": float(snapshot.allocation_remaining),
+            "multi_broker_mode_enabled": snapshot.multi_broker_mode_enabled,
+        },
+        "allocations": allocations,
+    }
+
+
+@router.get("/live-sim/allocation-settings")
+def live_sim_allocation_settings_get(store: StoreDep):
+    from quantara_engine.owner_portfolio.service import LIVE_SIM_OWNER_SLUG, OwnerPortfolioService
+
+    svc = OwnerPortfolioService(store)
+    portfolio = svc.get_portfolio_row(LIVE_SIM_OWNER_SLUG)
+    if not portfolio:
+        return {"available": False}
+    allocations = svc.list_allocations(LIVE_SIM_OWNER_SLUG)
+    target = float(portfolio["target_capital"])
+    ibkr = next((a for a in allocations if a.get("broker_vendor") == "IBKR"), None)
+    kraken = next((a for a in allocations if a.get("broker_vendor") == "KRAKEN"), None)
+    ibkr_alloc = float(ibkr["allocated_capital"] or 0) if ibkr else 0.0
+    kraken_alloc = float(kraken["allocated_capital"] or 0) if kraken else 0.0
+    return {
+        "available": True,
+        "target_capital": target,
+        "ibkr_allocation": ibkr_alloc,
+        "kraken_allocation": kraken_alloc,
+        "remaining": target - ibkr_alloc - kraken_alloc,
+        "multi_broker_mode_enabled": bool(portfolio.get("multi_broker_mode_enabled")),
+        "can_activate": (ibkr_alloc + kraken_alloc) == target and target > 0,
+    }
+
+
+@router.post("/live-sim/allocation-settings")
+def live_sim_allocation_settings_post(store: StoreDep, body: dict):
+    from decimal import Decimal
+
+    from quantara_engine.owner_portfolio.service import LIVE_SIM_OWNER_SLUG, OwnerPortfolioService
+
+    ibkr = Decimal(str(body.get("ibkr_allocation", 0)))
+    kraken = Decimal(str(body.get("kraken_allocation", 0)))
+    activate = bool(body.get("activate", False))
+    svc = OwnerPortfolioService(store)
+    result = svc.configure_multi_broker_allocations(
+        LIVE_SIM_OWNER_SLUG,
+        ibkr_allocation=ibkr,
+        kraken_allocation=kraken,
+        activate=activate,
+    )
+    return result
+
+
 @router.get("/portfolio/risk-status")
 def portfolio_risk_status(store: StoreDep, portfolio_id: str = "competition"):
     portfolio = _resolve_portfolio(store, portfolio_id)

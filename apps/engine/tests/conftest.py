@@ -18,5 +18,18 @@ from tests.broker_integration_support import provision_broker_test_database
 
 @pytest.fixture(scope="session")
 def broker_test_database():
-    """Disposable PostgreSQL with migrations through 0006."""
+    """Disposable PostgreSQL with all forward migrations applied."""
     yield provision_broker_test_database()
+
+
+@pytest.fixture
+def broker_test_store(broker_test_database):
+    from quantara_engine.db.session import SessionLocal
+    from quantara_engine.persistence.store import TradingStore
+
+    session = SessionLocal()
+    store = TradingStore(session)
+    try:
+        yield store
+    finally:
+        session.close()

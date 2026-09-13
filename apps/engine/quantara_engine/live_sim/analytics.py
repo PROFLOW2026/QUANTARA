@@ -10,9 +10,12 @@ from sqlalchemy import text
 from quantara_engine.broker.accounts import LIVE_SIM_10K_ACCOUNT_SLUG
 from quantara_engine.broker.execution_service import BrokerExecutionService
 from quantara_engine.broker.state_builder import build_live_sim_broker_account
+from quantara_engine.broker.vendor import vendor_label_he
 from quantara_engine.live_sim.audit_scope import resolve_live_sim_audit_since
 from quantara_engine.live_sim.candidate_log import list_recent_allocations
 from quantara_engine.live_sim.risk_policy import compute_open_sl_risk, load_risk_settings
+from quantara_engine.owner_portfolio.aggregation import aggregate_owner_portfolio
+from quantara_engine.owner_portfolio.service import LIVE_SIM_OWNER_SLUG, OwnerPortfolioService
 from quantara_engine.persistence.store import TradingStore
 
 
@@ -120,10 +123,53 @@ def build_live_sim_summary(store: TradingStore) -> dict:
 
     daily_pnl = equity - settings.daily_start_equity
 
+    owner_snapshot = aggregate_owner_portfolio(store, slug=LIVE_SIM_OWNER_SLUG)
+    portfolio_svc = OwnerPortfolioService(store)
+    portfolio_row = portfolio_svc.get_portfolio_row(LIVE_SIM_OWNER_SLUG)
+    multi_broker = bool(portfolio_row and portfolio_row.get("multi_broker_mode_enabled"))
+    owner_payload = None
+    broker_breakdown = None
+    if owner_snapshot:
+        owner_payload = {
+            "slug": owner_snapshot.slug,
+            "target_capital": float(owner_snapshot.target_capital),
+            "total_equity": float(owner_snapshot.total_equity),
+            "total_cash": float(owner_snapshot.total_cash),
+            "total_realized_pnl": float(owner_snapshot.total_realized_pnl),
+            "total_unrealized_pnl": float(owner_snapshot.total_unrealized_pnl),
+            "total_gross_exposure": float(owner_snapshot.total_gross_exposure),
+            "total_net_exposure": float(owner_snapshot.total_net_exposure),
+            "allocated_capital_sum": float(owner_snapshot.allocated_capital_sum),
+            "allocation_remaining": float(owner_snapshot.allocation_remaining),
+            "multi_broker_mode_enabled": multi_broker,
+            "global_execution_halted": owner_snapshot.global_execution_halted,
+        }
+        if multi_broker:
+            broker_breakdown = [
+                {
+                    "slug": s.slug,
+                    "vendor": s.broker_vendor,
+                    "label_he": s.label_he or vendor_label_he(s.broker_vendor),
+                    "allocated_capital": float(s.allocated_capital or 0),
+                    "cash": float(s.cash),
+                    "equity": float(s.equity),
+                    "available_margin": float(s.available_margin),
+                    "realized_pnl": float(s.realized_pnl),
+                    "unrealized_pnl": float(s.unrealized_pnl),
+                    "gross_exposure": float(s.gross_exposure),
+                    "connection_state": s.connection_state,
+                    "enabled": s.enabled,
+                }
+                for s in owner_snapshot.broker_slices
+                if s.enabled
+            ]
+
     return {
         "available": True,
         "slug": LIVE_SIM_10K_ACCOUNT_SLUG,
         "label_he": "סימולציית $10,000",
+        "owner_portfolio": owner_payload,
+        "broker_breakdown": broker_breakdown,
         "starting_capital": float(starting),
         "equity": float(equity),
         "cash": float(row["cash"]),

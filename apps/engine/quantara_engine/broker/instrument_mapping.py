@@ -58,21 +58,37 @@ def _fallback_mapping(symbol: str) -> InstrumentExecutionMapping:
     )
 
 
-def load_instrument_mapping(store: TradingStore, symbol: str) -> InstrumentExecutionMapping:
+def load_instrument_mapping(
+    store: TradingStore,
+    symbol: str,
+    *,
+    broker_vendor: str | None = None,
+    broker_account_id: str | None = None,
+) -> InstrumentExecutionMapping:
     sym = symbol.upper().replace("/", "")
+    vendor_filter = (broker_vendor or "SIMULATED").upper()
     try:
         row = store.session.execute(
             text(
                 """
                 SELECT canonical_symbol, market_data_symbol, broker_symbol, broker_product_id,
                        execution_product::text, venue, asset_class, base_currency, quote_currency,
-                       contract_multiplier, tick_size, quantity_step, min_quantity, min_notional
+                       contract_multiplier, tick_size, quantity_step, min_quantity, min_notional,
+                       fractional_allowed
                 FROM instrument_execution_mappings
                 WHERE canonical_symbol = :sym
+                  AND broker_vendor = CAST(:vendor AS broker_vendor)
+                  AND (
+                    CAST(:account_id AS text) IS NULL
+                    OR broker_account_id = CAST(:account_id AS uuid)
+                    OR broker_account_id IS NULL
+                  )
+                ORDER BY
+                  CASE WHEN broker_account_id IS NOT NULL THEN 0 ELSE 1 END
                 LIMIT 1
                 """
             ),
-            {"sym": sym},
+            {"sym": sym, "vendor": vendor_filter, "account_id": broker_account_id},
         ).mappings().first()
     except Exception:
         store.session.rollback()
@@ -95,3 +111,43 @@ def load_instrument_mapping(store: TradingStore, symbol: str) -> InstrumentExecu
         min_quantity=Decimal(str(row["min_quantity"])),
         min_notional=Decimal(str(row["min_notional"])),
     )
+
+
+def load_all_mappings_for_symbol(store: TradingStore, symbol: str) -> list[InstrumentExecutionMapping]:
+    sym = symbol.upper().replace("/", "")
+    try:
+        rows = store.session.execute(
+            text(
+                """
+                SELECT canonical_symbol, market_data_symbol, broker_symbol, broker_product_id,
+                       execution_product::text, venue, asset_class, base_currency, quote_currency,
+                       contract_multiplier, tick_size, quantity_step, min_quantity, min_notional
+                FROM instrument_execution_mappings
+                WHERE canonical_symbol = :sym
+                ORDER BY broker_vendor, execution_product
+                """
+            ),
+            {"sym": sym},
+        ).mappings().all()
+    except Exception:
+        store.session.rollback()
+        return []
+    return [
+        InstrumentExecutionMapping(
+            canonical_symbol=str(r["canonical_symbol"]),
+            market_data_symbol=r.get("market_data_symbol"),
+            broker_symbol=r.get("broker_symbol"),
+            broker_product_id=r.get("broker_product_id"),
+            execution_product=ExecutionProduct(str(r["execution_product"])),
+            venue=r.get("venue"),
+            asset_class=str(r["asset_class"]),
+            base_currency=str(r["base_currency"]),
+            quote_currency=str(r["quote_currency"]),
+            contract_multiplier=Decimal(str(r["contract_multiplier"])),
+            tick_size=Decimal(str(r["tick_size"])),
+            quantity_step=Decimal(str(r["quantity_step"])),
+            min_quantity=Decimal(str(r["min_quantity"])),
+            min_notional=Decimal(str(r["min_notional"])),
+        )
+        for r in rows
+    ]
