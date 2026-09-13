@@ -600,6 +600,23 @@ def test_1m_mark_not_overwritten_by_older_5m():
     assert stored["NVDA"]["price"] == "105.50"
 
 
+def test_fx_credit_guard_falls_back_to_5m_pm():
+    store = MagicMock()
+    with patch(
+        "quantara_engine.execution.fx_fast_credit_guard.can_run_fast_fx_fetch",
+        return_value=False,
+    ):
+        from quantara_engine.execution.crypto_mark_valuation import (
+            should_skip_5m_position_management,
+        )
+
+        assert should_skip_5m_position_management(
+            store,
+            "XAUUSD",
+            now=datetime(2026, 9, 14, 12, 5, tzinfo=TZ),
+        ) is False
+
+
 def test_manage_all_open_positions_skips_fast_symbols():
     store = MagicMock()
     nvda = _instrument("NVDA")

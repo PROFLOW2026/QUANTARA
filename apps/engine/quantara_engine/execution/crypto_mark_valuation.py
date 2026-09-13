@@ -48,6 +48,35 @@ def is_fast_1m_protected_symbol(symbol: str) -> bool:
     return normalize_db_symbol(symbol) in FAST_ALL_1M_SYMBOLS
 
 
+def should_skip_5m_position_management(
+    store: TradingStore,
+    symbol: str,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """
+    Skip 5m PM when the 1m fast path is active for this symbol.
+
+    FX falls back to 5m when the Twelve Data credit guard blocks fast fetches.
+    Equities fall back outside US RTH. Crypto always uses 1m when listed.
+    """
+    from quantara_engine.execution.fx_fast_credit_guard import can_run_fast_fx_fetch
+    from quantara_engine.market_data.sessions import is_forex_session, is_us_equity_rth
+
+    db_sym = normalize_db_symbol(symbol)
+    if db_sym in FAST_CRYPTO_DB_SYMBOLS:
+        return True
+    if db_sym in FAST_EQUITY_DB_SYMBOLS:
+        now = now or datetime.now(timezone.utc)
+        return is_us_equity_rth(now)
+    if db_sym in FAST_FX_DB_SYMBOLS:
+        now = now or datetime.now(timezone.utc)
+        if not is_forex_session(now):
+            return False
+        return can_run_fast_fx_fetch(store)
+    return False
+
+
 def _as_utc(ts: datetime) -> datetime:
     if ts.tzinfo is None:
         return ts.replace(tzinfo=timezone.utc)
