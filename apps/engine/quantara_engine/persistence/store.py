@@ -2805,7 +2805,7 @@ class TradingStore:
         candles: list[DomainCandle] | None = None,
         processed_timestamps: set[datetime] | None = None,
     ) -> dict[str, Any]:
-        from quantara_engine.execution.catch_up import compute_backlog_status
+        from quantara_engine.execution.catch_up import compute_actionable_backlog_status
 
         if candles is None:
             candles = self.list_recent_candles(instrument_id, timeframe, limit=500)
@@ -2816,12 +2816,13 @@ class TradingStore:
                 instrument_id,
                 since=window_start,
             )
-        last_processed = max(processed_timestamps) if processed_timestamps else None
-        return compute_backlog_status(
+        return compute_actionable_backlog_status(
             candles,
             timeframe,
-            last_processed=last_processed,
-            now=now,
+            processed_timestamps,
+            now,
+            competition_floor=self.get_competition_started_at(),
+            eligible=True,
         )
 
     def persist_exit_execution(

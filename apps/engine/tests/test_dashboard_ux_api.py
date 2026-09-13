@@ -21,11 +21,33 @@ def test_strategy_freshness_splits_live_and_historical_backlog(mock_batch_ts):
             "status": "catching_up",
             "last_evaluation_at": (now - timedelta(minutes=1)).isoformat(),
             "jobs_pending": 737,
+            "jobs_live_pending": 2,
+            "jobs_historical_pending": 735,
             "timeframes": {
-                "5m": {"backlog": 0, "status": "healthy"},
-                "15m": {"backlog": 604, "status": "catching_up"},
-                "1h": {"backlog": 133, "status": "catching_up"},
-                "orb_5m": {"backlog": 0, "status": "healthy"},
+                "5m": {
+                    "backlog": 0,
+                    "live_actionable": 0,
+                    "historical_actionable": 0,
+                    "status": "healthy",
+                },
+                "15m": {
+                    "backlog": 604,
+                    "live_actionable": 1,
+                    "historical_actionable": 603,
+                    "status": "catching_up",
+                },
+                "1h": {
+                    "backlog": 133,
+                    "live_actionable": 1,
+                    "historical_actionable": 132,
+                    "status": "catching_up",
+                },
+                "orb_5m": {
+                    "backlog": 0,
+                    "live_actionable": 0,
+                    "historical_actionable": 0,
+                    "status": "healthy",
+                },
             },
         },
         "worker_status:data_fetcher": {"status": "healthy"},
@@ -35,8 +57,8 @@ def test_strategy_freshness_splits_live_and_historical_backlog(mock_batch_ts):
 
     summary = strategy_freshness_summary(store, now)
 
-    assert summary["live_backlog"] == 0
-    assert summary["historical_backlog"] == 737
+    assert summary["live_backlog"] == 2
+    assert summary["historical_backlog"] == 735
     assert summary["backlog"] == 737
     assert summary["healthy"] is True
 

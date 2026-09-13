@@ -14,7 +14,11 @@ from quantara_engine.competition.robot_a_universe import list_robot_a_tradable_d
 from quantara_engine.core.clock import BacktestClock
 from quantara_engine.db.session import session_scope
 from quantara_engine.domain.types import ExecutionAssumptions, Mode
-from quantara_engine.execution.catch_up import compute_backlog_status, list_catchup_candle_indices
+from quantara_engine.execution.catch_up import (
+    aggregate_actionable_backlog,
+    compute_actionable_backlog_status,
+    list_catchup_candle_indices,
+)
 from quantara_engine.market_data.candle_working_set import ensure_strategy_candles
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
 from quantara_engine.execution.strategy_scheduling import (
@@ -123,7 +127,9 @@ def _catchup_indices(
         now=now,
         processed_timestamps=processed,
     )
-    competition_floor = s.get_competition_started_at()
+    from quantara_engine.execution.catch_up import _effective_competition_floor
+
+    competition_floor = _effective_competition_floor(s.get_competition_started_at())
     if competition_floor is not None:
         indices = [i for i in indices if candles[i].timestamp >= competition_floor]
     return indices
@@ -135,17 +141,17 @@ def _timeframe_status_from_window(
     processed_timestamps: set[datetime],
     started_at: datetime,
     *,
+    competition_floor: datetime | None = None,
+    eligible: bool = True,
     extra: dict | None = None,
 ) -> dict:
-    if isinstance(processed_timestamps, set) and processed_timestamps:
-        last_processed = max(processed_timestamps)
-    else:
-        last_processed = None
-    status = compute_backlog_status(
+    status = compute_actionable_backlog_status(
         candles,
         timeframe,
-        last_processed=last_processed,
-        now=started_at,
+        processed_timestamps,
+        started_at,
+        competition_floor=competition_floor,
+        eligible=eligible,
     )
     if extra:
         status.update(extra)
@@ -349,6 +355,7 @@ def _process_timeframe_group(
 ) -> tuple[int, int, dict]:
     """Process missed completed candles. Live path always runs before historical."""
     instance_ids = [entry["instance"].id for entry in group]
+    competition_floor = s.get_competition_started_at()
     eligible, skip_reason = _check_eligibility(s, instrument, timeframe, started_at)
     if not eligible:
         candles = _ensure_candles(s, instrument, timeframe, settings_dict)
@@ -365,6 +372,8 @@ def _process_timeframe_group(
             timeframe,
             processed,
             started_at,
+            competition_floor=competition_floor,
+            eligible=False,
             extra={"skipped": True, "skip_reason": skip_reason},
         )
 
@@ -375,7 +384,11 @@ def _process_timeframe_group(
     )
     if len(candles) < STRATEGY_MIN_CANDLES:
         return 0, 0, _timeframe_status_from_window(
-            candles, timeframe, processed, started_at
+            candles,
+            timeframe,
+            processed,
+            started_at,
+            competition_floor=competition_floor,
         )
 
     indices = _catchup_indices(
@@ -389,7 +402,11 @@ def _process_timeframe_group(
     )
     if not indices:
         return 0, 0, _timeframe_status_from_window(
-            candles, timeframe, processed, started_at
+            candles,
+            timeframe,
+            processed,
+            started_at,
+            competition_floor=competition_floor,
         )
 
     latest_completed_ts = _latest_completed_timestamp(candles, timeframe, started_at)
@@ -462,7 +479,11 @@ def _process_timeframe_group(
                 candles_processed += 1
 
     tf_status = _timeframe_status_from_window(
-        candles, timeframe, processed, started_at
+        candles,
+        timeframe,
+        processed,
+        started_at,
+        competition_floor=competition_floor,
     )
     return candles_processed, total_decisions, tf_status
 
@@ -847,9 +868,8 @@ def _process_competition(
     }
     entries_count = len(robot_a) + len(orb_entries) + len(cde_entries)
 
-    overall_backlog = sum(
-        int(st.get("backlog", 0))
-        for st in (*tf_a.values(), *tf_b.values())
+    overall_live, overall_historical, overall_backlog = aggregate_actionable_backlog(
+        timeframe_status
     )
     duration_ms = round((time.perf_counter() - cycle_t0) * 1000, 1)
 
@@ -872,6 +892,8 @@ def _process_competition(
                 "timeframes": timeframe_status,
                 "instruments": instrument_status,
                 "jobs_pending": overall_backlog,
+                "jobs_live_pending": overall_live,
+                "jobs_historical_pending": overall_historical,
             },
         )
         s.save_worker_run(
@@ -895,6 +917,8 @@ def _process_competition(
         "robot_a_groups_evaluated": groups_a,
         "robot_b_groups_evaluated": groups_b,
         "jobs_pending": overall_backlog,
+        "jobs_live_pending": overall_live,
+        "jobs_historical_pending": overall_historical,
         "decisions": total_decisions,
         "competition_portfolios": entries_count,
         "timeframe_groups_evaluated": groups_evaluated,
@@ -1129,17 +1153,26 @@ def strategy_freshness_summary(store: TradingStore, now: datetime | None = None)
 
     market_summary = aggregate_market_health(market_health)
 
-    backlog = int(runner.get("jobs_pending") or 0)
     timeframe_status = runner.get("timeframes") or {}
-    live_keys = ("5m", "orb_5m")
-    historical_keys = ("15m", "1h")
-    live_backlog = sum(int(timeframe_status.get(k, {}).get("backlog", 0)) for k in live_keys)
-    historical_backlog = sum(
-        int(timeframe_status.get(k, {}).get("backlog", 0)) for k in historical_keys
-    )
-    if not timeframe_status:
-        historical_backlog = backlog
-        live_backlog = 0
+    live_backlog, historical_backlog, backlog = aggregate_actionable_backlog(timeframe_status)
+    if timeframe_status and backlog == 0 and int(runner.get("jobs_pending") or 0) > 0:
+        # Legacy worker snapshot before actionable fields — do not surface phantom raw gaps.
+        backlog = 0
+    elif not timeframe_status:
+        live_backlog = int(runner.get("jobs_live_pending") or 0)
+        historical_backlog = int(runner.get("jobs_historical_pending") or 0)
+        backlog = live_backlog + historical_backlog
+        if backlog == 0:
+            backlog = int(runner.get("jobs_pending") or 0)
+            historical_backlog = backlog
+            live_backlog = 0
+    else:
+        runner_live = runner.get("jobs_live_pending")
+        runner_hist = runner.get("jobs_historical_pending")
+        if runner_live is not None and runner_hist is not None:
+            live_backlog = int(runner_live)
+            historical_backlog = int(runner_hist)
+            backlog = live_backlog + historical_backlog
     status = runner.get("status")
     mode = runner.get("mode")
     live_error = runner.get("live_error")
@@ -1190,7 +1223,9 @@ def strategy_freshness_summary(store: TradingStore, now: datetime | None = None)
     elif stale_open:
         display_status = "market_stale"
     elif healthy:
-        display_status = "catching_up" if historical_backlog > 0 else "healthy"
+        display_status = (
+            "catching_up" if (live_backlog > 0 or historical_backlog > 0) else "healthy"
+        )
     elif market_summary.get("market_health_status") == "session_closed" and not has_live_error:
         display_status = "session_closed"
     else:

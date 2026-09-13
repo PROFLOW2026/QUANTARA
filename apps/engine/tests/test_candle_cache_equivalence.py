@@ -6,7 +6,10 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from quantara_engine.domain.types import Candle
-from quantara_engine.execution.catch_up import compute_backlog_status, list_catchup_candle_indices
+from quantara_engine.execution.catch_up import (
+    compute_actionable_backlog_status,
+    list_catchup_candle_indices,
+)
 from quantara_workers.jobs.run_strategy import _timeframe_status_from_window
 
 
@@ -34,12 +37,7 @@ def test_shared_window_status_matches_db_status_shape():
     now = candles[-1].timestamp + timedelta(minutes=10)
     processed = {candles[i].timestamp for i in range(10)}
     shared = _timeframe_status_from_window(candles, "5m", processed, now)
-    direct = compute_backlog_status(
-        candles,
-        "5m",
-        last_processed=max(processed),
-        now=now,
-    )
+    direct = compute_actionable_backlog_status(candles, "5m", processed, now)
     assert shared["backlog"] == direct["backlog"]
     assert shared["status"] == direct["status"]
 
