@@ -34,6 +34,17 @@ def advisory_broker_check(
     direction = "long" if intent.direction == Direction.LONG else "short"
     market_open = market_open_for_instrument(instrument, execution_at)
     data_fresh, _ = data_fresh_for_instrument(store, instrument, timeframe, execution_at)
+    from quantara_engine.broker.execution_model import resolve_execution_model
+    from quantara_engine.broker.execution_product import route_execution_product
+
+    profile = profile_for_account_slug(RESEARCH_PAPER_ACCOUNT_SLUG)
+    execution_model = resolve_execution_model(store, RESEARCH_PAPER_ACCOUNT_SLUG)
+    route = route_execution_product(
+        instrument.symbol,
+        direction,
+        execution_model=execution_model,
+        is_close=intent.is_close,
+    )
     request = BrokerOrderRequest(
         symbol=instrument.symbol,
         asset_class=str(instrument.asset_class),
@@ -45,9 +56,10 @@ def advisory_broker_check(
         opportunity_key=opportunity_key,
         market_open=market_open,
         data_fresh=data_fresh,
+        execution_product=route.product.value,
+        product_rules_key=route.asset_class_key,
     )
-    profile = profile_for_account_slug(RESEARCH_PAPER_ACCOUNT_SLUG)
-    return evaluate_broker_order(account, profile, request, fx_map)
+    return evaluate_broker_order(account, profile, request, fx_map, product_rules=route.rules)
 
 
 def should_use_broker_realism(portfolio_id: str) -> bool:

@@ -74,26 +74,53 @@ def create_paper_run(
     *,
     starting_broker_cash: Decimal,
     metadata: dict | None = None,
+    execution_model: str = "legacy_spot_limited",
 ) -> str:
     run_id = str(uuid.uuid4())
-    store.session.execute(
-        text(
-            """
-            INSERT INTO paper_runs (
-              id, status, started_at, starting_broker_cash, metadata
-            ) VALUES (
-              :id, :st, :at, :cash, CAST(:meta AS jsonb)
-            )
-            """
-        ),
-        {
-            "id": run_id,
-            "st": PAPER_RUN_STATUS_ACTIVE,
-            "at": datetime.now(timezone.utc),
-            "cash": starting_broker_cash,
-            "meta": json.dumps(metadata or {}),
-        },
-    )
+    meta = metadata or {}
+    if "execution_model" not in meta:
+        meta["execution_model"] = execution_model
+    try:
+        store.session.execute(
+            text(
+                """
+                INSERT INTO paper_runs (
+                  id, status, started_at, starting_broker_cash, metadata, execution_model
+                ) VALUES (
+                  :id, :st, :at, :cash, CAST(:meta AS jsonb),
+                  CAST(:model AS execution_model_version)
+                )
+                """
+            ),
+            {
+                "id": run_id,
+                "st": PAPER_RUN_STATUS_ACTIVE,
+                "at": datetime.now(timezone.utc),
+                "cash": starting_broker_cash,
+                "meta": json.dumps(meta),
+                "model": execution_model,
+            },
+        )
+    except Exception:
+        store.session.rollback()
+        store.session.execute(
+            text(
+                """
+                INSERT INTO paper_runs (
+                  id, status, started_at, starting_broker_cash, metadata
+                ) VALUES (
+                  :id, :st, :at, :cash, CAST(:meta AS jsonb)
+                )
+                """
+            ),
+            {
+                "id": run_id,
+                "st": PAPER_RUN_STATUS_ACTIVE,
+                "at": datetime.now(timezone.utc),
+                "cash": starting_broker_cash,
+                "meta": json.dumps(meta),
+            },
+        )
     store.update_settings(CURRENT_PAPER_RUN_SETTING, run_id)
     _COLUMN_CACHE.clear()
     return run_id

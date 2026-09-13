@@ -50,6 +50,9 @@ class BrokerRejectionReason(str, Enum):
     ACCOUNT_PAUSED = "account_paused"
     MARGIN_CALL = "margin_call"
     LIQUIDATION = "liquidation"
+    SHORT_LOCATE_UNAVAILABLE = "short_locate_unavailable"
+    LIQUIDATION_PROXIMITY = "liquidation_proximity"
+    RECONCILIATION_HALTED = "reconciliation_halted"
 
 
 @dataclass(frozen=True)
@@ -161,6 +164,9 @@ class BrokerOrderRequest:
     market_open: bool = True
     data_fresh: bool = True
     is_liquidation: bool = False
+    execution_product: str | None = None
+    product_rules_key: str | None = None
+    account_slug: str | None = None
 
 
 @dataclass

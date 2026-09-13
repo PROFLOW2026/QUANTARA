@@ -185,6 +185,8 @@ def _execute_accepted_allocation(
         order_purpose="entry",
         skip_if_not_competition=False,
         account_slug=LIVE_SIM_10K_ACCOUNT_SLUG,
+        stop_loss=stop_loss if stop_loss and stop_loss > 0 else None,
+        take_profit=take_profit,
     )
 
     if broker_res is None or not broker_res.accepted:
@@ -353,6 +355,7 @@ def _resume_pending_allocation(
         LIVE_SIM_10K_ACCOUNT_SLUG,
         instrument,
         str(existing["direction"]),
+        store=store,
     )
     if not cap.allowed:
         detail = broker_reason_he(cap.reason)
@@ -698,6 +701,7 @@ def maybe_allocate_live_sim(
         LIVE_SIM_10K_ACCOUNT_SLUG,
         instrument,
         direction,
+        store=store,
     )
     if not cap.allowed:
         detail = broker_reason_he(cap.reason)

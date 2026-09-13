@@ -493,6 +493,8 @@ class CandleProcessor:
             opportunity_key=opp_key,
             order_purpose=order_purpose,
             skip_if_not_competition=True,
+            stop_loss=intent.stop_loss if intent.stop_loss and intent.stop_loss > 0 else None,
+            take_profit=intent.take_profit,
         ) if self.store else None
 
         if result is None:
@@ -917,6 +919,7 @@ class CandleProcessor:
                 self.state.portfolio.id,
                 self.instrument,
                 entry_dir,
+                store=self.store,
             )
             if not cap.allowed:
                 self._log(

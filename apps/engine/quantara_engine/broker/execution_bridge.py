@@ -49,6 +49,8 @@ def execute_through_broker(
     is_liquidation: bool = False,
     skip_if_not_competition: bool = True,
     account_slug: str | None = None,
+    stop_loss: Decimal | None = None,
+    take_profit: Decimal | None = None,
 ) -> BrokerExecutionResult | None:
     """
     Canonical broker gate + fill persistence.
@@ -87,8 +89,8 @@ def execute_through_broker(
         portfolio_id=portfolio_id,
         direction=direction,
         quantity=quantity,
-        stop_loss=Decimal("0"),
-        take_profit=None,
+        stop_loss=stop_loss or Decimal("0"),
+        take_profit=take_profit,
         target_risk_amount=Decimal("0"),
         actual_risk_amount=Decimal("0"),
         signal_candle_timestamp=execution_at,

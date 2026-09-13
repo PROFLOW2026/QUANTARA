@@ -21,7 +21,31 @@ BROKER_REASON_HE: dict[str, str] = {
     "unsupported_asset": "הנכס אינו נתמך בחשבון המסחר הנוכחי",
     "broker_rejected": "הברוקר דחה את ההזמנה",
     "broker_capability_denied": "לא ניתן לביצוע בחשבון הנוכחי",
+    "submission_unknown": "מצב שליחה לא ידוע — נדרשת התאמה לפני המשך",
+    "reconciliation_halted": "פער התאמה — ביצוע חדש מושהה",
+    "short_locate_unavailable": "אין אפשרות לשאילת מניה לשורט — לא נפתחה עסקה",
+    "liquidation_proximity": "קרוב מדי לסף ליקווידציה — לא נפתחה עסקה",
 }
+
+EXECUTION_STAGE_HE: dict[str, str] = {
+    "strategy_setup": "זוהה תנאי אסטרטגיה",
+    "signal_created": "נוצר איתות",
+    "product_check": "בדיקת מוצר/יכולת",
+    "risk_check": "בדיקת סיכון",
+    "execution_approved": "אושרה לביצוע",
+    "order_sent": "פקודה נשלחה",
+    "broker_accepted": "התקבלה אצל הברוקר",
+    "partial_fill": "בוצעה חלקית",
+    "filled": "בוצעה במלואה",
+    "rejected": "נדחתה",
+    "not_opened": "לא נפתחה עסקה",
+}
+
+
+def execution_stage_he(stage: str | None) -> str:
+    if not stage:
+        return EXECUTION_STAGE_HE["not_opened"]
+    return EXECUTION_STAGE_HE.get(stage.strip().lower(), stage)
 
 
 def broker_reason_he(reason: str | None) -> str:

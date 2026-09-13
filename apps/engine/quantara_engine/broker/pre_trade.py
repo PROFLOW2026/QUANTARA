@@ -5,6 +5,9 @@ from __future__ import annotations
 from decimal import Decimal
 
 from quantara_engine.broker.instruments import get_instrument_spec
+from quantara_engine.broker.execution_product import ExecutionProduct
+from quantara_engine.broker.liquidation import liquidation_proximity_denied
+from quantara_engine.broker.short_locate import LocateStatus, check_short_locate
 from quantara_engine.broker.margin import (
     gross_leverage,
     initial_margin_for_notional,
@@ -15,6 +18,7 @@ from quantara_engine.broker.margin import (
 from quantara_engine.broker.normalizer import normalize_quantity, validate_quantity
 from quantara_engine.broker.types import (
     AccountState,
+    AssetClassRules,
     BrokerAccountSnapshot,
     BrokerOrderDecision,
     BrokerOrderRequest,
@@ -100,11 +104,29 @@ def _is_risk_reducing(current_qty: Decimal, order_signed: Decimal) -> bool:
     return (current_qty > 0 and order_signed < 0) or (current_qty < 0 and order_signed > 0)
 
 
+def _rules_for_symbol(
+    profile: BrokerProfile,
+    spec,
+    request: BrokerOrderRequest,
+    product_rules: AssetClassRules | None,
+) -> AssetClassRules:
+    if product_rules is not None:
+        return product_rules
+    if request.product_rules_key:
+        try:
+            return profile.rules_for(request.product_rules_key)
+        except KeyError:
+            pass
+    return profile.rules_for(spec.asset_class)
+
+
 def evaluate_broker_order(
     account: BrokerAccountSnapshot,
     profile: BrokerProfile,
     request: BrokerOrderRequest,
     fx_rates: dict[str, Decimal],
+    *,
+    product_rules: AssetClassRules | None = None,
 ) -> BrokerOrderDecision:
     """
     Determine whether a broker would accept an order.
@@ -113,7 +135,7 @@ def evaluate_broker_order(
     Risk-reducing orders are allowed even in margin_call (closes only).
     """
     spec = get_instrument_spec(request.symbol)
-    rules = profile.rules_for(spec.asset_class)
+    rules = _rules_for_symbol(profile, spec, request, product_rules)
 
     pos = account.positions.get(request.symbol)
     current_qty = pos.net_quantity if pos else Decimal("0")
@@ -177,11 +199,42 @@ def evaluate_broker_order(
         )
 
     if direction == "short" and not rules.shorting_allowed and not pure_close:
+        product_label = request.execution_product or spec.asset_class
         return _reject(
             BrokerRejectionReason.SHORT_NOT_ALLOWED,
-            f"shorting not allowed for {spec.asset_class}",
+            f"shorting not allowed for {product_label}",
             account=account,
         )
+
+    if (
+        direction == "short"
+        and not pure_close
+        and request.execution_product == ExecutionProduct.EQUITY_MARGIN_SHORT.value
+    ):
+        locate = check_short_locate(
+            request.symbol,
+            account_slug=request.account_slug or profile.slug,
+        )
+        if locate.status != LocateStatus.AVAILABLE:
+            return _reject(
+                BrokerRejectionReason.SHORT_LOCATE_UNAVAILABLE,
+                locate.detail or f"short locate {locate.status.value}",
+                account=account,
+            )
+
+    if not pure_close and rules.initial_margin_pct < Decimal("100"):
+        denied, detail = liquidation_proximity_denied(
+            direction=direction,
+            average_price=request.mark_price,
+            mark_price=request.mark_price,
+            rules=rules,
+        )
+        if denied:
+            return _reject(
+                BrokerRejectionReason.LIQUIDATION_PROXIMITY,
+                detail,
+                account=account,
+            )
 
     order_notional = quote_notional_usd(qty, request.mark_price, spec, fx_rates)
     if order_notional < spec.min_notional and spec.quote_currency != "JPY":

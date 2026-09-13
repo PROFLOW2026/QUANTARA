@@ -111,6 +111,14 @@ def test_non_crypto_short_allowed_at_capability_layer(instrument):
     assert cap.account_slug == RESEARCH_PAPER_ACCOUNT_SLUG
 
 
+def _legacy_store_mock():
+    store = MagicMock()
+    store.session.execute.return_value.mappings.return_value.first.return_value = {
+        "execution_model": "legacy_spot_limited",
+    }
+    return store
+
+
 def test_research_btc_short_blocked_before_intent():
     portfolio_id = ACTIVE_COMPETITION_PORTFOLIOS[0].portfolio_id
     signal_ts = datetime(2026, 9, 12, 18, 0, tzinfo=timezone.utc)
@@ -171,6 +179,9 @@ def test_research_btc_short_blocked_before_intent():
     )
     store.save_order_intent = MagicMock()
 
+    store.session.execute.return_value.mappings.return_value.first.side_effect = [
+        {"execution_model": "legacy_spot_limited"},
+    ]
     proc = CandleProcessor(
         portfolio_state=PortfolioState(portfolio=portfolio),
         strategy_instance=instance,
@@ -256,6 +267,18 @@ def test_live_sim_eth_short_capability_denied_no_pending():
         suggested_tp=Decimal("2450"),
     )
 
+    def _account_or_model(*args, **kwargs):
+        sql = str(getattr(args[0], "text", "") or args[0])
+        row = (
+            {"execution_model": "legacy_spot_limited"}
+            if "execution_model" in sql
+            else account
+        )
+        mock = MagicMock()
+        mock.mappings.return_value.first.return_value = row
+        return mock
+
+    store.session.execute.side_effect = _account_or_model
     with patch("quantara_engine.live_sim.allocator.find_allocation_by_canonical", return_value=None):
         with patch("quantara_engine.live_sim.allocator.log_allocation") as log_alloc:
             result = maybe_allocate_live_sim(
@@ -276,7 +299,12 @@ def test_live_sim_eth_short_capability_denied_no_pending():
 
 
 def test_account_slug_resolves_live_sim_profile():
-    cap = check_entry_capability_for_account(LIVE_SIM_10K_ACCOUNT_SLUG, _btc(), "short")
+    cap = check_entry_capability_for_account(
+        LIVE_SIM_10K_ACCOUNT_SLUG,
+        _btc(),
+        "short",
+        store=_legacy_store_mock(),
+    )
     assert not cap.allowed
     assert cap.account_slug == LIVE_SIM_10K_ACCOUNT_SLUG
 

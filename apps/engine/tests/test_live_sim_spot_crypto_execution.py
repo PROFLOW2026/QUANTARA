@@ -125,9 +125,17 @@ def test_crypto_long_pre_trade_fails_without_effective_cash_when_both_zero():
 
 def test_crypto_short_capability_denied():
     eth = _eth()
+    from unittest.mock import MagicMock
+
     from quantara_engine.broker.capability import check_entry_capability_for_account
 
-    cap = check_entry_capability_for_account(LIVE_SIM_10K_ACCOUNT_SLUG, eth, "short")
+    store = MagicMock()
+    store.session.execute.return_value.mappings.return_value.first.return_value = {
+        "execution_model": "legacy_spot_limited",
+    }
+    cap = check_entry_capability_for_account(
+        LIVE_SIM_10K_ACCOUNT_SLUG, eth, "short", store=store
+    )
     assert not cap.allowed
 
 

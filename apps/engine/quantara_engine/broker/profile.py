@@ -29,6 +29,15 @@ _STANDARD_ASSET_RULES: dict[str, AssetClassRules] = {
         shorting_allowed=False,  # spot default
         fractional_allowed=True,
     ),
+    "crypto_derivative": AssetClassRules(
+        initial_margin_pct=Decimal("10"),
+        maintenance_margin_pct=Decimal("5"),
+        max_leverage=Decimal("10"),
+        max_order_notional=Decimal("100000"),
+        max_position_notional=Decimal("200000"),
+        shorting_allowed=True,
+        fractional_allowed=True,
+    ),
     "forex": AssetClassRules(
         initial_margin_pct=Decimal("5"),  # 20:1 max
         maintenance_margin_pct=Decimal("2.5"),

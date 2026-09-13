@@ -12,7 +12,30 @@ from sqlalchemy.exc import IntegrityError
 
 from quantara_engine.broker.account import build_account_snapshot
 from quantara_engine.broker.attribution import allocate_fill_to_strategy_legs
+from quantara_engine.broker.client_order_id import derive_client_order_id
+from quantara_engine.broker.execution_model import (
+    ExecutionModelVersion,
+    parse_execution_model,
+    resolve_execution_model,
+    uses_realistic_broker,
+)
+from quantara_engine.broker.execution_product import route_execution_product
 from quantara_engine.broker.provenance import coerce_uuid
+from quantara_engine.broker.realistic_execution import (
+    aggregate_fill_result,
+    insert_broker_order,
+    submit_to_simulated_broker,
+    update_order_status,
+)
+from quantara_engine.broker.cost_accrual import accrue_position_costs
+from quantara_engine.broker.execution_timing import lifecycle_timestamps, fill_timestamp_for_sequence
+from quantara_engine.broker.liquidation import liquidation_price
+from quantara_engine.broker.protective_orders import (
+    cancel_protective_orders_for_position,
+    create_protective_orders_for_position,
+    sync_protective_quantity,
+)
+from quantara_engine.broker.reconciliation_loop import run_broker_reconciliation
 from quantara_engine.broker.instruments import get_instrument_spec
 from quantara_engine.broker.margin import (
     initial_margin_for_notional,
@@ -83,7 +106,9 @@ class BrokerExecutionService:
                 text(
                     """
                     SELECT id::text, is_active, pending_owner_reset, account_state::text AS account_state,
-                           cash, balance, realized_pnl, gross_realized_pnl, fees_paid, spot_crypto_cash
+                           cash, balance, realized_pnl, gross_realized_pnl, fees_paid, spot_crypto_cash,
+                           execution_model::text AS execution_model,
+                           reconciliation_halted
                     FROM broker_accounts WHERE slug = :slug
                     """
                 ),
@@ -104,6 +129,7 @@ class BrokerExecutionService:
                 d = dict(row)
                 d.setdefault("gross_realized_pnl", d.get("realized_pnl"))
                 d.setdefault("fees_paid", Decimal("0"))
+                d.setdefault("reconciliation_halted", False)
                 return d
             return None
 
@@ -279,29 +305,45 @@ class BrokerExecutionService:
             },
         )
 
-    def _load_existing_fill(self, account_id: str, idempotency_key: str) -> BrokerExecutionResult | None:
+    def _execution_model(self, account_row: dict | None = None) -> ExecutionModelVersion:
+        row = account_row or self.get_account_row()
+        if row and row.get("execution_model"):
+            return parse_execution_model(str(row["execution_model"]))
+        return resolve_execution_model(self.store, self.account_slug)
+
+    def _load_existing_fill(
+        self,
+        account_id: str,
+        idempotency_key: str,
+        client_order_id: str | None = None,
+    ) -> BrokerExecutionResult | None:
         row = self.store.session.execute(
             text(
                 """
                 SELECT o.id::text AS order_id, o.status::text AS status,
                        f.id::text AS fill_id, f.fill_price, f.fill_quantity,
-                       f.realized_pnl, f.fees, f.spread_cost, f.slippage
+                       f.realized_pnl, f.fees, f.spread_cost, f.slippage,
+                       o.filled_quantity, o.submission_unknown
                 FROM broker_orders o
                 LEFT JOIN broker_fills f ON f.broker_order_id = o.id
-                WHERE o.broker_account_id = :aid AND o.idempotency_key = :key
+                WHERE o.broker_account_id = :aid
+                  AND (o.idempotency_key = :key OR (:cid IS NOT NULL AND o.client_order_id = :cid))
+                ORDER BY f.fill_sequence DESC NULLS LAST
+                LIMIT 1
                 """
             ),
-            {"aid": account_id, "key": idempotency_key},
+            {"aid": account_id, "key": idempotency_key, "cid": client_order_id},
         ).mappings().first()
         if not row:
             return None
-        if row["status"] == "filled" and row["fill_id"]:
+        if row["status"] in ("filled", "partially_filled") and row["fill_id"]:
+            qty = row.get("filled_quantity") or row["fill_quantity"]
             return BrokerExecutionResult(
                 accepted=True,
                 broker_order_id=row["order_id"],
                 broker_fill_id=row["fill_id"],
                 fill_price=Decimal(str(row["fill_price"])),
-                fill_quantity=Decimal(str(row["fill_quantity"])),
+                fill_quantity=Decimal(str(qty)),
                 realized_pnl=Decimal(str(row["realized_pnl"])),
                 fees=Decimal(str(row["fees"])),
                 spread_cost=Decimal(str(row["spread_cost"] or 0)),
@@ -309,6 +351,8 @@ class BrokerExecutionService:
                 from_existing_fill=True,
             )
         if row["status"] == "rejected":
+            return BrokerExecutionResult(accepted=False, broker_order_id=row["order_id"])
+        if row.get("submission_unknown"):
             return BrokerExecutionResult(accepted=False, broker_order_id=row["order_id"])
         return None
 
@@ -355,6 +399,17 @@ class BrokerExecutionService:
             )
 
         account_id = account_row["id"]
+        if account_row.get("reconciliation_halted"):
+            return BrokerExecutionResult(
+                accepted=False,
+                decision=BrokerOrderDecision(
+                    accepted=False,
+                    accepted_quantity=Decimal("0"),
+                    rejection_reason=BrokerRejectionReason.RECONCILIATION_HALTED,
+                    rejection_detail="reconciliation halted — resolve before new execution",
+                ),
+            )
+
         may_trade, block_reason = self._account_may_trade(account_row)
         if not may_trade:
             return BrokerExecutionResult(
@@ -367,7 +422,12 @@ class BrokerExecutionService:
                 ),
             )
 
-        existing = self._load_existing_fill(account_id, idempotency_key)
+        execution_model = self._execution_model(account_row)
+        client_order_id = derive_client_order_id(
+            account_slug=self.account_slug,
+            idempotency_key=idempotency_key,
+        )
+        existing = self._load_existing_fill(account_id, idempotency_key, client_order_id)
         if existing:
             return existing
 
@@ -379,6 +439,12 @@ class BrokerExecutionService:
 
         direction = "long" if intent.direction == Direction.LONG else "short"
         is_close = intent.is_close or order_purpose in ("sl", "tp", "close", "flatten", "liquidation")
+        route = route_execution_product(
+            instrument.symbol,
+            direction,
+            execution_model=execution_model,
+            is_close=is_close,
+        )
         request = BrokerOrderRequest(
             symbol=instrument.symbol,
             asset_class=str(instrument.asset_class),
@@ -391,42 +457,65 @@ class BrokerExecutionService:
             market_open=market_open,
             data_fresh=data_fresh,
             is_liquidation=is_liquidation,
+            execution_product=route.product.value,
+            product_rules_key=route.asset_class_key,
+            account_slug=self.account_slug,
         )
-        decision = evaluate_broker_order(snapshot, self.profile, request, fx_map)
+        decision = evaluate_broker_order(
+            snapshot, self.profile, request, fx_map, product_rules=route.rules
+        )
 
         order_id = str(uuid.uuid4())
         db_strategy_intent_id = None if is_liquidation else coerce_uuid(strategy_intent_id)
         db_strategy_portfolio_id = None if is_liquidation else coerce_uuid(intent.portfolio_id)
         try:
-            self.store.session.execute(
-                text(
-                    """
-                    INSERT INTO broker_orders (
-                      id, broker_account_id, strategy_intent_id, strategy_portfolio_id,
-                      instrument_id, direction, requested_quantity, status,
-                      idempotency_key, order_purpose, submitted_at
-                    ) VALUES (
-                      :id, :aid, :iid, :pid, :inst, :dir, :qty, 'validating',
-                      :key, :purpose, :sub
-                    )
-                    """
-                ),
-                {
-                    "id": order_id,
-                    "aid": account_id,
-                    "iid": db_strategy_intent_id,
-                    "pid": db_strategy_portfolio_id,
-                    "inst": instrument.id,
-                    "dir": direction,
-                    "qty": intent.quantity,
-                    "key": idempotency_key,
-                    "purpose": order_purpose,
-                    "sub": execution_at,
-                },
-            )
+            if uses_realistic_broker(execution_model):
+                insert_broker_order(
+                    self.store.session,
+                    order_id=order_id,
+                    account_id=account_id,
+                    instrument_id=instrument.id,
+                    direction=direction,
+                    quantity=intent.quantity,
+                    idempotency_key=idempotency_key,
+                    client_order_id=client_order_id,
+                    execution_product=route.product.value,
+                    execution_model=execution_model.value,
+                    order_purpose=order_purpose,
+                    execution_at=execution_at,
+                    db_strategy_intent_id=db_strategy_intent_id,
+                    db_strategy_portfolio_id=db_strategy_portfolio_id,
+                )
+            else:
+                self.store.session.execute(
+                    text(
+                        """
+                        INSERT INTO broker_orders (
+                          id, broker_account_id, strategy_intent_id, strategy_portfolio_id,
+                          instrument_id, direction, requested_quantity, status,
+                          idempotency_key, order_purpose, submitted_at
+                        ) VALUES (
+                          :id, :aid, :iid, :pid, :inst, :dir, :qty, 'validating',
+                          :key, :purpose, :sub
+                        )
+                        """
+                    ),
+                    {
+                        "id": order_id,
+                        "aid": account_id,
+                        "iid": db_strategy_intent_id,
+                        "pid": db_strategy_portfolio_id,
+                        "inst": instrument.id,
+                        "dir": direction,
+                        "qty": intent.quantity,
+                        "key": idempotency_key,
+                        "purpose": order_purpose,
+                        "sub": execution_at,
+                    },
+                )
         except IntegrityError:
             self.store.session.rollback()
-            dup = self._load_existing_fill(account_id, idempotency_key)
+            dup = self._load_existing_fill(account_id, idempotency_key, client_order_id)
             if dup:
                 return dup
             return BrokerExecutionResult(accepted=False, decision=decision)
@@ -466,6 +555,83 @@ class BrokerExecutionService:
             self.store.session.flush()
             return BrokerExecutionResult(accepted=False, broker_order_id=order_id, decision=decision)
 
+        if uses_realistic_broker(execution_model):
+            accepted_at, first_fill_at = lifecycle_timestamps(execution_at)
+            update_order_status(
+                self.store.session,
+                order_id,
+                "accepted",
+                accepted_at=accepted_at,
+            )
+            update_order_status(self.store.session, order_id, "submitted")
+            _, sim_result = submit_to_simulated_broker(
+                self.store,
+                account_slug=self.account_slug,
+                account_id=account_id,
+                execution_model=execution_model,
+                broker_order_id=order_id,
+                client_order_id=client_order_id,
+                symbol=instrument.symbol,
+                direction=direction,
+                quantity=decision.accepted_quantity,
+                mark_price=fill.fill_price,
+                route=route,
+                pre_accepted=True,
+                execution_at=execution_at,
+                instrument=instrument,
+                is_close=is_close,
+            )
+            if sim_result.submission_unknown:
+                update_order_status(
+                    self.store.session,
+                    order_id,
+                    "submitted",
+                    submission_unknown=True,
+                )
+                self.store.session.flush()
+                return BrokerExecutionResult(accepted=False, broker_order_id=order_id, decision=decision)
+            if not sim_result.accepted or not sim_result.fill_slices:
+                update_order_status(self.store.session, order_id, "rejected")
+                self.store.session.flush()
+                return BrokerExecutionResult(accepted=False, broker_order_id=order_id, decision=decision)
+
+            combined = aggregate_fill_result(sim_result.fill_slices)
+            total_filled = sum(s.quantity for s in sim_result.fill_slices)
+            remaining = decision.accepted_quantity - total_filled
+            update_order_status(
+                self.store.session,
+                order_id,
+                sim_result.status,
+                filled_quantity=total_filled,
+                remaining_quantity=max(Decimal("0"), remaining),
+                filled_at=first_fill_at if sim_result.status == "filled" else None,
+            )
+            result = self._apply_fill_slices(
+                account_id=account_id,
+                order_id=order_id,
+                instrument=instrument,
+                direction=direction,
+                slices=sim_result.fill_slices,
+                execution_at=first_fill_at,
+                fx_map=fx_map,
+                snapshot=snapshot,
+                portfolio_id=intent.portfolio_id,
+                strategy_position_id=strategy_position_id,
+                opportunity_key=opportunity_key,
+                is_close=is_close,
+                order_purpose=order_purpose,
+                product_rules=route.rules,
+                execution_product=route.product.value,
+                stop_loss=intent.stop_loss if intent.stop_loss and intent.stop_loss > 0 else None,
+                take_profit=intent.take_profit,
+            )
+            run_broker_reconciliation(
+                self.store,
+                account_id=account_id,
+                account_slug=self.account_slug,
+            )
+            return result
+
         return self._apply_fill(
             account_id=account_id,
             order_id=order_id,
@@ -482,6 +648,54 @@ class BrokerExecutionService:
             is_close=is_close,
             order_purpose=order_purpose,
         )
+
+    def _apply_fill_slices(
+        self,
+        *,
+        account_id: str,
+        order_id: str,
+        instrument: Instrument,
+        direction: str,
+        slices,
+        execution_at: datetime,
+        fx_map: dict[str, Decimal],
+        snapshot,
+        portfolio_id: str,
+        strategy_position_id: str | None,
+        opportunity_key: str | None,
+        is_close: bool,
+        order_purpose: str,
+        product_rules=None,
+        execution_product: str | None = None,
+        stop_loss: Decimal | None = None,
+        take_profit: Decimal | None = None,
+    ) -> BrokerExecutionResult:
+        last_result: BrokerExecutionResult | None = None
+        for sl in slices:
+            last_result = self._apply_fill(
+                account_id=account_id,
+                order_id=order_id,
+                instrument=instrument,
+                direction=direction,
+                quantity=sl.quantity,
+                fill=sl.fill,
+                execution_at=execution_at,
+                fx_map=fx_map,
+                snapshot=snapshot,
+                portfolio_id=portfolio_id,
+                strategy_position_id=strategy_position_id,
+                opportunity_key=opportunity_key,
+                is_close=is_close,
+                order_purpose=order_purpose,
+                fill_sequence=sl.sequence,
+                product_rules=product_rules,
+                execution_product=execution_product,
+                defer_order_status=True,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+            )
+            snapshot = self.load_account_snapshot(account_id)
+        return last_result or BrokerExecutionResult(accepted=False)
 
     def _apply_fill(
         self,
@@ -500,9 +714,15 @@ class BrokerExecutionService:
         opportunity_key: str | None,
         is_close: bool,
         order_purpose: str,
+        fill_sequence: int = 1,
+        product_rules=None,
+        execution_product: str | None = None,
+        defer_order_status: bool = False,
+        stop_loss: Decimal | None = None,
+        take_profit: Decimal | None = None,
     ) -> BrokerExecutionResult:
         spec = get_instrument_spec(instrument.symbol)
-        rules = self.profile.rules_for(spec.asset_class)
+        rules = product_rules or self.profile.rules_for(spec.asset_class)
         fees = self._execution_fees(fill)
 
         pos_row = self.store.session.execute(
@@ -549,8 +769,18 @@ class BrokerExecutionService:
         fill_id = str(uuid.uuid4())
         position_id = pos_row["id"] if pos_row else str(uuid.uuid4())
 
+        pos_dir = "long" if netting.new_net_qty > 0 else "short"
+        liq_px = liquidation_price(
+            direction=pos_dir,
+            average_price=netting.new_avg_price,
+            rules=rules,
+        )
+
         if netting.new_net_qty == 0:
             if pos_row:
+                cancel_protective_orders_for_position(
+                    self.store, broker_position_id=position_id
+                )
                 self.store.session.execute(
                     text(
                         "UPDATE broker_fills SET broker_position_id = NULL WHERE broker_position_id = :id"
@@ -569,7 +799,8 @@ class BrokerExecutionService:
                     """
                     UPDATE broker_positions SET net_quantity = :qty, average_price = :avg,
                       mark_price = :mark, unrealized_pnl = :upnl,
-                      initial_margin = :im, maintenance_margin = :mm, updated_at = NOW()
+                      initial_margin = :im, maintenance_margin = :mm,
+                      liquidation_price = :liq, updated_at = NOW()
                     WHERE id = :id
                     """
                 ),
@@ -581,8 +812,19 @@ class BrokerExecutionService:
                     "upnl": unreal,
                     "im": initial_margin_for_notional(notional, rules),
                     "mm": maintenance_margin_for_notional(notional, rules),
+                    "liq": liq_px,
                 },
             )
+            if is_close:
+                cancel_protective_orders_for_position(
+                    self.store, broker_position_id=position_id
+                )
+            elif not is_close:
+                sync_protective_quantity(
+                    self.store,
+                    broker_position_id=position_id,
+                    quantity=abs(netting.new_net_qty),
+                )
         else:
             notional = quote_notional_usd(netting.new_net_qty, fill.fill_price, spec, fx_map)
             unreal = unrealized_pnl_usd(netting.new_net_qty, netting.new_avg_price, fill.fill_price, spec, fx_map)
@@ -591,8 +833,9 @@ class BrokerExecutionService:
                     """
                     INSERT INTO broker_positions (
                       id, broker_account_id, instrument_id, net_quantity, average_price,
-                      mark_price, unrealized_pnl, initial_margin, maintenance_margin
-                    ) VALUES (:id, :aid, :iid, :qty, :avg, :mark, :upnl, :im, :mm)
+                      mark_price, unrealized_pnl, initial_margin, maintenance_margin,
+                      liquidation_price
+                    ) VALUES (:id, :aid, :iid, :qty, :avg, :mark, :upnl, :im, :mm, :liq)
                     """
                 ),
                 {
@@ -605,18 +848,33 @@ class BrokerExecutionService:
                     "upnl": unreal,
                     "im": initial_margin_for_notional(notional, rules),
                     "mm": maintenance_margin_for_notional(notional, rules),
+                    "liq": liq_px,
                 },
             )
+            if not is_close and (stop_loss or take_profit):
+                create_protective_orders_for_position(
+                    self.store,
+                    broker_account_id=account_id,
+                    broker_position_id=position_id,
+                    symbol=instrument.symbol,
+                    direction=pos_dir,
+                    quantity=abs(netting.new_net_qty),
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                    account_slug=self.account_slug,
+                    opportunity_key=opportunity_key,
+                )
 
-        self.store.session.execute(
-            text(
-                """
-                UPDATE broker_orders SET status = 'filled', accepted_quantity = :qty, updated_at = NOW()
-                WHERE id = :id
-                """
-            ),
-            {"id": order_id, "qty": quantity},
-        )
+        if not defer_order_status:
+            self.store.session.execute(
+                text(
+                    """
+                    UPDATE broker_orders SET status = 'filled', accepted_quantity = :qty, updated_at = NOW()
+                    WHERE id = :id
+                    """
+                ),
+                {"id": order_id, "qty": quantity},
+            )
 
         self.store.session.execute(
             text(
@@ -624,13 +882,14 @@ class BrokerExecutionService:
                 INSERT INTO broker_fills (
                   id, broker_order_id, broker_position_id, fill_sequence,
                   fill_price, fill_quantity, realized_pnl, fees, slippage, spread_cost, filled_at
-                ) VALUES (:id, :oid, :pid, 1, :price, :qty, :pnl, :fees, :slip, :spread, :at)
+                ) VALUES (:id, :oid, :pid, :seq, :price, :qty, :pnl, :fees, :slip, :spread, :at)
                 """
             ),
             {
                 "id": fill_id,
                 "oid": order_id,
                 "pid": position_id,
+                "seq": fill_sequence,
                 "price": fill.fill_price,
                 "qty": quantity,
                 "pnl": gross_fill_pnl,
@@ -640,6 +899,20 @@ class BrokerExecutionService:
                 "at": execution_at,
             },
         )
+
+        if execution_product and position_id and fill_sequence == 1 and not is_close:
+            try:
+                self.store.session.execute(
+                    text(
+                        """
+                        UPDATE broker_positions SET execution_product = CAST(:product AS execution_product)
+                        WHERE id = :id
+                        """
+                    ),
+                    {"id": position_id, "product": execution_product},
+                )
+            except Exception:
+                pass
 
         allocation = allocate_fill_to_strategy_legs(
             self.store,
@@ -708,7 +981,8 @@ class BrokerExecutionService:
             row = self.store.session.execute(
                 text(
                     """
-                    SELECT bp.id::text AS id, bp.net_quantity, bp.average_price
+                    SELECT bp.id::text AS id, bp.net_quantity, bp.average_price,
+                           bp.execution_product::text AS execution_product
                     FROM broker_positions bp
                     JOIN instruments i ON i.id = bp.instrument_id
                     WHERE bp.broker_account_id = :aid AND i.symbol = :sym
@@ -739,6 +1013,20 @@ class BrokerExecutionService:
                     "mm": maintenance_margin_for_notional(notional, rules),
                 },
             )
+            try:
+                accrue_position_costs(
+                    self.store,
+                    broker_account_id=account_id,
+                    broker_position_id=row["id"],
+                    symbol=symbol.upper(),
+                    net_quantity=qty,
+                    mark_price=mark,
+                    execution_product=row.get("execution_product"),
+                    fx_rates=fx_map,
+                    now=at,
+                )
+            except Exception:
+                pass
 
         self._refresh_account_from_db(account_id)
         self.run_liquidation_if_required(at=at)
