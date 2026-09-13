@@ -8,9 +8,14 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from quantara_engine.api.cors import cors_response_headers, is_allowed_origin, resolve_cors_origins
+from quantara_engine.api.live_stream_routes import live_stream_router
 from quantara_engine.api.routes import router
 from quantara_engine.core.config import settings
 from quantara_engine.db.session import init_db
+from quantara_engine.market_data.streaming.stream_manager import (
+    start_stream_manager,
+    stop_stream_manager,
+)
 
 
 class QuantaCORSMiddleware(BaseHTTPMiddleware):
@@ -41,12 +46,15 @@ async def lifespan(app: FastAPI):
     init_db()
     origins = resolve_cors_origins()
     print(f"QUANTARA CORS origins: {', '.join(origins)}")
+    start_stream_manager()
     yield
+    stop_stream_manager()
 
 
 app = FastAPI(title="QUANTARA Engine", version="0.1.0", lifespan=lifespan)
 app.add_middleware(QuantaCORSMiddleware)  # CORS on success and error responses
 app.include_router(router)
+app.include_router(live_stream_router)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ dependencies = [
   "pydantic>=2.0",
   "pydantic-settings>=2.0",
   "apscheduler>=3.10.0",
+  "websockets>=13.0",
 ]
 
 [project.optional-dependencies]

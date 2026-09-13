@@ -32,6 +32,7 @@ MAX_FINNHUB_QUOTE_AGE_SECONDS = 120
 RECOVERY_HEALTHY_STREAK = 2
 SOURCE_FINNHUB = "finnhub"
 SOURCE_ALPACA = "alpaca"
+SOURCE_ALPACA_WS = "alpaca_ws"
 
 
 def _as_utc(ts: datetime) -> datetime:
@@ -73,6 +74,26 @@ def is_finnhub_quote_fresh(
     quote_age = (now - quote_at).total_seconds()
     receive_age = (now - received_at).total_seconds()
     return quote_age <= MAX_FINNHUB_QUOTE_AGE_SECONDS and receive_age <= MAX_FINNHUB_QUOTE_AGE_SECONDS
+
+
+def apply_equity_ws_live_mark(
+    store: TradingStore,
+    symbol: str,
+    price: Decimal,
+    at: datetime,
+) -> None:
+    """Alpaca WebSocket trade as primary equity LIVE_MARK during RTH."""
+    db_sym = normalize_db_symbol(symbol)
+    if db_sym not in FAST_EQUITY_DB_SYMBOLS:
+        return
+    at = _as_utc(at)
+    _apply_display_mark(store, db_sym, price, at, SOURCE_ALPACA_WS)
+    stored = load_fast_canonical_marks(store)
+    entry = dict(stored.get(db_sym) or {})
+    entry["alpaca_price"] = str(price)
+    entry["alpaca_at"] = at.isoformat()
+    stored[db_sym] = entry
+    store.update_settings(FAST_CANONICAL_MARKS_KEY, stored, flush=False)
 
 
 def store_equity_alpaca_fallback_mark(
@@ -143,6 +164,12 @@ def resolve_equity_live_mark(
     entry = load_fast_canonical_marks(store).get(db_sym)
     if not entry:
         return None
+
+    if entry.get("source") == SOURCE_ALPACA_WS and _finnhub_entry_still_fresh(entry, now):
+        price_raw = entry.get("price")
+        at = _parse_entry_at(entry)
+        if price_raw and at:
+            return Decimal(str(price_raw)), at, SOURCE_ALPACA_WS
 
     source = entry.get("source") or SOURCE_ALPACA
     if source == SOURCE_FINNHUB and _finnhub_entry_still_fresh(entry, now):
