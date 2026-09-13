@@ -34,6 +34,8 @@ export function describeUpstreamFetchError(error: unknown): {
   };
 }
 
+const TRANSIENT_RETRY_DELAY_MS = 150;
+
 /** One retry on transient connect failures (not timeouts). */
 export async function fetchEngineUpstream(
   target: string,
@@ -45,6 +47,7 @@ export async function fetchEngineUpstream(
     if (isFetchTimeout(first)) {
       throw first;
     }
+    await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
     return fetch(target, init);
   }
 }
