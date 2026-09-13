@@ -521,9 +521,9 @@ def manage_all_open_positions(
                 report.errors.append({"position_id": position.id, "error": "instrument_not_found"})
                 report.positions_failed += 1
                 continue
-            from quantara_engine.execution.crypto_fast_protection import is_fast_protection_crypto
+            from quantara_engine.execution.crypto_mark_valuation import is_fast_1m_protected_symbol
 
-            if is_fast_protection_crypto(instrument.symbol):
+            if is_fast_1m_protected_symbol(instrument.symbol):
                 continue
             work.append((position, instance, instrument))
 

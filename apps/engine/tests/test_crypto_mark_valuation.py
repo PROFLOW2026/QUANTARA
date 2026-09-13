@@ -164,7 +164,7 @@ def test_refresh_broker_marks_skips_1m_owned_crypto():
         "quantara_engine.broker.integration.BrokerExecutionService",
         return_value=svc,
     ), patch(
-        "quantara_engine.execution.crypto_mark_valuation.crypto_mark_owned_by_1m",
+        "quantara_engine.execution.crypto_mark_valuation.fast_mark_owned_by_1m",
         return_value=True,
     ):
         refresh_broker_marks_from_latest_closes(store, symbols=["ETHUSD"])

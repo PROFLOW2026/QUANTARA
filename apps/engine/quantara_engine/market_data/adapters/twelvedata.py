@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.twelvedata.com"
 
 TIMEFRAME_TO_INTERVAL: dict[str, str] = {
+    "1m": "1min",
     "5m": "5min",
     "15m": "15min",
     "1h": "1h",

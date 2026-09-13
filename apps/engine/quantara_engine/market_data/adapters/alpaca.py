@@ -30,10 +30,13 @@ from quantara_engine.persistence.store import TradingStore
 logger = logging.getLogger(__name__)
 
 TIMEFRAME_MAP = {
+    "1m": "1Min",
     "5m": "5Min",
     "15m": "15Min",
     "1h": "1Hour",
 }
+
+FAST_PROTECTION_TIMEFRAME = "1m"
 
 
 class AlpacaError(Exception):
@@ -278,6 +281,71 @@ class AlpacaMarketDataProvider:
             cursor = last_ts + bar_step
 
         return self._to_candles(all_rows, instrument_id, timeframe, since=since)
+
+    def _fetch_equity_bars_batch(
+        self,
+        *,
+        symbols: list[str],
+        timeframe: str,
+        start: datetime | None,
+        limit: int,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Multi-symbol equity bars (one HTTP request)."""
+        if not symbols:
+            return {}
+        tf = TIMEFRAME_MAP.get(timeframe)
+        if not tf:
+            raise AlpacaError(f"Unsupported timeframe: {timeframe}")
+        params: dict[str, Any] = {
+            "symbols": ",".join(symbols),
+            "timeframe": tf,
+            "limit": min(limit, 10000),
+            "feed": self.feed,
+        }
+        if start:
+            params["start"] = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+        url = f"{self.base_url}/v2/stocks/bars?" + urllib.parse.urlencode(params)
+        payload = self._request(url, ",".join(symbols))
+        bars = payload.get("bars")
+        if isinstance(bars, dict):
+            return {sym: list(bars.get(sym) or []) for sym in symbols}
+        if isinstance(bars, list) and len(symbols) == 1:
+            return {symbols[0]: bars}
+        return {sym: [] for sym in symbols}
+
+    def fetch_equity_1m_batch(
+        self,
+        entries: list[tuple[str, str]],
+        *,
+        since: datetime,
+    ) -> dict[str, list[Candle]]:
+        """
+        Position-only fast path: batched 1m equity bars.
+
+        entries: list of (instrument_id, provider_ticker)
+        """
+        if not entries:
+            return {}
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        symbol_to_iid = {ticker: iid for iid, ticker in entries}
+        tickers = list(symbol_to_iid.keys())
+        start = since - timedelta(minutes=15)
+        rows_by_symbol = self._fetch_equity_bars_batch(
+            symbols=tickers,
+            timeframe=FAST_PROTECTION_TIMEFRAME,
+            start=start,
+            limit=100,
+        )
+        out: dict[str, list[Candle]] = {}
+        for ticker, rows in rows_by_symbol.items():
+            iid = symbol_to_iid.get(ticker)
+            if not iid:
+                continue
+            out[iid] = self._to_candles(
+                rows, iid, FAST_PROTECTION_TIMEFRAME, since=since
+            )
+        return out
 
     def fetch_latest(
         self,

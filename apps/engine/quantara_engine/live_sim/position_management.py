@@ -43,11 +43,11 @@ def process_live_sim_exits(store: TradingStore, now: datetime) -> dict:
         {"aid": account_id},
     ).mappings().all()
 
-    from quantara_engine.execution.crypto_fast_protection import is_fast_protection_crypto
+    from quantara_engine.execution.crypto_mark_valuation import is_fast_1m_protected_symbol
 
     closed = 0
     for row in rows:
-        if is_fast_protection_crypto(row["symbol"]):
+        if is_fast_1m_protected_symbol(row["symbol"]):
             continue
         instrument = store.get_instrument_by_id(row["instrument_id"])
         if not instrument:

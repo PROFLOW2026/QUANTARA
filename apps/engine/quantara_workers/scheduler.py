@@ -10,6 +10,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from quantara_workers.jobs.crypto_fast_protection import crypto_fast_protection_job
+from quantara_workers.jobs.non_crypto_fast_protection import non_crypto_fast_protection_job
 from quantara_workers.jobs.execute_intents import execute_intents_job
 from quantara_workers.jobs.fetch_data import fetch_bulk_job, fetch_live_job
 from quantara_workers.jobs.position_management import position_management_job
@@ -91,6 +92,14 @@ class WorkerScheduler:
             crypto_fast_protection_job,
             CronTrigger(minute="*", second=30),
             id="crypto_fast_protection",
+            replace_existing=True,
+            **_HOUSEKEEPING_OPTS,
+        )
+        # US equities + FX open-position SL/TP on completed 1m bars — position-only.
+        self.scheduler.add_job(
+            non_crypto_fast_protection_job,
+            CronTrigger(minute="*", second=45),
+            id="non_crypto_fast_protection",
             replace_existing=True,
             **_HOUSEKEEPING_OPTS,
         )

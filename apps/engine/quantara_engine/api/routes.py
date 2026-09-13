@@ -459,12 +459,12 @@ def analytics_assets(store: StoreDep):
 
             if open_positions > 0:
                 from quantara_engine.execution.crypto_mark_valuation import (
-                    get_crypto_canonical_mark,
-                    is_fast_protection_crypto,
+                    get_fast_canonical_mark,
+                    is_fast_1m_protected_symbol,
                 )
 
-                if is_fast_protection_crypto(asset.db_symbol):
-                    canon = get_crypto_canonical_mark(store, asset.db_symbol)
+                if is_fast_1m_protected_symbol(asset.db_symbol):
+                    canon = get_fast_canonical_mark(store, asset.db_symbol)
                     if canon:
                         latest_price = float(canon[0])
                         last_candle = canon[1]

@@ -24,11 +24,28 @@ from quantara_engine.portfolio.pnl import update_position_unrealized
 logger = logging.getLogger(__name__)
 
 CRYPTO_CANONICAL_MARKS_KEY = "crypto_canonical_marks"
+FAST_CANONICAL_MARKS_KEY = "fast_canonical_marks"
 FAST_CRYPTO_DB_SYMBOLS = frozenset({"BTCUSD", "ETHUSD"})
+FAST_EQUITY_DB_SYMBOLS = frozenset({"NVDA", "TSLA", "AMD", "COIN"})
+FAST_FX_DB_SYMBOLS = frozenset({"XAUUSD", "GBPJPY"})
+FAST_NON_CRYPTO_DB_SYMBOLS = FAST_EQUITY_DB_SYMBOLS | FAST_FX_DB_SYMBOLS
+FAST_ALL_1M_SYMBOLS = FAST_CRYPTO_DB_SYMBOLS | FAST_NON_CRYPTO_DB_SYMBOLS
 
 
 def is_fast_protection_crypto(symbol: str) -> bool:
     return normalize_db_symbol(symbol) in FAST_CRYPTO_DB_SYMBOLS
+
+
+def is_fast_protection_equity(symbol: str) -> bool:
+    return normalize_db_symbol(symbol) in FAST_EQUITY_DB_SYMBOLS
+
+
+def is_fast_protection_fx(symbol: str) -> bool:
+    return normalize_db_symbol(symbol) in FAST_FX_DB_SYMBOLS
+
+
+def is_fast_1m_protected_symbol(symbol: str) -> bool:
+    return normalize_db_symbol(symbol) in FAST_ALL_1M_SYMBOLS
 
 
 def _as_utc(ts: datetime) -> datetime:
@@ -37,18 +54,22 @@ def _as_utc(ts: datetime) -> datetime:
     return ts.astimezone(timezone.utc)
 
 
-def load_crypto_canonical_marks(store: TradingStore) -> dict[str, dict[str, str]]:
-    raw = store.get_settings_dict().get(CRYPTO_CANONICAL_MARKS_KEY) or {}
+def load_fast_canonical_marks(store: TradingStore) -> dict[str, dict[str, str]]:
+    settings = store.get_settings_dict()
+    raw = settings.get(FAST_CANONICAL_MARKS_KEY) or settings.get(CRYPTO_CANONICAL_MARKS_KEY) or {}
     return dict(raw) if isinstance(raw, dict) else {}
 
 
-def get_crypto_canonical_mark(
+def load_crypto_canonical_marks(store: TradingStore) -> dict[str, dict[str, str]]:
+    return load_fast_canonical_marks(store)
+
+
+def get_fast_canonical_mark(
     store: TradingStore,
     symbol: str,
 ) -> tuple[Decimal, datetime] | None:
-    """Return stored canonical mark (price, candle timestamp) for a crypto symbol."""
     db_sym = normalize_db_symbol(symbol)
-    entry = load_crypto_canonical_marks(store).get(db_sym)
+    entry = load_fast_canonical_marks(store).get(db_sym)
     if not entry:
         return None
     price_raw = entry.get("price")
@@ -58,42 +79,23 @@ def get_crypto_canonical_mark(
     return Decimal(str(price_raw)), _as_utc(datetime.fromisoformat(str(at_raw).replace("Z", "+00:00")))
 
 
-def crypto_mark_owned_by_1m(store: TradingStore, symbol: str) -> bool:
-    """True when open BTC/ETH positions use the 1m canonical mark path."""
-    if not is_fast_protection_crypto(symbol):
-        return False
-    if get_crypto_canonical_mark(store, symbol) is None:
-        return False
-    return _has_open_crypto_exposure(store, normalize_db_symbol(symbol))
-
-
-def latest_completed_1m_close(
-    candles: list,
-    now: datetime,
+def get_crypto_canonical_mark(
+    store: TradingStore,
+    symbol: str,
 ) -> tuple[Decimal, datetime] | None:
-    """Latest completed 1m bar close from prefetched/stored candles."""
-    if not candles:
+    """Return stored canonical mark (price, candle timestamp) for a fast-monitored symbol."""
+    db_sym = normalize_db_symbol(symbol)
+    entry = load_fast_canonical_marks(store).get(db_sym)
+    if not entry:
         return None
-    best = None
-    for candle in candles:
-        if is_bar_complete(candle.timestamp, FAST_PROTECTION_TIMEFRAME, now):
-            best = candle
-    if best is None:
+    price_raw = entry.get("price")
+    at_raw = entry.get("at")
+    if price_raw is None or not at_raw:
         return None
-    return best.close, _as_utc(best.timestamp)
+    return Decimal(str(price_raw)), _as_utc(datetime.fromisoformat(str(at_raw).replace("Z", "+00:00")))
 
 
-def prune_crypto_canonical_marks(store: TradingStore, active_symbols: set[str]) -> None:
-    """Drop stored marks for symbols with no open crypto exposure."""
-    stored = load_crypto_canonical_marks(store)
-    if not stored:
-        return
-    pruned = {sym: meta for sym, meta in stored.items() if sym in active_symbols}
-    if pruned != stored:
-        store.update_settings(CRYPTO_CANONICAL_MARKS_KEY, pruned, flush=False)
-
-
-def _has_open_crypto_exposure(store: TradingStore, db_symbol: str) -> bool:
+def _has_open_exposure(store: TradingStore, db_symbol: str) -> bool:
     instrument = store.get_instrument_by_symbol(db_symbol)
     if not instrument:
         return False
@@ -122,6 +124,55 @@ def _has_open_crypto_exposure(store: TradingStore, db_symbol: str) -> bool:
         {"iid": instrument.id, "slug": LIVE_SIM_10K_ACCOUNT_SLUG},
     ).first()
     return live is not None
+
+
+def crypto_mark_owned_by_1m(store: TradingStore, symbol: str) -> bool:
+    """True when open BTC/ETH positions use the 1m canonical mark path."""
+    if not is_fast_protection_crypto(symbol):
+        return False
+    if get_fast_canonical_mark(store, symbol) is None:
+        return False
+    return _has_open_exposure(store, normalize_db_symbol(symbol))
+
+
+def fast_mark_owned_by_1m(store: TradingStore, symbol: str) -> bool:
+    """True when symbol has a fresher 1m canonical mark and open exposure."""
+    if not is_fast_1m_protected_symbol(symbol):
+        return False
+    if get_fast_canonical_mark(store, symbol) is None:
+        return False
+    return _has_open_exposure(store, normalize_db_symbol(symbol))
+
+
+def latest_completed_1m_close(
+    candles: list,
+    now: datetime,
+) -> tuple[Decimal, datetime] | None:
+    """Latest completed 1m bar close from prefetched/stored candles."""
+    if not candles:
+        return None
+    best = None
+    for candle in candles:
+        if is_bar_complete(candle.timestamp, FAST_PROTECTION_TIMEFRAME, now):
+            best = candle
+    if best is None:
+        return None
+    return best.close, _as_utc(best.timestamp)
+
+
+def prune_fast_canonical_marks(store: TradingStore, active_symbols: set[str]) -> None:
+    """Drop stored marks for symbols with no open fast-monitored exposure."""
+    stored = load_fast_canonical_marks(store)
+    if not stored:
+        return
+    pruned = {sym: meta for sym, meta in stored.items() if sym in active_symbols}
+    if pruned != stored:
+        store.update_settings(FAST_CANONICAL_MARKS_KEY, pruned, flush=False)
+        store.update_settings(CRYPTO_CANONICAL_MARKS_KEY, pruned, flush=False)
+
+
+def prune_crypto_canonical_marks(store: TradingStore, active_symbols: set[str]) -> None:
+    prune_fast_canonical_marks(store, active_symbols)
 
 
 def _update_research_position_marks(
@@ -208,7 +259,7 @@ def _update_live_sim_position_marks(
     return updated
 
 
-def apply_crypto_1m_marks(
+def apply_fast_1m_marks(
     store: TradingStore,
     marks_by_symbol: dict[str, tuple[Decimal, datetime]],
     *,
@@ -219,14 +270,14 @@ def apply_crypto_1m_marks(
 
     Newer candle timestamps win; older marks never overwrite fresher 1m marks.
     """
-    stored = load_crypto_canonical_marks(store)
+    stored = load_fast_canonical_marks(store)
     applied: list[str] = []
     research_rows = 0
     live_sim_rows = 0
 
     for symbol, (price, at) in marks_by_symbol.items():
         db_sym = normalize_db_symbol(symbol)
-        if not is_fast_protection_crypto(db_sym):
+        if not is_fast_1m_protected_symbol(db_sym):
             continue
         at = _as_utc(at)
         prev = stored.get(db_sym)
@@ -250,9 +301,10 @@ def apply_crypto_1m_marks(
             store, account_slug=LIVE_SIM_10K_ACCOUNT_SLUG
         ).mark_to_market({db_sym: price}, at=at)
         applied.append(db_sym)
-        logger.debug("Crypto 1m mark %s = %s @ %s", db_sym, price, at.isoformat())
+        logger.debug("Fast 1m mark %s = %s @ %s", db_sym, price, at.isoformat())
 
     if stored:
+        store.update_settings(FAST_CANONICAL_MARKS_KEY, stored, flush=False)
         store.update_settings(CRYPTO_CANONICAL_MARKS_KEY, stored, flush=False)
     if flush:
         store.session.flush()
@@ -264,13 +316,22 @@ def apply_crypto_1m_marks(
     }
 
 
+def apply_crypto_1m_marks(
+    store: TradingStore,
+    marks_by_symbol: dict[str, tuple[Decimal, datetime]],
+    *,
+    flush: bool = True,
+) -> dict[str, Any]:
+    return apply_fast_1m_marks(store, marks_by_symbol, flush=flush)
+
+
 def canonical_mark_for_instrument(
     store: TradingStore,
     instrument_id: str,
     symbol: str,
 ) -> Decimal | None:
     """Dashboard/snapshot helper — canonical 1m mark when active."""
-    if not crypto_mark_owned_by_1m(store, symbol):
+    if not fast_mark_owned_by_1m(store, symbol):
         return None
-    canon = get_crypto_canonical_mark(store, symbol)
+    canon = get_fast_canonical_mark(store, symbol)
     return canon[0] if canon else None
