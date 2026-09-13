@@ -248,8 +248,8 @@ def expire_stale_live_sim_allocations(store: TradingStore, now: datetime) -> int
             WHERE accepted = TRUE
               AND broker_order_id IS NULL
               AND live_sim_position_id IS NULL
-              AND (metadata->>'pending_execution')::boolean IS TRUE
-              AND COALESCE((metadata->>'expired')::boolean, FALSE) = FALSE
+              AND COALESCE(metadata->>'pending_execution', 'false') = 'true'
+              AND COALESCE(metadata->>'expired', 'false') = 'false'
             """
         )
     ).mappings().all()
@@ -259,7 +259,12 @@ def expire_stale_live_sim_allocations(store: TradingStore, now: datetime) -> int
         tf = str(row["timeframe"])
         from quantara_engine.execution.timing import next_execution_timestamp
 
-        execution_ts = next_execution_timestamp(exec_ts, tf)
+        meta = row.get("metadata") or {}
+        stored_exec = meta.get("execution_candle_timestamp")
+        if stored_exec:
+            execution_ts = datetime.fromisoformat(str(stored_exec).replace("Z", "+00:00"))
+        else:
+            execution_ts = next_execution_timestamp(exec_ts, tf)
         if intent_past_execution_window(
             signal_candle_timestamp=exec_ts,
             execution_candle_timestamp=execution_ts,

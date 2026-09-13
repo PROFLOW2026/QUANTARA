@@ -122,11 +122,19 @@ def test_execute_intents_invokes_live_sim_resume():
         return_value=[],
     ), patch(
         "quantara_engine.live_sim.allocator.resume_all_pending_live_sim_allocations",
-        return_value={"resumed": 1, "expired": 0},
+        return_value={
+            "pending_found": 1,
+            "not_ready": 0,
+            "resumed": 1,
+            "expired": 0,
+            "broker_rejected": 0,
+            "filled": 1,
+        },
     ) as resume:
         report = execute_pending_intents_live(store, datetime.now(timezone.utc))
         resume.assert_called_once()
         assert report["live_sim_resumed"] == 1
+        assert report["live_sim_pending_found"] == 1
 
 
 def test_resume_skips_already_executed_allocations():
@@ -143,3 +151,4 @@ def test_resume_skips_already_executed_allocations():
             store, datetime(2026, 9, 13, 0, 45, tzinfo=TZ3)
         )
     assert report["resumed"] == 0
+    assert report["pending_found"] == 0

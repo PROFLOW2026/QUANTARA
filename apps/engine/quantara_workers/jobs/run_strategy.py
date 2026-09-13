@@ -211,12 +211,13 @@ def _process_candle_batch(
     prefetched_states = s.batch_load_portfolio_states(portfolio_ids)
 
     shared_signal = None
+    live_sim_signal = None
+    template = group[0]
+    template_state = prefetched_states.get(template["portfolio"].id)
+    if template_state is None:
+        template_state = s.load_portfolio_runtime_state(template["portfolio"].id)
+        prefetched_states[template["portfolio"].id] = template_state
     if not per_portfolio_eval:
-        template = group[0]
-        template_state = prefetched_states.get(template["portfolio"].id)
-        if template_state is None:
-            template_state = s.load_portfolio_runtime_state(template["portfolio"].id)
-            prefetched_states[template["portfolio"].id] = template_state
         eval_processor = CandleProcessor(
             portfolio_state=template_state,
             strategy_instance=template["instance"],
@@ -230,6 +231,22 @@ def _process_candle_batch(
         )
         eval_processor.all_candles = candles
         shared_signal, _ = eval_processor.evaluate_signal(candle_index)
+        live_sim_signal = shared_signal
+    elif allow_live_execution:
+        # Robots C/D/E: one canonical live-sim signal from template tier (not per risk tier).
+        live_sim_eval = CandleProcessor(
+            portfolio_state=template_state,
+            strategy_instance=template["instance"],
+            instrument=instrument,
+            risk_profile=template["risk_profile"],
+            broker=broker,
+            clock=BacktestClock(),
+            store=s,
+            mode=Mode.PAPER,
+            execution_now=started_at,
+        )
+        live_sim_eval.all_candles = candles
+        live_sim_signal, _ = live_sim_eval.evaluate_signal(candle_index)
 
     total_decisions = 0
     for entry in group:
@@ -269,7 +286,7 @@ def _process_candle_batch(
             processor.process_candle(candle_index, shared_signal=effective_signal)
         total_decisions += len(processor.decisions)
 
-    if allow_live_execution and shared_signal is not None:
+    if allow_live_execution and live_sim_signal is not None:
         from quantara_engine.live_sim.allocator import maybe_allocate_live_sim
 
         maybe_allocate_live_sim(
@@ -279,7 +296,7 @@ def _process_candle_batch(
             candle=candle,
             candles=candles,
             candle_index=candle_index,
-            signal=shared_signal,
+            signal=live_sim_signal,
             execution_now=started_at,
         )
 

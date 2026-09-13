@@ -96,6 +96,10 @@ def _finalize_execution_cycle(
         "errors": errors,
         "live_sim_resumed": live_sim_resume.get("resumed", 0),
         "live_sim_expired": live_sim_resume.get("expired", 0),
+        "live_sim_pending_found": live_sim_resume.get("pending_found", 0),
+        "live_sim_not_ready": live_sim_resume.get("not_ready", 0),
+        "live_sim_broker_rejected": live_sim_resume.get("broker_rejected", 0),
+        "live_sim_filled": live_sim_resume.get("filled", 0),
     }
     if extra:
         payload.update(extra)

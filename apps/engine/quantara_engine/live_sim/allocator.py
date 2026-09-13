@@ -23,6 +23,7 @@ from quantara_engine.live_sim.candidate_log import (
     find_allocation_by_canonical,
     log_allocation,
     mark_allocation_expired,
+    mark_allocation_rejected,
     update_allocation_execution,
     update_allocation_metadata,
 )
@@ -67,6 +68,33 @@ def _account_row(store: TradingStore) -> dict | None:
         ),
         {"slug": LIVE_SIM_10K_ACCOUNT_SLUG},
     ).mappings().first()
+
+
+def _current_asset_notional_usd(store: TradingStore, account_id: str, db_symbol: str) -> Decimal:
+    row = store.session.execute(
+        text(
+            """
+            SELECT bp.net_quantity, bp.mark_price
+            FROM broker_positions bp
+            WHERE bp.broker_account_id = :aid AND bp.symbol = :sym
+            """
+        ),
+        {"aid": account_id, "sym": db_symbol.upper().replace("/", "")},
+    ).mappings().first()
+    if not row or not row["net_quantity"]:
+        return Decimal("0")
+    return abs(Decimal(str(row["net_quantity"]))) * Decimal(str(row["mark_price"]))
+
+
+def _live_sim_max_asset_leverage(instrument) -> Decimal:
+    from quantara_engine.broker.instruments import get_instrument_spec
+    from quantara_engine.broker.profile import profile_for_account_slug
+
+    db_sym = instrument.symbol.upper().replace("/", "")
+    spec = get_instrument_spec(db_sym)
+    profile = profile_for_account_slug(LIVE_SIM_10K_ACCOUNT_SLUG)
+    rules = profile.rules_for(spec.asset_class)
+    return rules.max_leverage or Decimal("1")
 
 
 def _execute_accepted_allocation(
@@ -141,10 +169,18 @@ def _execute_accepted_allocation(
             if broker_res and broker_res.decision and broker_res.decision.rejection_reason
             else "broker_rejected"
         )
+        detail = broker_reason_he(reason_code)
+        mark_allocation_rejected(
+            store,
+            log_id,
+            rejection_reason="BROKER_REJECTED",
+            rejection_detail=detail,
+        )
         return {
             "status": "rejected",
             "reason": "BROKER_REJECTED",
-            "detail": broker_reason_he(reason_code),
+            "detail": detail,
+            "broker_reason": reason_code,
         }
 
     pos_id = str(uuid.uuid4())
@@ -345,11 +381,19 @@ def resume_all_pending_live_sim_allocations(
     execution_now: datetime,
 ) -> dict:
     """Resume queued live-sim allocations independent of current signal evaluation."""
+    report: dict = {
+        "pending_found": 0,
+        "not_ready": 0,
+        "resumed": 0,
+        "expired": 0,
+        "broker_rejected": 0,
+        "filled": 0,
+    }
     account = _account_row(store)
     if not account or not account.get("is_active"):
-        return {"resumed": 0, "expired": 0}
+        return report
 
-    expired = expire_stale_live_sim_allocations(store, execution_now)
+    report["expired"] = expire_stale_live_sim_allocations(store, execution_now)
     rows = store.session.execute(
         text(
             """
@@ -359,14 +403,14 @@ def resume_all_pending_live_sim_allocations(
               AND accepted = TRUE
               AND broker_order_id IS NULL
               AND live_sim_position_id IS NULL
-              AND (metadata->>'pending_execution')::boolean IS TRUE
-              AND COALESCE((metadata->>'expired')::boolean, FALSE) = FALSE
+              AND COALESCE(metadata->>'pending_execution', 'false') = 'true'
+              AND COALESCE(metadata->>'expired', 'false') = 'false'
             """
         ),
         {"aid": account["id"]},
     ).mappings().all()
 
-    resumed = 0
+    report["pending_found"] = len(rows)
     for row in rows:
         full = find_allocation_by_canonical(
             store, account["id"], row["canonical_opportunity_key"]
@@ -402,9 +446,17 @@ def resume_all_pending_live_sim_allocations(
             candles=candles,
             execution_now=execution_now,
         )
-        if result.get("status") == "accepted":
-            resumed += 1
-    return {"resumed": resumed, "expired": expired}
+        status = result.get("status")
+        if status == "accepted":
+            report["filled"] += 1
+            report["resumed"] += 1
+        elif status == "rejected":
+            report["broker_rejected"] += 1
+        elif status == "expired":
+            report["expired"] += 1
+        elif status in ("queued", "skipped"):
+            report["not_ready"] += 1
+    return report
 
 
 def maybe_allocate_live_sim(
@@ -649,6 +701,7 @@ def maybe_allocate_live_sim(
         return {"status": "rejected", "reason": "INVALID_STOP_LOSS"}
 
     cash = Decimal(str(account.get("cash") or account.get("equity") or account["starting_cash"]))
+    sym_db = instrument.symbol.upper().replace("/", "")
     sizing = size_live_sim_entry(
         equity=equity,
         cash=cash,
@@ -659,6 +712,8 @@ def maybe_allocate_live_sim(
         instrument=instrument,
         fx_rates=ctx.fx_rates,
         execution_assumptions=assumptions,
+        max_asset_leverage=_live_sim_max_asset_leverage(instrument),
+        current_asset_notional=_current_asset_notional_usd(store, account_id, sym_db),
     )
     qty = sizing.quantity
     expected_risk = sizing.expected_risk_usd
@@ -852,7 +907,5 @@ def maybe_allocate_live_sim(
         sizing_reason=sizing.sizing_reason,
     )
     if exec_result.get("status") == "rejected":
-        reason = exec_result.get("reason", "BROKER_REJECTED")
-        detail = exec_result.get("detail") or REJECTION_HE.get(reason, REJECTION_HE["BROKER_REJECTED"])
-        return _reject(reason, detail)
+        return exec_result
     return exec_result
