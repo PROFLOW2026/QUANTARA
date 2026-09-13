@@ -220,6 +220,9 @@ def process_position_management(
     pending_decisions: list[DecisionLogEntry] | None = None,
     pending_exit_snapshots: list[PortfolioSnapshot] | None = None,
     currency: CurrencyContext | None = None,
+    monitor_timeframe: str | None = None,
+    execution_timeframe: str | None = None,
+    idempotency_prefix: str = "pm",
 ) -> dict:
     """Process completed candles since last management for one open position."""
     if position.status.value != "open":
@@ -235,11 +238,13 @@ def process_position_management(
         if last_managed_raw
         else None
     )
+    candle_timeframe = monitor_timeframe or instance.timeframe
+    exec_timeframe = execution_timeframe or instance.timeframe
     candles = _management_candles(
         store,
         position,
         instrument,
-        instance.timeframe,
+        candle_timeframe,
         last_managed=last_managed,
         now=now,
         prefetched=prefetched,
@@ -296,8 +301,11 @@ def process_position_management(
                 quantity=open_position.quantity,
                 fill=fill,
                 execution_at=candle.timestamp,
-                timeframe=instance.timeframe,
-                idempotency_key=f"pm:{purpose}:{open_position.id}:{candle.timestamp.isoformat()}",
+                timeframe=exec_timeframe,
+                idempotency_key=(
+                    f"{idempotency_prefix}:{purpose}:{open_position.id}:"
+                    f"{candle.timestamp.isoformat()}"
+                ),
                 is_close=True,
                 strategy_position_id=open_position.id,
                 order_purpose=purpose,
@@ -512,6 +520,10 @@ def manage_all_open_positions(
             if not instrument:
                 report.errors.append({"position_id": position.id, "error": "instrument_not_found"})
                 report.positions_failed += 1
+                continue
+            from quantara_engine.execution.crypto_fast_protection import is_fast_protection_crypto
+
+            if is_fast_protection_crypto(instrument.symbol):
                 continue
             work.append((position, instance, instrument))
 

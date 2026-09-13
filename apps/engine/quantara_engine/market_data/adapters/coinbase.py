@@ -24,7 +24,7 @@ from quantara_engine.persistence.store import TradingStore
 logger = logging.getLogger(__name__)
 
 COINBASE_BASE = "https://api.exchange.coinbase.com"
-GRANULARITY_MAP = {"5m": 300, "15m": 900, "1h": 3600}
+GRANULARITY_MAP = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
 _COINBASE_HEADERS = {
     "Accept": "application/json",
     "User-Agent": "QUANTARA-Engine/1.0 (+https://github.com/PROFLOW2026/QUANTARA)",

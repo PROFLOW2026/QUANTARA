@@ -5,10 +5,14 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 BAR_MINUTES: dict[str, int] = {
+    "1m": 1,
     "5m": 5,
     "15m": 15,
     "1h": 60,
 }
+
+# Fast position-protection feed — not used by strategy runners.
+FAST_PROTECTION_TIMEFRAME = "1m"
 
 TIMEFRAMES: tuple[str, ...] = ("5m", "15m", "1h")
 
