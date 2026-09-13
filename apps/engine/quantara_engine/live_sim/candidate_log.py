@@ -282,10 +282,12 @@ def list_recent_allocations(
     account_id: str,
     *,
     limit: int = 50,
+    since: datetime | None = None,
 ) -> list[dict]:
+    since_clause = "AND created_at >= :since" if since is not None else ""
     rows = store.session.execute(
         text(
-            """
+            f"""
             SELECT id::text, strategy_slug, strategy_version, robot_label, symbol, timeframe,
                    direction::text, signal_candle_timestamp, proposed_entry, stop_loss, take_profit,
                    calculated_risk_usd, calculated_quantity, accepted,
@@ -294,11 +296,12 @@ def list_recent_allocations(
                    broker_order_id::text, live_sim_position_id::text, metadata, created_at
             FROM live_sim_allocation_log
             WHERE broker_account_id = :aid
+            {since_clause}
             ORDER BY created_at DESC
             LIMIT :lim
             """
         ),
-        {"aid": account_id, "lim": limit},
+        {"aid": account_id, "lim": limit, "since": since},
     ).mappings().all()
     out = []
     for r in rows:

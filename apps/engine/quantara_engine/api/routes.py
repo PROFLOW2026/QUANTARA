@@ -814,20 +814,36 @@ def live_sim_account_summary(store: StoreDep):
 
 @router.get("/live-sim/allocations")
 def live_sim_allocations(store: StoreDep, limit: int = 50):
+    from sqlalchemy import text
+
     from quantara_engine.broker.accounts import LIVE_SIM_10K_ACCOUNT_SLUG
+    from quantara_engine.live_sim.audit_scope import resolve_live_sim_audit_since
     from quantara_engine.live_sim.candidate_log import list_recent_allocations
 
     row = store.session.execute(
-        __import__("sqlalchemy").text(
-            "SELECT id::text FROM broker_accounts WHERE slug = :slug"
+        text(
+            """
+            SELECT id::text, account_metadata, activated_at
+            FROM broker_accounts WHERE slug = :slug
+            """
         ),
         {"slug": LIVE_SIM_10K_ACCOUNT_SLUG},
-    ).first()
+    ).mappings().first()
     if not row:
         return {"available": False, "allocations": []}
+    audit_since = resolve_live_sim_audit_since(
+        store,
+        account_metadata=dict(row.get("account_metadata") or {}),
+        activated_at=row.get("activated_at"),
+    )
     return {
         "available": True,
-        "allocations": list_recent_allocations(store, row[0], limit=min(limit, 200)),
+        "allocations": list_recent_allocations(
+            store,
+            row["id"],
+            limit=min(limit, 200),
+            since=audit_since,
+        ),
     }
 
 

@@ -10,6 +10,7 @@ from sqlalchemy import text
 from quantara_engine.broker.accounts import LIVE_SIM_10K_ACCOUNT_SLUG
 from quantara_engine.broker.execution_service import BrokerExecutionService
 from quantara_engine.broker.state_builder import build_live_sim_broker_account
+from quantara_engine.live_sim.audit_scope import resolve_live_sim_audit_since
 from quantara_engine.live_sim.candidate_log import list_recent_allocations
 from quantara_engine.live_sim.risk_policy import compute_open_sl_risk, load_risk_settings
 from quantara_engine.persistence.store import TradingStore
@@ -37,7 +38,7 @@ def build_live_sim_summary(store: TradingStore) -> dict:
             """
             SELECT id::text, starting_cash, equity, cash, balance, realized_pnl,
                    unrealized_pnl, gross_exposure, net_exposure, available_margin,
-                   activated_at, risk_settings, fees_paid
+                   activated_at, risk_settings, fees_paid, account_metadata
             FROM broker_accounts WHERE slug = :slug
             """
         ),
@@ -92,22 +93,30 @@ def build_live_sim_summary(store: TradingStore) -> dict:
     wins = int(closed["wins"] or 0) if closed else 0
     win_rate = float(wins / closed_count * 100) if closed_count > 0 else 0.0
 
+    audit_since = resolve_live_sim_audit_since(
+        store,
+        account_metadata=dict(row.get("account_metadata") or {}),
+        activated_at=row.get("activated_at"),
+    )
+    since_clause = "AND created_at >= :since" if audit_since is not None else ""
     stats = store.session.execute(
         text(
-            """
+            f"""
             SELECT
               COUNT(*) FILTER (WHERE accepted) AS accepted,
               COUNT(*) FILTER (WHERE NOT accepted) AS rejected,
               COUNT(*) AS total
-            FROM live_sim_allocation_log WHERE broker_account_id = :aid
+            FROM live_sim_allocation_log
+            WHERE broker_account_id = :aid
+            {since_clause}
             """
         ),
-        {"aid": account_id},
+        {"aid": account_id, "since": audit_since},
     ).mappings().first()
 
     svc = BrokerExecutionService(store, account_slug=LIVE_SIM_10K_ACCOUNT_SLUG)
     snap = build_live_sim_broker_account(store)
-    recent = list_recent_allocations(store, account_id, limit=30)
+    recent = list_recent_allocations(store, account_id, limit=30, since=audit_since)
 
     daily_pnl = equity - settings.daily_start_equity
 

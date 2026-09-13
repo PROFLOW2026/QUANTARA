@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { HomeSummaryCard, HomeSummaryValue } from "@/components/dashboard/HomeSummaryCard";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,7 +24,7 @@ function liveSimAllocationStatusLabel(row: NonNullable<LiveSimAccountSummary["re
     return t("home.live_sim_state_expired");
   }
   if (!row.accepted) {
-    return t("home.decision_rejected");
+    return t("home.live_sim_state_rejected");
   }
   if (row.lifecycle_state === "pending_execution" || row.metadata?.pending_execution === true) {
     return t("home.live_sim_state_pending");
@@ -32,12 +33,19 @@ function liveSimAllocationStatusLabel(row: NonNullable<LiveSimAccountSummary["re
 }
 
 export function LiveSimDashboard({ data, loading }: Props) {
+  const [decisionsExpanded, setDecisionsExpanded] = useState(false);
+
   if (loading && !data) {
     return <p className="text-muted">{t("common.loading")}</p>;
   }
   if (!data?.available) {
     return <p className="text-muted">{t("common.section_unavailable")}</p>;
   }
+
+  const decisionCount = data.candidates?.total ?? data.recent_decisions?.length ?? 0;
+  const decisionsToggleLabel = decisionsExpanded
+    ? t("home.live_sim_hide_recent_decisions")
+    : t("home.live_sim_show_recent_decisions", { count: decisionCount });
 
   return (
     <>
@@ -100,6 +108,36 @@ export function LiveSimDashboard({ data, loading }: Props) {
         </Card>
       ) : null}
 
+      {data.candidates ? (
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader><CardTitle>{t("home.candidates_seen")}</CardTitle></CardHeader>
+            <CardContent>
+              <p className="font-mono text-2xl">{data.candidates.total}</p>
+              <p className="mt-1 text-xs text-muted">{t("home.candidates_seen_hint")}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>{t("home.candidates_accepted")}</CardTitle></CardHeader>
+            <CardContent>
+              <p className="font-mono text-2xl">{data.candidates.accepted}</p>
+              <p className="mt-1 text-xs text-muted">{t("home.candidates_accepted_hint")}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>{t("home.candidates_rejected")}</CardTitle></CardHeader>
+            <CardContent>
+              <p className="font-mono text-2xl">{data.candidates.rejected}</p>
+              <p className="mt-1 text-xs text-muted">{t("home.candidates_rejected_hint")}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>{t("home.acceptance_rate")}</CardTitle></CardHeader>
+            <CardContent><p className="font-mono text-2xl">{formatPercent(data.candidates.acceptance_rate_pct)}</p></CardContent>
+          </Card>
+        </div>
+      ) : null}
+
       <Card className="mt-4">
         <CardHeader><CardTitle>{t("home.live_sim_open_positions")}</CardTitle></CardHeader>
         <CardContent>
@@ -139,37 +177,42 @@ export function LiveSimDashboard({ data, loading }: Props) {
       </Card>
 
       <Card className="mt-4">
-        <CardHeader><CardTitle>{t("home.live_sim_recent_decisions")}</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          {(data.recent_decisions?.length ?? 0) === 0 ? (
-            <p className="text-sm text-muted">{t("home.no_decisions_yet")}</p>
-          ) : (
-            data.recent_decisions?.map((row) => (
-              <div key={row.id} className="rounded-md border border-border/60 p-3 text-sm">
-                <p className="font-medium">
-                  {row.robot_label ?? row.strategy_slug} — {row.symbol} ({row.timeframe})
-                </p>
-                <p className={row.accepted && row.lifecycle_state !== "expired" ? "text-success" : "text-warning"}>
-                  {liveSimAllocationStatusLabel(row)}
-                  {row.calculated_risk_usd != null ? ` · סיכון: $${row.calculated_risk_usd.toFixed(2)}` : ""}
-                </p>
-                {!row.accepted && row.rejection_reason_he ? (
-                  <p className="text-muted">{t("home.rejection_reason")}: {row.rejection_reason_he}</p>
-                ) : null}
+        <button
+          type="button"
+          className="flex w-full items-center justify-between gap-3 px-6 py-4 text-right hover:bg-surface-inner-hover-soft"
+          onClick={() => setDecisionsExpanded((open) => !open)}
+          aria-expanded={decisionsExpanded}
+        >
+          <span className="font-semibold">{decisionsToggleLabel}</span>
+          <span className="shrink-0 text-xs text-accent">
+            {decisionsExpanded ? t("home.live_sim_collapse_decisions") : t("home.live_sim_expand_decisions")}
+          </span>
+        </button>
+        {decisionsExpanded ? (
+          <CardContent className="space-y-3 border-t border-border/60 pt-4">
+            {(data.recent_decisions?.length ?? 0) === 0 ? (
+              <p className="text-sm text-muted">{t("home.no_decisions_yet")}</p>
+            ) : (
+              <div className="max-h-[min(70vh,520px)] space-y-3 overflow-y-auto">
+                {data.recent_decisions?.map((row) => (
+                  <div key={row.id} className="rounded-md border border-border/60 p-3 text-sm">
+                    <p className="font-medium">
+                      {row.robot_label ?? row.strategy_slug} — {row.symbol} ({row.timeframe})
+                    </p>
+                    <p className={row.accepted && row.lifecycle_state !== "expired" && !row.metadata?.expired ? "text-success" : "text-warning"}>
+                      {liveSimAllocationStatusLabel(row)}
+                      {row.calculated_risk_usd != null ? ` · סיכון: $${row.calculated_risk_usd.toFixed(2)}` : ""}
+                    </p>
+                    {!row.accepted && row.rejection_reason_he ? (
+                      <p className="text-muted">{t("home.rejection_reason")}: {row.rejection_reason_he}</p>
+                    ) : null}
+                  </div>
+                ))}
               </div>
-            ))
-          )}
-        </CardContent>
+            )}
+          </CardContent>
+        ) : null}
       </Card>
-
-      {data.candidates ? (
-        <div className="mt-4 grid gap-4 sm:grid-cols-4">
-          <Card><CardHeader><CardTitle>{t("home.candidates_seen")}</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl">{data.candidates.total}</p></CardContent></Card>
-          <Card><CardHeader><CardTitle>{t("home.candidates_accepted")}</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl">{data.candidates.accepted}</p></CardContent></Card>
-          <Card><CardHeader><CardTitle>{t("home.candidates_rejected")}</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl">{data.candidates.rejected}</p></CardContent></Card>
-          <Card><CardHeader><CardTitle>{t("home.acceptance_rate")}</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl">{formatPercent(data.candidates.acceptance_rate_pct)}</p></CardContent></Card>
-        </div>
-      ) : null}
     </>
   );
 }

@@ -36,6 +36,21 @@ def test_virtual_portfolio_not_research_range():
     assert LIVE_SIM_VIRTUAL_PORTFOLIO_ID.startswith("00000000")
 
 
+def test_audit_scope_prefers_account_metadata_baseline():
+    from datetime import datetime, timezone
+
+    from quantara_engine.live_sim.audit_scope import resolve_live_sim_audit_since
+
+    explicit = datetime(2026, 9, 13, 16, 39, 36, tzinfo=timezone.utc)
+    store = MagicMock()
+    since = resolve_live_sim_audit_since(
+        store,
+        account_metadata={"baseline_reset_at": explicit.isoformat()},
+        activated_at=datetime(2026, 9, 12, 13, 56, 2, tzinfo=timezone.utc),
+    )
+    assert since == explicit
+
+
 def test_canonical_key_ignores_risk_tier():
     base = {
         "strategy_slug": "momentum-continuation",
