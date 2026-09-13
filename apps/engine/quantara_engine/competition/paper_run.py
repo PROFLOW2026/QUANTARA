@@ -75,8 +75,9 @@ def create_paper_run(
     starting_broker_cash: Decimal,
     metadata: dict | None = None,
     execution_model: str = "legacy_spot_limited",
+    run_id: str | None = None,
 ) -> str:
-    run_id = str(uuid.uuid4())
+    run_id = run_id or str(uuid.uuid4())
     meta = metadata or {}
     if "execution_model" not in meta:
         meta["execution_model"] = execution_model
@@ -304,10 +305,39 @@ def signal_scope_clause(store: TradingStore):
     return OrmSignal.backtest_run_id.is_(None)
 
 
+def trade_scope_sql_for_run(run_id: str, alias: str = "trades") -> tuple[str, dict]:
+    """Canonical current-run trade scope for an explicit paper run (position-lineage fallback)."""
+    return (
+        f"({alias}.paper_run_id = CAST(:paper_run_id AS uuid) "
+        f"OR ({alias}.paper_run_id IS NULL AND EXISTS ("
+        f"SELECT 1 FROM positions p "
+        f"WHERE p.id = {alias}.position_id "
+        f"AND p.paper_run_id = CAST(:paper_run_id AS uuid))))",
+        {"paper_run_id": run_id},
+    )
+
+
+def count_scoped_closed_trades(store: TradingStore, run_id: str | None) -> int:
+    """Count closed trades in a paper run using canonical trade scope rules."""
+    if not run_id:
+        return 0
+    if not paper_run_columns_ready(store):
+        row = store.session.execute(
+            text("SELECT COUNT(*)::int FROM trades WHERE closed_at IS NOT NULL AND backtest_run_id IS NULL")
+        ).scalar()
+        return int(row or 0)
+    scope_sql, params = trade_scope_sql_for_run(run_id, alias="t")
+    row = store.session.execute(
+        text(f"SELECT COUNT(*)::int FROM trades t WHERE {scope_sql} AND t.closed_at IS NOT NULL"),
+        params,
+    ).scalar()
+    return int(row or 0)
+
+
 def trade_scope_sql(store: TradingStore, alias: str = "trades") -> tuple[str, dict]:
     run_id = get_current_paper_run_id(store)
     if paper_run_columns_ready(store) and run_id:
-        return f"{alias}.paper_run_id = CAST(:paper_run_id AS uuid)", {"paper_run_id": run_id}
+        return trade_scope_sql_for_run(run_id, alias=alias)
     return f"{alias}.backtest_run_id IS NULL", {}
 
 
