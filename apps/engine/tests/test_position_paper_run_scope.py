@@ -8,9 +8,12 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from quantara_engine.competition.paper_run import (
+    CURRENT_PAPER_RUN_SETTING,
+    get_current_paper_run_id,
     repair_positions_paper_run_from_lineage,
     resolve_position_paper_run_id,
 )
+from quantara_engine.persistence.settings_cache import store_process_settings_cache
 from quantara_engine.domain.types import (
     Direction,
     Mode,
@@ -172,3 +175,15 @@ def test_resolve_position_paper_run_prefers_intent_lineage():
     ):
         resolved = resolve_position_paper_run_id(store, intent_id=str(uuid.uuid4()))
     assert resolved == run_id
+
+
+def test_get_current_paper_run_id_ignores_stale_process_settings_cache():
+    store = MagicMock()
+    db_run_id = str(uuid.uuid4())
+    store.session.scalar.return_value = db_run_id
+    store.get_settings_dict.return_value = {CURRENT_PAPER_RUN_SETTING: str(uuid.uuid4())}
+    store_process_settings_cache(
+        {CURRENT_PAPER_RUN_SETTING: "stale-cached-run-id"},
+    )
+    with patch("quantara_engine.competition.paper_run._table_exists", return_value=True):
+        assert get_current_paper_run_id(store) == db_run_id

@@ -475,6 +475,7 @@ def _assert_postconditions(store: TradingStore, *, new_run_id: str) -> None:
 
 def _execute_reset(store: TradingStore) -> str:
     session = store.session
+    store.invalidate_settings_cache()
     previous_run = get_current_paper_run_id(store)
     if previous_run:
         end_paper_run(store, previous_run)

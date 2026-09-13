@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from quantara_engine.persistence.store import TradingStore
 
@@ -47,8 +47,12 @@ def paper_run_columns_ready(store: TradingStore) -> bool:
 def get_current_paper_run_id(store: TradingStore) -> str | None:
     if not _table_exists(store, "paper_runs"):
         return None
-    settings = store.get_settings_dict()
-    raw = settings.get(CURRENT_PAPER_RUN_SETTING)
+    # Read directly from DB — process-level settings cache must not stale run boundaries.
+    from quantara_engine.models.workers import Setting as OrmSetting
+
+    raw = store.session.scalar(
+        select(OrmSetting.value).where(OrmSetting.key == CURRENT_PAPER_RUN_SETTING)
+    )
     if raw:
         return str(raw)
     row = store.session.execute(
@@ -105,8 +109,7 @@ def end_paper_run(store: TradingStore, run_id: str) -> None:
         ),
         {"id": run_id, "st": PAPER_RUN_STATUS_LEGACY, "active": PAPER_RUN_STATUS_ACTIVE},
     )
-    settings = store.get_settings_dict()
-    if str(settings.get(CURRENT_PAPER_RUN_SETTING) or "") == run_id:
+    if get_current_paper_run_id(store) == run_id:
         store.update_settings(CURRENT_PAPER_RUN_SETTING, None)
 
 
