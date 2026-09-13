@@ -4,6 +4,7 @@ import {
   resolveServerApiKey,
   resolveServerEngineUrl,
 } from "@/lib/engine-server";
+import { EngineDnsError } from "@/lib/engine-dns";
 import {
   describeUpstreamFetchError,
   fetchEngineUpstream,
@@ -63,12 +64,28 @@ async function proxyToEngine(req: NextRequest, pathSegments: string[]) {
       error instanceof Error &&
       (error.name === "TimeoutError" || error.name === "AbortError");
     const described = describeUpstreamFetchError(error);
+    const dns =
+      error instanceof EngineDnsError
+        ? error.diagnostic
+        : described.dns;
 
     return NextResponse.json(
       {
-        error: isTimeout ? "upstream_timeout" : "upstream_error",
+        error: dns
+          ? dns.error
+          : isTimeout
+            ? "upstream_timeout"
+            : "upstream_error",
         message: isTimeout ? "Engine did not respond in time" : described.message,
         ...(described.cause ? { cause: described.cause } : {}),
+        ...(dns
+          ? {
+              system_dns: dns.system_dns,
+              doh: dns.doh,
+              hostname: dns.hostname,
+              cache_state: dns.cache_state,
+            }
+          : {}),
         upstream: upstreamPath,
         engine_url: engineUrl,
       },

@@ -34,6 +34,7 @@
     "test:engine": "cd apps/engine && python -m pytest tests/ -q",
     "test:web:profit-target": "node --test apps/web/lib/profit-target.test.mjs",
     "test:web:decision-grouping": "node --test apps/web/lib/decision-grouping.test.mjs",
+    "test:web:engine-dns": "node --test apps/web/lib/engine-dns-core.test.mjs apps/web/lib/engine-dns.test.mjs && npx tsx --test apps/web/lib/engine-dns-resolver.test.ts apps/web/lib/engine-upstream.test.ts",
     "test:launcher": "node --test scripts/test-quantara-launcher.mjs",
     "test:tailscale-transport": "node --test scripts/test-tailscale-transport.mjs"
   },

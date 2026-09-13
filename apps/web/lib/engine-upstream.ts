@@ -1,11 +1,28 @@
-import dns from "dns";
-import { lookup } from "dns/promises";
+import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from "undici";
 
-/** Tailscale Funnel DNS can return AAAA first; Vercel serverless often fails IPv6 connect. */
-dns.setDefaultResultOrder("ipv4first");
+import {
+  EngineDnsError,
+  engineConnectLookup,
+  takePendingEngineDnsError,
+} from "./engine-dns";
 
-async function warmEngineDns(hostname: string): Promise<void> {
-  await lookup(hostname, { family: 4 });
+const TRANSIENT_RETRY_DELAY_MS = 150;
+
+let sharedAgent: Agent | null = null;
+
+function getEngineAgent(): Agent {
+  if (!sharedAgent) {
+    sharedAgent = new Agent({
+      connect: {
+        lookup: engineConnectLookup,
+        family: 4,
+        timeout: 30_000,
+      },
+      keepAliveTimeout: 10_000,
+      keepAliveMaxTimeout: 30_000,
+    });
+  }
+  return sharedAgent;
 }
 
 function isFetchTimeout(error: unknown): boolean {
@@ -18,7 +35,15 @@ function isFetchTimeout(error: unknown): boolean {
 export function describeUpstreamFetchError(error: unknown): {
   message: string;
   cause?: string;
+  dns?: EngineDnsError["diagnostic"];
 } {
+  if (error instanceof EngineDnsError) {
+    return {
+      message: error.message,
+      dns: error.diagnostic,
+    };
+  }
+
   if (!(error instanceof Error)) {
     return { message: "Failed to reach engine" };
   }
@@ -39,27 +64,58 @@ export function describeUpstreamFetchError(error: unknown): {
   };
 }
 
-const TRANSIENT_RETRY_DELAY_MS = 150;
+type UpstreamFetchFn = (target: string, init: RequestInit) => Promise<Response>;
 
-/** One retry on transient connect/DNS failures (not timeouts). */
+let upstreamFetchOverride: UpstreamFetchFn | null = null;
+
+/** Test-only override for upstream fetch behavior. */
+export function setEngineUpstreamFetchOverride(fn: UpstreamFetchFn | null): void {
+  upstreamFetchOverride = fn;
+}
+
+async function performFetch(target: string, init: RequestInit): Promise<Response> {
+  if (upstreamFetchOverride) {
+    return upstreamFetchOverride(target, init);
+  }
+  const dispatcher = getEngineAgent();
+  const { signal, ...rest } = init;
+  const undiciInit = {
+    ...rest,
+    dispatcher,
+    ...(signal ? { signal } : {}),
+  } as UndiciRequestInit;
+  return undiciFetch(target, undiciInit) as unknown as Response;
+}
+
+/** One retry on transient connect/DNS failures (not timeouts or HTTP errors). */
 export async function fetchEngineUpstream(
   target: string,
   init: RequestInit
 ): Promise<Response> {
-  const hostname = new URL(target).hostname;
-
-  const attempt = async () => {
-    await warmEngineDns(hostname);
-    return fetch(target, init);
-  };
-
   try {
-    return await attempt();
+    return await performFetch(target, init);
   } catch (first) {
+    const dnsError = takePendingEngineDnsError();
+    if (dnsError) {
+      throw dnsError;
+    }
     if (isFetchTimeout(first)) {
       throw first;
     }
     await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
-    return attempt();
+    try {
+      return await performFetch(target, init);
+    } catch (second) {
+      const retryDnsError = takePendingEngineDnsError();
+      if (retryDnsError) {
+        throw retryDnsError;
+      }
+      throw second;
+    }
   }
+}
+
+/** Test-only hook to reset the shared undici agent between tests. */
+export function resetEngineUpstreamAgentForTests(): void {
+  sharedAgent = null;
 }
