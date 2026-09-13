@@ -525,9 +525,23 @@ export interface MarketProviderStatus {
   stale?: boolean;
   assets?: MarketAssetStatus[];
   providers?: Record<string, ProviderHealthStatus>;
+  validation?: Record<string, FinnhubValidationAssetStatus>;
+  finnhub_enabled?: boolean;
   worker?: Record<string, unknown>;
   spot_source?: string;
   spot_age_minutes?: number | null;
+}
+
+export interface FinnhubValidationAssetStatus {
+  asset?: string;
+  display_symbol?: string;
+  primary_provider?: string;
+  validation_provider?: string;
+  status?: string;
+  status_he?: string;
+  canonical_price?: string;
+  validation_price?: string;
+  checked_at?: string;
 }
 
 export interface MarketAssetStatus {
@@ -546,6 +560,10 @@ export interface MarketAssetStatus {
 
 export interface ProviderHealthStatus {
   provider: string;
+  enabled?: boolean;
+  role?: string;
+  role_he?: string;
+  quota?: Record<string, number>;
   status?: string;
   used_hour?: number;
   hourly_limit?: number | null;
@@ -601,6 +619,9 @@ export interface AssetAnalyticsRow {
   symbol: string;
   db_symbol: string;
   provider: string;
+  canonical_provider?: string;
+  validation_provider?: string | null;
+  validation_status?: string | null;
   latest_price?: number | null;
   last_candle?: string | null;
   data_status: string;

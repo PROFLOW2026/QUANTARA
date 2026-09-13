@@ -10,6 +10,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from quantara_workers.jobs.crypto_fast_protection import crypto_fast_protection_job
+from quantara_workers.jobs.finnhub_validation import finnhub_validation_job
 from quantara_workers.jobs.non_crypto_fast_protection import non_crypto_fast_protection_job
 from quantara_workers.jobs.execute_intents import execute_intents_job
 from quantara_workers.jobs.fetch_data import fetch_bulk_job, fetch_live_job
@@ -86,6 +87,13 @@ class WorkerScheduler:
             id="fetch_live",
             replace_existing=True,
             **_FETCH_LIVE_OPTS,
+        )
+        self.scheduler.add_job(
+            finnhub_validation_job,
+            CronTrigger(minute="*/5", second=20),
+            id="finnhub_validation",
+            replace_existing=True,
+            **_HOUSEKEEPING_OPTS,
         )
         # BTC/ETH open-position SL/TP on completed 1m bars — only when positions exist.
         self.scheduler.add_job(

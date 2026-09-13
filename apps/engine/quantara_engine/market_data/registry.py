@@ -13,6 +13,7 @@ class ProviderName(str, Enum):
     ALPACA = "alpaca"
     TIINGO = "tiingo"
     COINBASE = "coinbase"
+    FINNHUB = "finnhub"
     MOCK = "mock"
 
 
@@ -52,6 +53,7 @@ def _equity(db_symbol: str, display: str | None = None) -> AssetDefinition:
         provider_symbols={
             ProviderName.ALPACA.value: db_symbol,
             ProviderName.TIINGO.value: db_symbol,
+            ProviderName.FINNHUB.value: db_symbol,
         },
         trading_sessions={"sessions": ["us_equity_rth"]},
         pip_size="0.01",
@@ -74,6 +76,7 @@ def _crypto(db_symbol: str, canonical: str, tiingo_ticker: str) -> AssetDefiniti
             ProviderName.COINBASE.value: coinbase_product,
             ProviderName.ALPACA.value: canonical,
             ProviderName.TIINGO.value: tiingo_ticker,
+            ProviderName.FINNHUB.value: f"COINBASE:{coinbase_product}",
         },
         trading_sessions={"sessions": ["24x7"]},
         pip_size="0.01",
@@ -96,6 +99,7 @@ TARGET_ASSETS: tuple[AssetDefinition, ...] = (
         provider_symbols={
             ProviderName.TWELVE_DATA.value: "XAU/USD",
             ProviderName.TIINGO.value: "xauusd",
+            ProviderName.FINNHUB.value: "OANDA:XAU_USD",
         },
         trading_sessions={"sessions": ["24x5"]},
         pip_size="0.01",
@@ -113,6 +117,7 @@ TARGET_ASSETS: tuple[AssetDefinition, ...] = (
         provider_symbols={
             ProviderName.TWELVE_DATA.value: "GBP/JPY",
             ProviderName.TIINGO.value: "gbpjpy",
+            ProviderName.FINNHUB.value: "OANDA:GBP_JPY",
         },
         trading_sessions={"sessions": ["24x5"]},
         pip_size="0.01",

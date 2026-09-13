@@ -378,6 +378,7 @@
     "provider_usage_hourly": "{used} / {limit} לשעה",
     "provider_usage_daily": "שימוש היום: {used} / {limit}",
     "provider_guard_limit": "מגבלת בטיחות QUANTARA: {limit}",
+    "provider_role": "תפקיד",
     "asset_symbol": "נכס",
     "asset_provider": "ספק",
     "asset_price": "מחיר אחרון",

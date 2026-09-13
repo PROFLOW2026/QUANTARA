@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # Tiingo (US equities + crypto intraday)
     tiingo_api_key: str = ""
 
+    # Finnhub (validation / backup — disabled when unset)
+    finnhub_api_key: str = ""
+
     # Alpaca (US equities + crypto)
     alpaca_api_key_id: str = ""
     alpaca_api_secret_key: str = ""

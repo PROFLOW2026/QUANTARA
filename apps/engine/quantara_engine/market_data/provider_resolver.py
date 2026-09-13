@@ -78,6 +78,10 @@ def is_provider_configured(provider: ProviderName) -> bool:
         )
     if provider == ProviderName.COINBASE:
         return True  # public exchange API — no key required
+    if provider == ProviderName.FINNHUB:
+        from quantara_engine.market_data.adapters.finnhub import finnhub_configured
+
+        return finnhub_configured()
     return False
 
 
@@ -117,7 +121,30 @@ def is_provider_eligible(
             return False
         return True
 
+    if provider == ProviderName.FINNHUB:
+        if purpose in ("candles", "fx_rate"):
+            return False
+        if store is not None and not can_request(store, "finnhub", purpose=purpose):
+            return False
+        return True
+
     return False
+
+
+def backup_providers_for_asset(asset: AssetDefinition) -> tuple[ProviderName, ...]:
+    """
+    Registered backup candidates for future failover — NOT used by fetch_with_failover.
+
+    Primary routing chains remain unchanged in this release.
+    """
+    if not is_provider_configured(ProviderName.FINNHUB):
+        return ()
+    from quantara_engine.market_data.finnhub_capabilities import asset_quote_capable, load_capabilities
+
+    caps = load_capabilities()
+    if asset_quote_capable(caps, asset.db_symbol):
+        return (ProviderName.FINNHUB,)
+    return ()
 
 
 def has_eligible_provider(

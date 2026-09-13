@@ -43,6 +43,7 @@ function providerLabel(name: string) {
   if (name === "twelvedata") return "Twelve Data";
   if (name === "tiingo") return "Tiingo";
   if (name === "alpaca") return "Alpaca";
+  if (name === "finnhub") return "Finnhub";
   return name;
 }
 
@@ -79,6 +80,11 @@ function ProviderHealthCard({
         </p>
       ) : null}
       {usageLine ? <p className="text-xs text-muted">{usageLine}</p> : null}
+      {health?.role_he ? (
+        <p className="text-xs text-muted">
+          {t("home.provider_role")}: {health.role_he}
+        </p>
+      ) : null}
       {name === "twelvedata" && health?.guard_limit != null ? (
         <p className="text-xs text-muted">
           {t("home.provider_guard_limit", { limit: health.guard_limit })}
@@ -333,16 +339,20 @@ export function ProviderHealthPanel({
 }) {
   const providers = marketStatus?.providers ?? {};
   const order = ["twelvedata", "tiingo", "alpaca"];
+  const finnhubEnabled = marketStatus?.finnhub_enabled === true;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>{t("home.provider_health_title")}</CardTitle>
       </CardHeader>
-      <CardContent className="grid gap-3 sm:grid-cols-3">
+      <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {order.map((name) => (
           <ProviderHealthCard key={name} name={name} health={providers[name]} />
         ))}
+        {finnhubEnabled && providers.finnhub ? (
+          <ProviderHealthCard name="finnhub" health={providers.finnhub} />
+        ) : null}
       </CardContent>
     </Card>
   );

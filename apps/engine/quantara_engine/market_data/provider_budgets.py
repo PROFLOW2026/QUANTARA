@@ -17,6 +17,7 @@ LIMITS: dict[str, dict[str, int]] = {
     "tiingo": {"hourly": 50, "daily": 1000},
     "alpaca": {"minute": 200, "daily": 100000},
     "coinbase": {"hourly": 300, "daily": 5000},
+    "finnhub": {"minute": 50, "hourly": 150, "daily": 3000},
 }
 
 TIINGO_HOURLY_HARD_LIMIT = int(LIMITS["tiingo"]["hourly"])
@@ -265,8 +266,22 @@ def all_provider_status(store: TradingStore | None) -> dict[str, dict[str, Any]]
         td["status"] = "blocked"
         td["last_error"] = next((str(item) for item in errors if "429" in str(item)), td.get("last_error"))
 
-    return {
+    from quantara_engine.market_data.adapters.finnhub import finnhub_configured, quota_snapshot
+
+    result = {
         "twelvedata": td,
         "alpaca": alpaca,
         "tiingo": tiingo,
     }
+    if finnhub_configured():
+        finnhub = status_payload(store, "finnhub")
+        finnhub.update(
+            {
+                "enabled": True,
+                "role": "validation_backup",
+                "role_he": "גיבוי ואימות",
+                "quota": quota_snapshot(),
+            }
+        )
+        result["finnhub"] = finnhub
+    return result

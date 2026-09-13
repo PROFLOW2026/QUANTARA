@@ -371,6 +371,11 @@ def market_data_status(store: StoreDep):
     elif xau:
         last_fetch = store.latest_candle_timestamp(xau.id, "1h")
 
+    from quantara_engine.market_data.adapters.finnhub import finnhub_configured
+    from quantara_engine.market_data.finnhub_validation import load_validation_status
+
+    validation_status = load_validation_status(store.get_settings_dict()) if finnhub_configured() else {}
+
     return {
         "healthy": healthy,
         "provider": "multi",
@@ -378,6 +383,8 @@ def market_data_status(store: StoreDep):
         "last_fetch": last_fetch.isoformat() if last_fetch else None,
         "assets": asset_rows,
         "providers": all_provider_status(store),
+        "validation": validation_status,
+        "finnhub_enabled": finnhub_configured(),
         "worker": worker_raw,
         "spot_source": spot.get("source") if spot else None,
         "spot_age_minutes": round(spot_age_minutes(spot), 1) if spot else None,
@@ -405,8 +412,13 @@ def analytics_assets(store: StoreDep):
     )
 
     asset_controls = load_asset_trading_controls(store.get_settings_dict())
+    settings_dict = store.get_settings_dict()
     now = datetime.now(timezone.utc)
-    worker_raw = store.get_settings_dict().get("worker_status:data_fetcher") or {}
+    worker_raw = settings_dict.get("worker_status:data_fetcher") or {}
+    from quantara_engine.market_data.adapters.finnhub import finnhub_configured
+    from quantara_engine.market_data.finnhub_validation import load_validation_status
+
+    validation_by_asset = load_validation_status(settings_dict) if finnhub_configured() else {}
     rows: list[dict] = []
 
     portfolio_ids = [e["portfolio"].id for e in combined]
@@ -545,11 +557,17 @@ def analytics_assets(store: StoreDep):
                         "candle_time": candles_15m[-1].timestamp.isoformat(),
                     }
 
+        validation_row = validation_by_asset.get(asset.db_symbol) or {}
         rows.append(
             {
                 "symbol": asset.display_symbol,
                 "db_symbol": asset.db_symbol,
                 "provider": live_provider,
+                "canonical_provider": asset.primary_provider.value,
+                "validation_provider": (
+                    validation_row.get("validation_provider") if finnhub_configured() else None
+                ),
+                "validation_status": validation_row.get("status_he") if finnhub_configured() else None,
                 "latest_price": latest_price,
                 "last_candle": last_candle.isoformat() if last_candle else None,
                 "data_status": data_status,
