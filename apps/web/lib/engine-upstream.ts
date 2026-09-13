@@ -1,7 +1,12 @@
 import dns from "dns";
+import { lookup } from "dns/promises";
 
 /** Tailscale Funnel DNS can return AAAA first; Vercel serverless often fails IPv6 connect. */
 dns.setDefaultResultOrder("ipv4first");
+
+async function warmEngineDns(hostname: string): Promise<void> {
+  await lookup(hostname, { family: 4 });
+}
 
 function isFetchTimeout(error: unknown): boolean {
   return (
@@ -36,18 +41,25 @@ export function describeUpstreamFetchError(error: unknown): {
 
 const TRANSIENT_RETRY_DELAY_MS = 150;
 
-/** One retry on transient connect failures (not timeouts). */
+/** One retry on transient connect/DNS failures (not timeouts). */
 export async function fetchEngineUpstream(
   target: string,
   init: RequestInit
 ): Promise<Response> {
+  const hostname = new URL(target).hostname;
+
+  const attempt = async () => {
+    await warmEngineDns(hostname);
+    return fetch(target, init);
+  };
+
   try {
-    return await fetch(target, init);
+    return await attempt();
   } catch (first) {
     if (isFetchTimeout(first)) {
       throw first;
     }
     await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
-    return fetch(target, init);
+    return attempt();
   }
 }
