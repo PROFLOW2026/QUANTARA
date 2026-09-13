@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_EVEN
 
 from quantara_engine.broker.instruments import get_instrument_spec
-from quantara_engine.broker.margin import quote_notional_usd
+from quantara_engine.broker.margin import initial_margin_for_notional, quote_notional_usd
 from quantara_engine.domain.types import Direction, ExecutionAssumptions, Instrument
 from quantara_engine.execution.fill_calculator import calculate_fill_price
 from quantara_engine.portfolio.currency import FxRateTable
@@ -89,15 +89,23 @@ def max_safe_quantity_for_live_sim(
     max_total_notional = max(Decimal("0"), equity * max_asset_leverage - headroom)
     remaining_leverage_notional = max(Decimal("0"), max_total_notional - current_asset_notional)
 
+    # Unit economics must be USD — never divide USD headroom by a non-USD quote price.
+    unit_notional_usd = quote_notional_usd(Decimal("1"), mark, spec, fx)
     max_by_lev_qty = (
-        round_quantity(remaining_leverage_notional / mark, instrument.quantity_step)
-        if remaining_leverage_notional > 0
+        round_quantity(remaining_leverage_notional / unit_notional_usd, instrument.quantity_step)
+        if remaining_leverage_notional > 0 and unit_notional_usd > 0
         else Decimal("0")
     )
 
     if direction == Direction.LONG:
         fee_rate = execution_assumptions.fee_rate or Decimal("0")
-        cash_per_unit = mark * (Decimal("1") + fee_rate)
+        # Align cash headroom with broker initial-margin economics (not full quote notional).
+        from quantara_engine.broker.profile import QUANTARA_LIVE_SIM_10K
+
+        unit_im = initial_margin_for_notional(
+            unit_notional_usd, QUANTARA_LIVE_SIM_10K.rules_for(spec.asset_class)
+        )
+        cash_per_unit = unit_im * (Decimal("1") + fee_rate)
         max_by_cash_qty = (
             round_quantity(cash / cash_per_unit, instrument.quantity_step)
             if cash > 0 and cash_per_unit > 0

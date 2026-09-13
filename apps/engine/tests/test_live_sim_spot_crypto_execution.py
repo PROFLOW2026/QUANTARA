@@ -220,6 +220,7 @@ def test_pending_resume_rejected_not_counted_as_expired():
         "strategy_slug": "gold-trend-pullback",
         "symbol": "ETHUSD",
         "timeframe": "15m",
+        "broker_account_id": "acct",
     }
     store.session.execute.return_value.mappings.return_value.all.return_value = [pending_row]
 
@@ -228,7 +229,10 @@ def test_pending_resume_rejected_not_counted_as_expired():
     after = datetime(2026, 9, 13, 12, 30, 32, tzinfo=TZ3)
 
     with patch(
-        "quantara_engine.live_sim.allocator._account_row",
+        "quantara_engine.live_sim.execution_routing.list_active_live_sim_broker_account_ids",
+        return_value=["acct"],
+    ), patch(
+        "quantara_engine.live_sim.execution_routing.broker_account_row_by_id",
         return_value={
             "id": "acct",
             "is_active": True,

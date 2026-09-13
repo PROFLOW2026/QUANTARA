@@ -183,6 +183,7 @@ def test_pending_allocation_counters_when_not_ready():
         "strategy_slug": "gold-trend-pullback",
         "symbol": "ETHUSD",
         "timeframe": "15m",
+        "broker_account_id": "acct",
     }
     store.session.execute.return_value.mappings.return_value.all.return_value = [pending_row]
 
@@ -191,7 +192,10 @@ def test_pending_allocation_counters_when_not_ready():
     before_close = datetime(2026, 9, 13, 0, 29, tzinfo=TZ3)
 
     with patch(
-        "quantara_engine.live_sim.allocator._account_row",
+        "quantara_engine.live_sim.execution_routing.list_active_live_sim_broker_account_ids",
+        return_value=["acct"],
+    ), patch(
+        "quantara_engine.live_sim.execution_routing.broker_account_row_by_id",
         return_value={"id": "acct", "is_active": True, "equity": 10000, "starting_cash": 10000},
     ), patch(
         "quantara_engine.live_sim.allocator.expire_stale_live_sim_allocations",
@@ -315,7 +319,7 @@ def test_all_robots_have_live_sim_routing_labels(strategy_slug, label):
     assert ROBOT_LABELS[strategy_slug] == label
 
 
-def test_per_portfolio_eval_routes_live_sim_once_for_cde_robots():
+def test_per_portfolio_eval_routes_live_sim_once_per_cde_strategy():
     from quantara_workers.jobs.run_strategy import _process_candle_batch
 
     store = MagicMock()
@@ -330,20 +334,22 @@ def test_per_portfolio_eval_routes_live_sim_once_for_cde_robots():
 
     group = []
     for slug in sorted(MULTI_STRATEGY_SLUGS):
-        group.append(
-            {
-                "portfolio": MagicMock(id=f"p-{slug}"),
-                "instance": MagicMock(
-                    id=f"i-{slug}",
-                    strategy_slug=slug,
-                    instrument_id="inst-eth",
-                    strategy_version_id="sv",
-                    timeframe="15m",
-                    parameter_overrides={},
-                ),
-                "risk_profile": MagicMock(),
-            }
-        )
+        # Five risk-tier clones per strategy (Research fan-out); Live Sim must see 1 each.
+        for risk_i in range(5):
+            group.append(
+                {
+                    "portfolio": MagicMock(id=f"p-{slug}-{risk_i}"),
+                    "instance": MagicMock(
+                        id=f"i-{slug}-{risk_i}",
+                        strategy_slug=slug,
+                        instrument_id="inst-eth",
+                        strategy_version_id="sv",
+                        timeframe="15m",
+                        parameter_overrides={},
+                    ),
+                    "risk_profile": MagicMock(),
+                }
+            )
 
     store.timeframe_group_already_processed.return_value = False
     store.batch_load_portfolio_states.return_value = {}
@@ -369,7 +375,8 @@ def test_per_portfolio_eval_routes_live_sim_once_for_cde_robots():
 
         def side_effect(*args, **kwargs):
             proc = make_processor()
-            if live_sim_eval_calls["count"] == 0:
+            # First N = canonical Live Sim evals (one per strategy), then Research fan-out.
+            if live_sim_eval_calls["count"] < len(MULTI_STRATEGY_SLUGS):
                 live_sim_eval_calls["count"] += 1
             else:
                 per_portfolio_eval_calls["count"] += 1
@@ -390,9 +397,11 @@ def test_per_portfolio_eval_routes_live_sim_once_for_cde_robots():
             per_portfolio_eval=True,
         )
 
-    allocate.assert_called_once()
-    assert live_sim_eval_calls["count"] == 1
-    assert per_portfolio_eval_calls["count"] == len(MULTI_STRATEGY_SLUGS)
+    assert allocate.call_count == len(MULTI_STRATEGY_SLUGS)
+    allocated_slugs = {c.kwargs["entry"]["instance"].strategy_slug for c in allocate.call_args_list}
+    assert allocated_slugs == set(MULTI_STRATEGY_SLUGS)
+    assert live_sim_eval_calls["count"] == len(MULTI_STRATEGY_SLUGS)
+    assert per_portfolio_eval_calls["count"] == len(group)
 
 
 def test_execute_intents_reports_live_sim_resume_counters():

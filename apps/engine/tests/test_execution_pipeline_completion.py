@@ -304,40 +304,54 @@ def test_live_sim_pending_allocation_resumes_not_duplicates():
     }
     with patch("quantara_engine.live_sim.allocator._account_row", return_value=account):
         with patch(
-            "quantara_engine.live_sim.allocator.find_allocation_by_canonical",
-            return_value=existing,
+            "quantara_engine.live_sim.allocator.resolve_live_sim_runtime_context",
+            return_value=MagicMock(
+                legacy_blocked=False,
+                account=account,
+                account_slug="live-sim-10k",
+                account_id="acc-1",
+                route=None,
+            ),
         ):
             with patch(
-                "quantara_engine.live_sim.allocator._resume_pending_allocation",
-                return_value={"status": "queued", "log_id": "log-1"},
-            ) as resume:
-                from quantara_engine.domain.types import Signal, SignalAction
+                "quantara_engine.live_sim.allocator.find_allocation_by_canonical",
+                return_value=existing,
+            ):
+                with patch(
+                    "quantara_engine.live_sim.allocator._resume_pending_allocation",
+                    return_value={"status": "queued", "log_id": "log-1"},
+                ) as resume:
+                    from quantara_engine.domain.types import Signal, SignalAction
 
-                signal = Signal(
-                    action=SignalAction.BUY,
-                    reason="test",
-                    suggested_sl=Decimal("76500"),
-                    suggested_tp=Decimal("78000"),
-                )
-                candle = Candle(
-                    instrument_id="btc-id",
-                    timeframe="5m",
-                    timestamp=existing["signal_candle_timestamp"],
-                    open=Decimal("77000"),
-                    high=Decimal("77100"),
-                    low=Decimal("76900"),
-                    close=Decimal("77000"),
-                    volume=Decimal("1"),
-                )
-                result = maybe_allocate_live_sim(
-                    store,
-                    entry={"instance": MagicMock(strategy_slug="gold-trend-pullback", timeframe="5m")},
-                    instrument=_btc(),
-                    candle=candle,
-                    candles=[candle],
-                    candle_index=0,
-                    signal=signal,
-                    execution_now=datetime(2026, 9, 12, 18, 5, tzinfo=timezone.utc),
-                )
+                    signal = Signal(
+                        action=SignalAction.BUY,
+                        reason="test",
+                        suggested_sl=Decimal("76500"),
+                        suggested_tp=Decimal("78000"),
+                    )
+                    candle = Candle(
+                        instrument_id="btc-id",
+                        timeframe="5m",
+                        timestamp=existing["signal_candle_timestamp"],
+                        open=Decimal("77000"),
+                        high=Decimal("77100"),
+                        low=Decimal("76900"),
+                        close=Decimal("77000"),
+                        volume=Decimal("1"),
+                    )
+                    result = maybe_allocate_live_sim(
+                        store,
+                        entry={
+                            "instance": MagicMock(
+                                strategy_slug="gold-trend-pullback", timeframe="5m"
+                            )
+                        },
+                        instrument=_btc(),
+                        candle=candle,
+                        candles=[candle],
+                        candle_index=0,
+                        signal=signal,
+                        execution_now=datetime(2026, 9, 12, 18, 5, tzinfo=timezone.utc),
+                    )
     resume.assert_called_once()
     assert result["status"] == "queued"

@@ -106,6 +106,10 @@ def _account_row(store: TradingStore, slug: str = LIVE_SIM_10K_ACCOUNT_SLUG) -> 
 
 
 def _current_asset_notional_usd(store: TradingStore, account_id: str, db_symbol: str) -> Decimal:
+    from quantara_engine.broker.instruments import get_instrument_spec
+    from quantara_engine.broker.margin import quote_notional_usd
+
+    sym = db_symbol.upper().replace("/", "")
     row = store.session.execute(
         text(
             """
@@ -115,11 +119,21 @@ def _current_asset_notional_usd(store: TradingStore, account_id: str, db_symbol:
             WHERE bp.broker_account_id = :aid AND i.symbol = :sym
             """
         ),
-        {"aid": account_id, "sym": db_symbol.upper().replace("/", "")},
+        {"aid": account_id, "sym": sym},
     ).mappings().first()
     if not row or not row["net_quantity"]:
         return Decimal("0")
-    return abs(Decimal(str(row["net_quantity"]))) * Decimal(str(row["mark_price"]))
+    qty = abs(Decimal(str(row["net_quantity"])))
+    mark = Decimal(str(row["mark_price"]))
+    spec = get_instrument_spec(sym)
+    instrument = store.get_instrument_by_symbol(sym)
+    if instrument is None:
+        # Fallback: USD-quoted specs only; non-USD requires FX context.
+        if spec.quote_currency.upper() == "USD":
+            return quote_notional_usd(qty, mark, spec, {})
+        return Decimal("0")
+    ctx = store.build_currency_context_for_instruments([instrument])
+    return quote_notional_usd(qty, mark, spec, ctx.fx_rates.quote_per_usd)
 
 
 def _spot_crypto_buying_power(account: dict, instrument) -> Decimal:
@@ -1061,15 +1075,29 @@ def maybe_allocate_live_sim(
             REJECTION_HE.get(global_verdict.reason or "", global_verdict.reason or ""),
         )
 
+    from quantara_engine.broker.instruments import get_instrument_spec
+    from quantara_engine.broker.margin import initial_margin_for_notional, quote_notional_usd
+    from quantara_engine.broker.profile import profile_for_account_slug
     from quantara_engine.owner_portfolio.asset_risk import evaluate_asset_envelope_risk
+
+    mark = entry_mark_price_for_sizing(entry_ref, dir_enum, assumptions)
+    profile = profile_for_account_slug(account_slug)
+    spec = get_instrument_spec(instrument.symbol.upper().replace("/", ""))
+    fx = ctx.fx_rates.quote_per_usd
+    incremental_notional_usd = quote_notional_usd(
+        Decimal(str(qty or 0)), mark, spec, fx
+    )
+    required_cash_usd = initial_margin_for_notional(
+        incremental_notional_usd, profile.rules_for(spec.asset_class)
+    )
 
     asset_verdict = evaluate_asset_envelope_risk(
         store,
         owner_slug=LIVE_SIM_OWNER_SLUG,
         canonical_symbol=instrument.symbol,
         incremental_sl_risk_usd=expected_risk or Decimal("0"),
-        incremental_notional_usd=Decimal(str(qty or 0)) * entry_ref,
-        required_cash_usd=Decimal(str(qty or 0)) * entry_ref * Decimal("0.1"),
+        incremental_notional_usd=incremental_notional_usd,
+        required_cash_usd=required_cash_usd,
     )
     if not asset_verdict.allowed:
         return _reject(
@@ -1077,10 +1105,6 @@ def maybe_allocate_live_sim(
             REJECTION_HE.get(asset_verdict.reason or "", asset_verdict.reason or ""),
         )
 
-    from quantara_engine.broker.profile import profile_for_account_slug
-
-    mark = entry_mark_price_for_sizing(entry_ref, dir_enum, assumptions)
-    profile = profile_for_account_slug(account_slug)
     spot_raw = Decimal(str(account.get("spot_crypto_cash") or "0"))
     cash_raw = Decimal(str(account.get("cash") or account.get("equity") or account["starting_cash"]))
     broker_ok, broker_reason = validate_live_sim_broker_pre_trade(

@@ -199,6 +199,22 @@ def _orb_entry_signal_for_portfolio(
     return shared_signal
 
 
+def _canonical_strategy_representatives(group: list[dict]) -> list[dict]:
+    """One Research entry per distinct strategy_slug (first risk-tier clone wins).
+
+    C/D/E candle groups mix mean-reversion, volatility-squeeze, and
+    momentum-continuation clones for the same symbol/timeframe. Live Sim must
+    forward one canonical candidate per strategy identity — not only group[0]
+    and not one candidate per risk-tier clone.
+    """
+    seen: dict[str, dict] = {}
+    for entry in group:
+        slug = str(entry["instance"].strategy_slug)
+        if slug not in seen:
+            seen[slug] = entry
+    return list(seen.values())
+
+
 def _process_candle_batch(
     s: TradingStore,
     instrument,
@@ -223,7 +239,7 @@ def _process_candle_batch(
     prefetched_states = s.batch_load_portfolio_states(portfolio_ids)
 
     shared_signal = None
-    live_sim_signal = None
+    live_sim_forwards: list[tuple[dict, object]] = []
     template = group[0]
     template_state = prefetched_states.get(template["portfolio"].id)
     if template_state is None:
@@ -243,8 +259,8 @@ def _process_candle_batch(
         )
         eval_processor.all_candles = candles
         shared_signal, _ = eval_processor.evaluate_signal(candle_index)
-        live_sim_signal = shared_signal
         if allow_live_execution and shared_signal is not None:
+            live_sim_forwards.append((template, shared_signal))
             try:
                 from quantara_engine.learning.hooks import observe_generic_eval, observe_robot_a_candle
 
@@ -278,24 +294,32 @@ def _process_candle_batch(
             except Exception:
                 logger.exception("Learning hook failed (non-fatal)")
     elif allow_live_execution:
-        # Robots C/D/E: one canonical live-sim signal from template tier (not per risk tier).
-        live_sim_eval = CandleProcessor(
-            portfolio_state=template_state,
-            strategy_instance=template["instance"],
-            instrument=instrument,
-            risk_profile=template["risk_profile"],
-            broker=broker,
-            clock=BacktestClock(),
-            store=s,
-            mode=Mode.PAPER,
-            execution_now=started_at,
-        )
-        live_sim_eval.all_candles = candles
-        live_sim_signal, _ = live_sim_eval.evaluate_signal(candle_index)
-        if live_sim_signal is not None:
-            try:
-                from quantara_engine.learning.hooks import observe_generic_eval
+        # Robots C/D/E: one Live Sim candidate per distinct strategy (not group[0]-only,
+        # not one per risk-tier Research clone).
+        from quantara_engine.learning.hooks import observe_generic_eval
 
+        for rep in _canonical_strategy_representatives(group):
+            rep_state = prefetched_states.get(rep["portfolio"].id)
+            if rep_state is None:
+                rep_state = s.load_portfolio_runtime_state(rep["portfolio"].id)
+                prefetched_states[rep["portfolio"].id] = rep_state
+            live_sim_eval = CandleProcessor(
+                portfolio_state=rep_state,
+                strategy_instance=rep["instance"],
+                instrument=instrument,
+                risk_profile=rep["risk_profile"],
+                broker=broker,
+                clock=BacktestClock(),
+                store=s,
+                mode=Mode.PAPER,
+                execution_now=started_at,
+            )
+            live_sim_eval.all_candles = candles
+            live_sim_signal, _ = live_sim_eval.evaluate_signal(candle_index)
+            if live_sim_signal is None:
+                continue
+            live_sim_forwards.append((rep, live_sim_signal))
+            try:
                 observe_generic_eval(
                     s,
                     instrument=instrument,
@@ -303,7 +327,7 @@ def _process_candle_batch(
                     candles=candles,
                     candle_index=candle_index,
                     active_signal=live_sim_signal,
-                    strategy_slug=template["instance"].strategy_slug,
+                    strategy_slug=rep["instance"].strategy_slug,
                     allow_live_execution=allow_live_execution,
                     now=started_at,
                 )
@@ -348,19 +372,20 @@ def _process_candle_batch(
             processor.process_candle(candle_index, shared_signal=effective_signal)
         total_decisions += len(processor.decisions)
 
-    if allow_live_execution and live_sim_signal is not None:
+    if allow_live_execution and live_sim_forwards:
         from quantara_engine.live_sim.allocator import maybe_allocate_live_sim
 
-        maybe_allocate_live_sim(
-            s,
-            entry=group[0],
-            instrument=instrument,
-            candle=candle,
-            candles=candles,
-            candle_index=candle_index,
-            signal=live_sim_signal,
-            execution_now=started_at,
-        )
+        for entry, signal in live_sim_forwards:
+            maybe_allocate_live_sim(
+                s,
+                entry=entry,
+                instrument=instrument,
+                candle=candle,
+                candles=candles,
+                candle_index=candle_index,
+                signal=signal,
+                execution_now=started_at,
+            )
 
     if allow_live_execution:
         s.flush()
