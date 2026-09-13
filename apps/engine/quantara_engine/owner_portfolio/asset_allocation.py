@@ -16,6 +16,7 @@ from quantara_engine.owner_portfolio.constants import (
     LIVE_SIM_PER_ASSET_CAPITAL,
     LIVE_SIM_TARGET_CAPITAL,
 )
+from quantara_engine.broker.accounts import LIVE_SIM_10K_ACCOUNT_SLUG
 from quantara_engine.owner_portfolio.service import IBKR_LIKE_SLUG, KRAKEN_LIKE_SLUG, OwnerPortfolioService
 from quantara_engine.persistence.store import TradingStore
 
@@ -254,6 +255,52 @@ def sync_broker_allocations_from_assets(store: TradingStore, owner_slug: str) ->
         )
 
 
+def _initialize_simulation_vendor_accounts_on_activation(store: TradingStore) -> None:
+    """Seed SIMULATION vendor broker accounts with allocated capital and connector-ready state."""
+    for slug, capital in (
+        (IBKR_LIKE_SLUG, LIVE_SIM_IBKR_TOTAL),
+        (KRAKEN_LIKE_SLUG, LIVE_SIM_KRAKEN_TOTAL),
+    ):
+        store.session.execute(
+            text(
+                """
+                UPDATE broker_accounts
+                SET starting_cash = :cap,
+                    cash = :cap,
+                    balance = :cap,
+                    equity = :cap,
+                    spot_crypto_cash = CASE
+                      WHEN broker_vendor = 'KRAKEN' THEN :cap
+                      ELSE spot_crypto_cash
+                    END,
+                    is_active = TRUE,
+                    pending_owner_reset = FALSE,
+                    account_state = 'active',
+                    connection_state = 'CONNECTED',
+                    activated_at = COALESCE(activated_at, NOW()),
+                    updated_at = NOW()
+                WHERE slug = :slug
+                  AND broker_environment = 'SIMULATION'
+                """
+            ),
+            {"slug": slug, "cap": capital},
+        )
+
+    store.session.execute(
+        text(
+            """
+            UPDATE broker_accounts
+            SET is_active = FALSE,
+                account_state = 'paused',
+                connection_state = 'DISCONNECTED',
+                updated_at = NOW()
+            WHERE slug = :slug
+            """
+        ),
+        {"slug": LIVE_SIM_10K_ACCOUNT_SLUG},
+    )
+
+
 def configure_equal_asset_allocations(
     store: TradingStore,
     owner_slug: str,
@@ -411,6 +458,7 @@ def configure_equal_asset_allocations(
         )
 
         if activate:
+            _initialize_simulation_vendor_accounts_on_activation(store)
             store.session.execute(
                 text(
                     """
@@ -456,6 +504,104 @@ def configure_equal_asset_allocations(
         "ibkr_total": float(LIVE_SIM_IBKR_TOTAL),
         "kraken_total": float(LIVE_SIM_KRAKEN_TOTAL),
     }
+
+
+def deactivate_equal_asset_allocations(store: TradingStore, owner_slug: str) -> dict[str, Any]:
+    """Turn off equal-asset multi-broker mode and restore legacy single-account draft state."""
+    portfolio = store.session.execute(
+        text(
+            """
+            SELECT id::text FROM owner_trading_portfolios WHERE slug = :slug
+            """
+        ),
+        {"slug": owner_slug},
+    ).scalar()
+    if not portfolio:
+        return {"ok": False, "error": "portfolio_not_found"}
+
+    try:
+        store.session.execute(
+            text(
+                """
+                UPDATE owner_trading_portfolios
+                SET multi_broker_mode_enabled = FALSE,
+                    equal_asset_allocation_enabled = FALSE,
+                    updated_at = NOW()
+                WHERE id = CAST(:pid AS uuid)
+                """
+            ),
+            {"pid": portfolio},
+        )
+        store.session.execute(
+            text(
+                """
+                UPDATE owner_portfolio_asset_allocations
+                SET enabled = FALSE, updated_at = NOW()
+                WHERE owner_portfolio_id = CAST(:pid AS uuid)
+                """
+            ),
+            {"pid": portfolio},
+        )
+        store.session.execute(
+            text(
+                """
+                UPDATE portfolio_broker_accounts
+                SET enabled = FALSE, updated_at = NOW()
+                WHERE owner_portfolio_id = CAST(:pid AS uuid)
+                  AND NOT is_legacy_primary
+                """
+            ),
+            {"pid": portfolio},
+        )
+        store.session.execute(
+            text(
+                """
+                UPDATE portfolio_broker_accounts
+                SET enabled = TRUE, updated_at = NOW()
+                WHERE owner_portfolio_id = CAST(:pid AS uuid)
+                  AND is_legacy_primary = TRUE
+                """
+            ),
+            {"pid": portfolio},
+        )
+        store.session.execute(
+            text(
+                """
+                UPDATE broker_accounts
+                SET is_active = TRUE,
+                    account_state = 'active',
+                    connection_state = 'CONNECTED',
+                    updated_at = NOW()
+                WHERE slug = :slug
+                """
+            ),
+            {"slug": LIVE_SIM_10K_ACCOUNT_SLUG},
+        )
+        store.session.execute(
+            text(
+                """
+                UPDATE broker_accounts
+                SET is_active = FALSE,
+                    account_state = 'paused',
+                    connection_state = 'DISCONNECTED',
+                    starting_cash = 0,
+                    cash = 0,
+                    balance = 0,
+                    equity = 0,
+                    spot_crypto_cash = 0,
+                    updated_at = NOW()
+                WHERE slug IN (:ibkr, :kraken)
+                  AND broker_environment = 'SIMULATION'
+                """
+            ),
+            {"ibkr": IBKR_LIKE_SLUG, "kraken": KRAKEN_LIKE_SLUG},
+        )
+        store.session.commit()
+    except Exception as exc:
+        store.session.rollback()
+        return {"ok": False, "error": "deactivation_db_rejected", "detail": str(exc)}
+
+    return {"ok": True, "deactivated": True}
 
 
 def audit_legacy_live_sim_before_equal_asset_activation(store: TradingStore) -> dict[str, Any]:

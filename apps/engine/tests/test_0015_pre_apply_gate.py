@@ -321,6 +321,36 @@ def _reset_live_sim_single_broker_state(store) -> None:
         ),
         {"pid": pid},
     )
+    store.session.execute(
+        text(
+            """
+            UPDATE broker_accounts
+            SET is_active = TRUE,
+                account_state = 'active',
+                connection_state = 'CONNECTED',
+                updated_at = NOW()
+            WHERE slug = 'live-sim-10k'
+            """
+        )
+    )
+    store.session.execute(
+        text(
+            """
+            UPDATE broker_accounts
+            SET is_active = FALSE,
+                account_state = 'paused',
+                connection_state = 'DISCONNECTED',
+                starting_cash = 0,
+                cash = 0,
+                balance = 0,
+                equity = 0,
+                spot_crypto_cash = 0,
+                updated_at = NOW()
+            WHERE slug IN ('live-sim-ibkr-like', 'live-sim-kraken-like')
+              AND broker_environment = 'SIMULATION'
+            """
+        )
+    )
     store.session.commit()
 
 
@@ -428,6 +458,9 @@ def test_db_rejects_multi_broker_activation_over_allocation(broker_test_store):
         ),
         {"id": kraken_id},
     )
+    # Commit before re-enabling row triggers — 0017 deferred constraint triggers block
+    # ALTER TABLE while the same transaction has pending trigger events.
+    broker_test_store.session.commit()
     broker_test_store.session.execute(
         text(
             "ALTER TABLE portfolio_broker_accounts ENABLE TRIGGER portfolio_broker_accounts_allocation_invariant"
