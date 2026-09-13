@@ -43,8 +43,14 @@ from quantara_engine.live_sim.opportunity import (
     live_sim_canonical_opportunity_key,
     live_sim_execution_idempotency_key,
 )
+from quantara_engine.live_sim.asset_gate_settings import (
+    load_asset_gate_settings,
+    maybe_roll_asset_daily_start,
+    update_asset_high_water_mark,
+)
 from quantara_engine.live_sim.risk_policy import (
     compute_open_sl_risk,
+    evaluate_drawdown_gate,
     evaluate_entry_gates,
     load_risk_settings,
     maybe_roll_daily_start,
@@ -71,7 +77,7 @@ def _equal_asset_sizing_context(
     *,
     symbol: str,
     account: dict,
-) -> tuple[Decimal, Decimal, str] | None:
+) -> tuple[Decimal, Decimal, str, dict] | None:
     """When equal-asset multi-broker is active, size from isolated asset envelope."""
     from quantara_engine.owner_portfolio.asset_allocation import (
         asset_equity,
@@ -89,7 +95,7 @@ def _equal_asset_sizing_context(
     equity = asset_equity(row)
     cash = asset_available_cash(store, owner_slug=LIVE_SIM_OWNER_SLUG, canonical_symbol=symbol)
     broker_id = row.get("broker_account_id") or account["id"]
-    return equity, cash, str(broker_id)
+    return equity, cash, str(broker_id), row
 
 
 def _account_row(store: TradingStore, slug: str = LIVE_SIM_10K_ACCOUNT_SLUG) -> dict | None:
@@ -830,16 +836,26 @@ def maybe_allocate_live_sim(
     equity = Decimal(str(account["equity"] or account["starting_cash"]))
     asset_ctx = _equal_asset_sizing_context(store, symbol=instrument.symbol, account=account)
     asset_cash_override: Decimal | None = None
+    asset_row: dict | None = None
+    broker_limits = load_risk_settings(dict(account))
     if asset_ctx:
-        equity, asset_cash_override, routed_account_id = asset_ctx
+        equity, asset_cash_override, routed_account_id, asset_row = asset_ctx
         account_id = routed_account_id
         routed = broker_account_row_by_id(store, routed_account_id)
         if routed:
+            broker_limits = load_risk_settings(dict(routed))
             account = dict(routed)
             account_slug = str(routed["slug"])
-    settings = load_risk_settings(dict(account))
-    settings = maybe_roll_daily_start(store, account_id, settings, equity, execution_now)
-    update_high_water_mark(store, account_id, equity)
+    if asset_row:
+        settings = load_asset_gate_settings(asset_row, broker_limits)
+        settings = maybe_roll_asset_daily_start(
+            store, asset_row["id"], settings, equity, execution_now
+        )
+        update_asset_high_water_mark(store, asset_row["id"], equity)
+    else:
+        settings = broker_limits
+        settings = maybe_roll_daily_start(store, account_id, settings, equity, execution_now)
+        update_high_water_mark(store, account_id, equity)
 
     ctx = store.build_currency_context_for_instruments([instrument])
     assumptions = execution_assumptions_for(instrument, candle.close)
@@ -955,6 +971,20 @@ def maybe_allocate_live_sim(
     )
     if not gate.allowed:
         return _reject(gate.reason or "GATE", gate.detail or REJECTION_HE.get(gate.reason or "", ""))
+
+    if asset_row:
+        broker_equity = Decimal(str(account.get("equity") or account.get("starting_cash")))
+        broker_dd = evaluate_drawdown_gate(
+            equity=broker_equity,
+            high_water_mark=broker_limits.high_water_mark,
+            max_drawdown_gate_pct=broker_limits.max_drawdown_gate_pct,
+            scope_label="broker drawdown",
+        )
+        if not broker_dd.allowed:
+            return _reject(
+                broker_dd.reason or "DRAWDOWN_GATE",
+                broker_dd.detail or REJECTION_HE.get("DRAWDOWN_GATE", ""),
+            )
 
     from quantara_engine.broker.reconciliation_orchestrator import is_broker_execution_allowed
     from quantara_engine.owner_portfolio.global_risk import evaluate_owner_global_risk

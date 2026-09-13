@@ -186,6 +186,25 @@ class GateResult:
     detail: str | None = None
 
 
+def evaluate_drawdown_gate(
+    *,
+    equity: Decimal,
+    high_water_mark: Decimal,
+    max_drawdown_gate_pct: Decimal,
+    scope_label: str = "drawdown",
+) -> GateResult:
+    if high_water_mark <= 0:
+        return GateResult(True)
+    dd_pct = (high_water_mark - equity) / high_water_mark * Decimal("100")
+    if dd_pct >= max_drawdown_gate_pct:
+        return GateResult(
+            False,
+            "DRAWDOWN_GATE",
+            f"{scope_label} {dd_pct:.2f}% >= {max_drawdown_gate_pct}%",
+        )
+    return GateResult(True)
+
+
 def evaluate_entry_gates(
     *,
     settings: LiveSimRiskSettings,
@@ -199,15 +218,13 @@ def evaluate_entry_gates(
     if equity <= 0:
         return GateResult(False, "ACCOUNT_INACTIVE", "equity <= 0")
 
-    hwm = settings.high_water_mark
-    if hwm > 0:
-        dd_pct = (hwm - equity) / hwm * Decimal("100")
-        if dd_pct >= settings.max_drawdown_gate_pct:
-            return GateResult(
-                False,
-                "DRAWDOWN_GATE",
-                f"drawdown {dd_pct:.2f}% >= {settings.max_drawdown_gate_pct}%",
-            )
+    dd = evaluate_drawdown_gate(
+        equity=equity,
+        high_water_mark=settings.high_water_mark,
+        max_drawdown_gate_pct=settings.max_drawdown_gate_pct,
+    )
+    if not dd.allowed:
+        return dd
 
     daily_start = settings.daily_start_equity
     if daily_start > 0:

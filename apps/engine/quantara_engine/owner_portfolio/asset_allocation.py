@@ -194,7 +194,8 @@ def get_asset_allocation_row(
             SELECT a.id::text, a.canonical_symbol, a.broker_account_id::text,
                    a.starting_allocated_capital, a.current_cash, a.realized_pnl,
                    a.unrealized_pnl, a.fees_paid, a.funding_paid, a.gross_exposure,
-                   a.open_sl_risk_usd, a.trade_count, a.enabled, a.label_he
+                   a.open_sl_risk_usd, a.trade_count, a.enabled, a.label_he,
+                   a.high_water_mark, a.daily_start_equity, a.daily_start_date
             FROM owner_portfolio_asset_allocations a
             JOIN owner_trading_portfolios otp ON otp.id = a.owner_portfolio_id
             WHERE otp.slug = :slug AND a.canonical_symbol = :sym
@@ -375,11 +376,11 @@ def configure_equal_asset_allocations(
                     INSERT INTO owner_portfolio_asset_allocations (
                       owner_portfolio_id, canonical_symbol, portfolio_broker_account_id,
                       broker_account_id, starting_allocated_capital, current_cash,
-                      enabled, label_he
+                      high_water_mark, daily_start_equity, enabled, label_he
                     ) VALUES (
                       CAST(:pid AS uuid), :sym,
                       CAST(:link AS uuid), CAST(:ba AS uuid),
-                      :cap, :cap, :enabled, :label
+                      :cap, :cap, :cap, :cap, :enabled, :label
                     )
                     ON CONFLICT (owner_portfolio_id, canonical_symbol) DO UPDATE SET
                       portfolio_broker_account_id = EXCLUDED.portfolio_broker_account_id,
