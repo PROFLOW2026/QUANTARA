@@ -28,6 +28,25 @@ export function resolveBrowserStreamBaseUrl(): string | null {
   return null;
 }
 
+/** Prefer server ENGINE_URL at runtime so Quick Tunnel changes do not require rebuild. */
+export async function resolveRuntimeStreamBaseUrl(): Promise<string | null> {
+  if (typeof window !== "undefined") {
+    try {
+      const res = await fetch("/api/engine/stream-base", { cache: "no-store" });
+      if (res.ok) {
+        const payload = (await res.json()) as { baseUrl?: string };
+        const baseUrl = payload.baseUrl?.trim().replace(/\/$/, "") ?? "";
+        if (baseUrl) {
+          return baseUrl;
+        }
+      }
+    } catch {
+      // fall through to build-time / localhost defaults
+    }
+  }
+  return resolveBrowserStreamBaseUrl();
+}
+
 export function buildLiveStreamUrl(baseUrl: string, token: string): string {
   const url = new URL(`${baseUrl}/api/v1/market-data/live-stream`);
   url.searchParams.set("token", token);

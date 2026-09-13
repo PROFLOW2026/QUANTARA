@@ -442,6 +442,12 @@ def analytics_assets(store: StoreDep):
     last_candles = candle_bundle["last_candles"]
     latest_closes = candle_bundle["latest_closes"]
 
+    from quantara_engine.market_regime.snapshots import latest_regimes_for_assets
+
+    regime_by_asset = latest_regimes_for_assets(
+        store, [asset.db_symbol for asset in assets], timeframe="15m"
+    )
+
     for asset in assets:
         inst = instrument_by_symbol.get(asset.db_symbol)
         counts = {"5m": 0, "15m": 0, "1h": 0}
@@ -571,18 +577,13 @@ def analytics_assets(store: StoreDep):
         live_provider = asset_health.get("provider") or asset.primary_provider.value
 
         regime_payload = None
-        if inst and counts.get("15m", 0) >= STRATEGY_MIN_CANDLES:
-            from quantara_engine.market_regime.snapshots import classify_and_save
-
-            candles_15m = store.list_candles(inst.id, "15m", limit=120)
-            if candles_15m:
-                snapshot = classify_and_save(store, inst, "15m", candles_15m)
-                if snapshot:
-                    regime_payload = {
-                        "structure_regime": snapshot.structure_regime.value,
-                        "volatility_regime": snapshot.volatility_regime.value,
-                        "candle_time": candles_15m[-1].timestamp.isoformat(),
-                    }
+        regime_row = regime_by_asset.get(asset.db_symbol.upper())
+        if regime_row:
+            regime_payload = {
+                "structure_regime": regime_row["structure_regime"],
+                "volatility_regime": regime_row["volatility_regime"],
+                "candle_time": regime_row.get("candle_time"),
+            }
 
         validation_row = validation_by_asset.get(asset.db_symbol) or {}
         from quantara_engine.execution.equity_live_mark import (

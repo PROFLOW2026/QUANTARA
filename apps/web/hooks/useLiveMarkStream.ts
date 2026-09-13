@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   buildLiveStreamUrl,
   parseLiveMarkEvent,
-  resolveBrowserStreamBaseUrl,
+  resolveRuntimeStreamBaseUrl,
   type LiveMarkMap,
 } from "@/lib/live-mark-stream";
 
@@ -40,11 +40,6 @@ export function useLiveMarkStream() {
   }, []);
 
   useEffect(() => {
-    const baseUrl = resolveBrowserStreamBaseUrl();
-    if (!baseUrl) {
-      return;
-    }
-
     let cancelled = false;
     let reconnectTimer: number | undefined;
 
@@ -61,6 +56,11 @@ export function useLiveMarkStream() {
       const generation = ++connectGenRef.current;
 
       try {
+        const baseUrl = await resolveRuntimeStreamBaseUrl();
+        if (!baseUrl || cancelled || generation !== connectGenRef.current) {
+          return;
+        }
+
         const tokenRes = await fetch("/api/engine/stream-token");
         if (!tokenRes.ok || cancelled || generation !== connectGenRef.current) {
           throw new Error("stream token unavailable");
