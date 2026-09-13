@@ -1063,6 +1063,15 @@ export interface LiveSimBrokerBreakdown {
   enabled: boolean;
 }
 
+export interface LiveSimAssetAllocationRow {
+  canonical_symbol: string;
+  label_he: string;
+  broker_vendor?: string;
+  starting_allocated_capital: number;
+  current_equity?: number;
+  enabled?: boolean;
+}
+
 export interface LiveSimAllocationSettings {
   available: boolean;
   target_capital?: number;
@@ -1070,7 +1079,18 @@ export interface LiveSimAllocationSettings {
   kraken_allocation?: number;
   remaining?: number;
   multi_broker_mode_enabled?: boolean;
+  equal_asset_allocation_enabled?: boolean;
+  equal_asset_configured?: boolean;
+  per_asset_capital?: number;
+  ibkr_derived_total?: number;
+  kraken_derived_total?: number;
   can_activate?: boolean;
+  assets?: LiveSimAssetAllocationRow[];
+  legacy_audit?: {
+    requires_manual_attribution_review?: boolean;
+    open_positions?: number;
+    broker_fills?: number;
+  };
 }
 
 export interface LiveSimAccountSummary {
@@ -1182,9 +1202,10 @@ export const api = {
   getLiveSimAllocationSettings: () =>
     apiFetch<LiveSimAllocationSettings>("/live-sim/allocation-settings"),
   updateLiveSimAllocationSettings: (body: {
-    ibkr_allocation: number;
-    kraken_allocation: number;
+    ibkr_allocation?: number;
+    kraken_allocation?: number;
     activate?: boolean;
+    mode?: "legacy_broker_split" | "equal_asset";
   }) =>
     apiFetch<{ ok: boolean; error?: string; activated?: boolean }>(
       "/live-sim/allocation-settings",

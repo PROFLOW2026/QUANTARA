@@ -127,4 +127,20 @@ def accrue_position_costs(
         )
     except Exception:
         store.session.rollback()
+
+    try:
+        from quantara_engine.owner_portfolio.asset_allocation import is_equal_asset_mode_active
+        from quantara_engine.owner_portfolio.asset_ledger import apply_asset_fill_impact
+        from quantara_engine.owner_portfolio.service import LIVE_SIM_OWNER_SLUG
+
+        if is_equal_asset_mode_active(store, LIVE_SIM_OWNER_SLUG):
+            apply_asset_fill_impact(
+                store,
+                owner_slug=LIVE_SIM_OWNER_SLUG,
+                canonical_symbol=symbol,
+                funding_delta=total,
+            )
+    except Exception:
+        pass
+
     return total

@@ -62,6 +62,32 @@ from quantara_engine.execution.timing import (
 logger = logging.getLogger(__name__)
 
 
+def _equal_asset_sizing_context(
+    store: TradingStore,
+    *,
+    symbol: str,
+    account: dict,
+) -> tuple[Decimal, Decimal, str] | None:
+    """When equal-asset multi-broker is active, size from isolated asset envelope."""
+    from quantara_engine.owner_portfolio.asset_allocation import (
+        asset_equity,
+        get_asset_allocation_row,
+        is_equal_asset_mode_active,
+    )
+    from quantara_engine.owner_portfolio.asset_ledger import asset_available_cash
+    from quantara_engine.owner_portfolio.service import LIVE_SIM_OWNER_SLUG
+
+    if not is_equal_asset_mode_active(store, LIVE_SIM_OWNER_SLUG):
+        return None
+    row = get_asset_allocation_row(store, owner_slug=LIVE_SIM_OWNER_SLUG, canonical_symbol=symbol)
+    if not row or not row.get("enabled"):
+        return None
+    equity = asset_equity(row)
+    cash = asset_available_cash(store, owner_slug=LIVE_SIM_OWNER_SLUG, canonical_symbol=symbol)
+    broker_id = row.get("broker_account_id") or account["id"]
+    return equity, cash, str(broker_id)
+
+
 def _account_row(store: TradingStore) -> dict | None:
     return store.session.execute(
         text(
@@ -369,6 +395,10 @@ def _resume_pending_allocation(
 
     instance = entry["instance"]
     equity = Decimal(str(account["equity"] or account["starting_cash"]))
+    asset_ctx = _equal_asset_sizing_context(store, symbol=instrument.symbol, account=account)
+    if asset_ctx:
+        equity, _, routed_account_id = asset_ctx
+        account_id = routed_account_id
     open_risk = compute_open_sl_risk(store, account_id)
     dir_enum = Direction.LONG if existing["direction"] == "long" else Direction.SHORT
     sl = Decimal(str(existing["stop_loss"]))
@@ -753,6 +783,11 @@ def maybe_allocate_live_sim(
         return {"status": "rejected", "reason": "INVALID_STOP_LOSS"}
 
     equity = Decimal(str(account["equity"] or account["starting_cash"]))
+    asset_ctx = _equal_asset_sizing_context(store, symbol=instrument.symbol, account=account)
+    asset_cash_override: Decimal | None = None
+    if asset_ctx:
+        equity, asset_cash_override, routed_account_id = asset_ctx
+        account_id = routed_account_id
     settings = load_risk_settings(dict(account))
     settings = maybe_roll_daily_start(store, account_id, settings, equity, execution_now)
     update_high_water_mark(store, account_id, equity)
@@ -788,7 +823,11 @@ def maybe_allocate_live_sim(
         )
         return {"status": "rejected", "reason": "INVALID_STOP_LOSS"}
 
-    buying_power = _spot_crypto_buying_power(account, instrument)
+    buying_power = (
+        asset_cash_override
+        if asset_cash_override is not None
+        else _spot_crypto_buying_power(account, instrument)
+    )
     sym_db = instrument.symbol.upper().replace("/", "")
     sizing = size_live_sim_entry(
         equity=equity,
@@ -882,6 +921,22 @@ def maybe_allocate_live_sim(
         return _reject(
             global_verdict.reason or "OWNER_GLOBAL_RISK",
             REJECTION_HE.get(global_verdict.reason or "", global_verdict.reason or ""),
+        )
+
+    from quantara_engine.owner_portfolio.asset_risk import evaluate_asset_envelope_risk
+
+    asset_verdict = evaluate_asset_envelope_risk(
+        store,
+        owner_slug=LIVE_SIM_OWNER_SLUG,
+        canonical_symbol=instrument.symbol,
+        incremental_sl_risk_usd=expected_risk or Decimal("0"),
+        incremental_notional_usd=Decimal(str(qty or 0)) * entry_ref,
+        required_cash_usd=Decimal(str(qty or 0)) * entry_ref * Decimal("0.1"),
+    )
+    if not asset_verdict.allowed:
+        return _reject(
+            asset_verdict.reason or "ASSET_ENVELOPE_RISK",
+            REJECTION_HE.get(asset_verdict.reason or "", asset_verdict.reason or ""),
         )
 
     from quantara_engine.broker.profile import profile_for_account_slug

@@ -878,13 +878,43 @@ def live_sim_owner_portfolio(store: StoreDep):
             "allocated_capital_sum": float(snapshot.allocated_capital_sum),
             "allocation_remaining": float(snapshot.allocation_remaining),
             "multi_broker_mode_enabled": snapshot.multi_broker_mode_enabled,
+            "equal_asset_allocation_enabled": snapshot.equal_asset_allocation_enabled,
         },
         "allocations": allocations,
+        "asset_allocations": [
+            {
+                "canonical_symbol": a.canonical_symbol,
+                "label_he": a.label_he,
+                "broker_vendor": a.broker_vendor,
+                "starting_allocated_capital": float(a.starting_allocated_capital),
+                "current_equity": float(a.current_equity),
+                "realized_pnl": float(a.realized_pnl),
+                "unrealized_pnl": float(a.unrealized_pnl),
+                "fees_paid": float(a.fees_paid),
+                "funding_paid": float(a.funding_paid),
+                "return_pct": float(a.return_pct),
+                "gross_exposure": float(a.gross_exposure),
+                "open_sl_risk_usd": float(a.open_sl_risk_usd),
+                "trade_count": a.trade_count,
+                "enabled": a.enabled,
+            }
+            for a in snapshot.asset_slices
+        ],
     }
 
 
 @router.get("/live-sim/allocation-settings")
 def live_sim_allocation_settings_get(store: StoreDep):
+    from quantara_engine.owner_portfolio.asset_allocation import (
+        audit_legacy_live_sim_before_equal_asset_activation,
+        is_equal_asset_configured,
+        list_asset_allocations,
+    )
+    from quantara_engine.owner_portfolio.constants import (
+        LIVE_SIM_IBKR_TOTAL,
+        LIVE_SIM_KRAKEN_TOTAL,
+        LIVE_SIM_PER_ASSET_CAPITAL,
+    )
     from quantara_engine.owner_portfolio.service import LIVE_SIM_OWNER_SLUG, OwnerPortfolioService
 
     svc = OwnerPortfolioService(store)
@@ -897,6 +927,7 @@ def live_sim_allocation_settings_get(store: StoreDep):
     kraken = next((a for a in allocations if a.get("broker_vendor") == "KRAKEN"), None)
     ibkr_alloc = float(ibkr["allocated_capital"] or 0) if ibkr else 0.0
     kraken_alloc = float(kraken["allocated_capital"] or 0) if kraken else 0.0
+    assets = list_asset_allocations(store, LIVE_SIM_OWNER_SLUG)
     return {
         "available": True,
         "target_capital": target,
@@ -904,27 +935,55 @@ def live_sim_allocation_settings_get(store: StoreDep):
         "kraken_allocation": kraken_alloc,
         "remaining": target - ibkr_alloc - kraken_alloc,
         "multi_broker_mode_enabled": bool(portfolio.get("multi_broker_mode_enabled")),
-        "can_activate": (ibkr_alloc + kraken_alloc) == target and target > 0,
+        "equal_asset_allocation_enabled": bool(portfolio.get("equal_asset_allocation_enabled")),
+        "equal_asset_configured": is_equal_asset_configured(store, LIVE_SIM_OWNER_SLUG),
+        "per_asset_capital": float(LIVE_SIM_PER_ASSET_CAPITAL),
+        "ibkr_derived_total": float(LIVE_SIM_IBKR_TOTAL),
+        "kraken_derived_total": float(LIVE_SIM_KRAKEN_TOTAL),
+        "can_activate": is_equal_asset_configured(store, LIVE_SIM_OWNER_SLUG) and not portfolio.get(
+            "multi_broker_mode_enabled"
+        ),
+        "legacy_audit": audit_legacy_live_sim_before_equal_asset_activation(store),
+        "assets": [
+            {
+                "canonical_symbol": a.canonical_symbol,
+                "label_he": a.label_he,
+                "broker_vendor": a.broker_vendor,
+                "starting_allocated_capital": float(a.starting_allocated_capital),
+                "current_equity": float(a.current_equity),
+                "enabled": a.enabled,
+            }
+            for a in assets
+        ],
     }
 
 
 @router.post("/live-sim/allocation-settings")
 def live_sim_allocation_settings_post(store: StoreDep, body: dict):
-    from decimal import Decimal
+    from quantara_engine.owner_portfolio.asset_allocation import configure_equal_asset_allocations
 
-    from quantara_engine.owner_portfolio.service import LIVE_SIM_OWNER_SLUG, OwnerPortfolioService
+    from quantara_engine.owner_portfolio.service import LIVE_SIM_OWNER_SLUG
 
-    ibkr = Decimal(str(body.get("ibkr_allocation", 0)))
-    kraken = Decimal(str(body.get("kraken_allocation", 0)))
     activate = bool(body.get("activate", False))
-    svc = OwnerPortfolioService(store)
-    result = svc.configure_multi_broker_allocations(
+    if body.get("mode") == "legacy_broker_split":
+        from decimal import Decimal
+
+        from quantara_engine.owner_portfolio.service import OwnerPortfolioService
+
+        ibkr = Decimal(str(body.get("ibkr_allocation", 0)))
+        kraken = Decimal(str(body.get("kraken_allocation", 0)))
+        svc = OwnerPortfolioService(store)
+        return svc.configure_multi_broker_allocations(
+            LIVE_SIM_OWNER_SLUG,
+            ibkr_allocation=ibkr,
+            kraken_allocation=kraken,
+            activate=activate,
+        )
+    return configure_equal_asset_allocations(
+        store,
         LIVE_SIM_OWNER_SLUG,
-        ibkr_allocation=ibkr,
-        kraken_allocation=kraken,
         activate=activate,
     )
-    return result
 
 
 @router.get("/portfolio/risk-status")

@@ -970,6 +970,11 @@ class BrokerExecutionService:
             gross_realized_pnl=new_gross,
             fees_paid=new_fees,
         )
+        self._maybe_attribute_equal_asset_fill(
+            symbol=instrument.symbol,
+            realized_pnl_delta=net_fill_pnl,
+            fee_delta=fees,
+        )
         self._refresh_account_from_db(account_id)
         self.store.session.flush()
 
@@ -1071,6 +1076,30 @@ class BrokerExecutionService:
                 """
             ),
             {"id": account_id, "state": state.value},
+        )
+
+    def _maybe_attribute_equal_asset_fill(
+        self,
+        *,
+        symbol: str,
+        realized_pnl_delta: Decimal,
+        fee_delta: Decimal,
+    ) -> None:
+        from quantara_engine.owner_portfolio.asset_allocation import is_equal_asset_mode_active
+        from quantara_engine.owner_portfolio.asset_ledger import apply_asset_fill_impact
+        from quantara_engine.owner_portfolio.service import IBKR_LIKE_SLUG, KRAKEN_LIKE_SLUG, LIVE_SIM_OWNER_SLUG
+
+        if self.account_slug not in (IBKR_LIKE_SLUG, KRAKEN_LIKE_SLUG):
+            return
+        if not is_equal_asset_mode_active(self.store, LIVE_SIM_OWNER_SLUG):
+            return
+        apply_asset_fill_impact(
+            self.store,
+            owner_slug=LIVE_SIM_OWNER_SLUG,
+            canonical_symbol=symbol,
+            realized_pnl_delta=realized_pnl_delta,
+            fee_delta=fee_delta,
+            increment_trade_count=True,
         )
 
     def run_liquidation_if_required(self, *, at: datetime | None = None) -> list[BrokerExecutionResult]:

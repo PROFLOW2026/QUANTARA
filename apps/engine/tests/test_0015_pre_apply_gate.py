@@ -281,8 +281,20 @@ def _reset_live_sim_single_broker_state(store) -> None:
         text(
             """
             UPDATE owner_trading_portfolios
-            SET multi_broker_mode_enabled = FALSE, updated_at = NOW()
+            SET multi_broker_mode_enabled = FALSE,
+                equal_asset_allocation_enabled = FALSE,
+                updated_at = NOW()
             WHERE id = CAST(:pid AS uuid)
+            """
+        ),
+        {"pid": pid},
+    )
+    store.session.execute(
+        text(
+            """
+            UPDATE owner_portfolio_asset_allocations
+            SET enabled = FALSE, updated_at = NOW()
+            WHERE owner_portfolio_id = CAST(:pid AS uuid)
             """
         ),
         {"pid": pid},
@@ -310,6 +322,11 @@ def _reset_live_sim_single_broker_state(store) -> None:
         {"pid": pid},
     )
     store.session.commit()
+
+
+@pytest.fixture(autouse=True)
+def _legacy_live_sim_state(broker_test_store):
+    _reset_live_sim_single_broker_state(broker_test_store)
 
 
 def test_db_rejects_multi_broker_activation_legacy_only(broker_test_store):

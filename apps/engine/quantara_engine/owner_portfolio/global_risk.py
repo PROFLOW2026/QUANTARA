@@ -102,7 +102,7 @@ def evaluate_owner_global_risk(
         text(
             """
             SELECT id::text, target_capital, multi_broker_mode_enabled,
-                   global_execution_halted, risk_settings
+                   equal_asset_allocation_enabled, global_execution_halted, risk_settings
             FROM owner_trading_portfolios WHERE slug = :slug
             """
         ),
@@ -123,7 +123,13 @@ def evaluate_owner_global_risk(
         return GlobalRiskVerdict(allowed=True)
 
     settings = _load_owner_risk_settings(dict(portfolio_row))
-    equity = snapshot.total_equity
+    if portfolio_row.get("equal_asset_allocation_enabled"):
+        from quantara_engine.owner_portfolio.asset_ledger import aggregate_owner_from_assets
+
+        asset_totals = aggregate_owner_from_assets(store, owner_slug)
+        equity = asset_totals["equity"]
+    else:
+        equity = snapshot.total_equity
     if equity <= 0:
         return GlobalRiskVerdict(allowed=False, reason="owner_equity_non_positive")
 

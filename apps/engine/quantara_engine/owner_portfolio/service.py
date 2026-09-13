@@ -59,8 +59,8 @@ class OwnerPortfolioService:
                 text(
                     """
                     SELECT id::text, slug, name, base_currency, target_capital,
-                           multi_broker_mode_enabled, global_execution_halted,
-                           risk_settings, metadata, status::text
+                           multi_broker_mode_enabled, equal_asset_allocation_enabled,
+                           global_execution_halted, risk_settings, metadata, status::text
                     FROM owner_trading_portfolios WHERE slug = :slug
                     """
                 ),
