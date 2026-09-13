@@ -481,8 +481,25 @@ class BrokerExecutionService:
         market_open = market_open_for_instrument(instrument, execution_at)
         data_fresh, _ = data_fresh_for_instrument(self.store, instrument, timeframe, execution_at)
         snapshot = self.load_account_snapshot(account_id)
-        fx = resolve_dashboard_fx_rates(self.store, quote_currencies_for_instruments([instrument]))
+        # FX must cover every open broker position, not only the traded symbol —
+        # pre_trade projects the full book when evaluating closes.
+        fx_instruments = [instrument]
+        for sym in snapshot.positions:
+            other = self.store.get_instrument_by_symbol(sym)
+            if other is not None:
+                fx_instruments.append(other)
+        fx = resolve_dashboard_fx_rates(
+            self.store, quote_currencies_for_instruments(fx_instruments)
+        )
         fx_map = {k: v for k, v in fx.quote_per_usd.items()}
+        if "JPY" not in fx_map and any(
+            getattr(i, "symbol", "").upper().endswith("JPY") for i in fx_instruments
+        ):
+            # Dashboard cache may omit JPY; fall back to live candle resolver.
+            from quantara_engine.portfolio.currency import resolve_fx_rates
+
+            live_fx = resolve_fx_rates(self.store, {"USD", "JPY"})
+            fx_map.update({k: v for k, v in live_fx.quote_per_usd.items()})
 
         direction = "long" if intent.direction == Direction.LONG else "short"
         is_close = intent.is_close or order_purpose in ("sl", "tp", "close", "flatten", "liquidation")

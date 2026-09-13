@@ -416,10 +416,30 @@ def test_live_sim_exits_skips_crypto():
             "timeframe": "15m",
             "canonical_opportunity_key": "k",
             "symbol": "ETHUSD",
+            "opened_at": datetime(2026, 9, 12, 10, 0, tzinfo=timezone.utc),
+            "broker_account_slug": "live-sim-a",
         }
     ]
 
     with patch(
+        "quantara_engine.live_sim.position_management.query_open_live_sim_position_rows",
+        return_value=[
+            {
+                "id": "ls-1",
+                "instrument_id": "eth",
+                "direction": "long",
+                "quantity": Decimal("0.1"),
+                "entry_price": Decimal("3500"),
+                "stop_loss": Decimal("3480"),
+                "take_profit": Decimal("3600"),
+                "timeframe": "15m",
+                "canonical_opportunity_key": "k",
+                "symbol": "ETHUSD",
+                "opened_at": datetime(2026, 9, 12, 10, 0, tzinfo=timezone.utc),
+                "broker_account_slug": "live-sim-a",
+            }
+        ],
+    ), patch(
         "quantara_engine.live_sim.position_management.execute_through_broker",
     ) as broker_mock:
         result = process_live_sim_exits(store, datetime.now(timezone.utc))

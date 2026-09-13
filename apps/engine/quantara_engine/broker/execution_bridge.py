@@ -89,6 +89,15 @@ def execute_through_broker(
             portfolio_id=portfolio_id,
             opportunity_key=opportunity_key,
         )
+        if physical_qty > 0:
+            from quantara_engine.broker.instruments import get_instrument_spec
+            from quantara_engine.broker.normalizer import normalize_quantity
+
+            try:
+                spec = get_instrument_spec(instrument.symbol.upper().replace("/", ""))
+                physical_qty = normalize_quantity(physical_qty, spec)
+            except KeyError:
+                pass
         if physical_qty <= 0:
             return BrokerExecutionResult(
                 accepted=True,

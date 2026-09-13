@@ -669,23 +669,27 @@ def test_manage_all_open_positions_skips_fast_symbols():
 
 def test_live_sim_exits_skips_fast_symbols():
     store = MagicMock()
-    store.session.execute.return_value.mappings.return_value.first.return_value = {"id": "acct-1"}
-    store.session.execute.return_value.mappings.return_value.all.return_value = [
-        {
-            "id": "ls-1",
-            "instrument_id": "nvda",
-            "direction": "long",
-            "quantity": Decimal("10"),
-            "entry_price": Decimal("100"),
-            "stop_loss": Decimal("95"),
-            "take_profit": Decimal("110"),
-            "timeframe": "15m",
-            "canonical_opportunity_key": "k",
-            "symbol": "NVDA",
-        }
-    ]
+    row = {
+        "id": "ls-1",
+        "instrument_id": "eth",
+        "direction": "long",
+        "quantity": Decimal("0.1"),
+        "entry_price": Decimal("3500"),
+        "stop_loss": Decimal("3480"),
+        "take_profit": Decimal("3600"),
+        "timeframe": "15m",
+        "canonical_opportunity_key": "k",
+        "symbol": "ETHUSD",
+        "opened_at": RTH_OPEN,
+        "broker_account_slug": "live-sim-a",
+    }
 
-    with patch("quantara_engine.live_sim.position_management.execute_through_broker") as broker_mock:
+    with patch(
+        "quantara_engine.live_sim.position_management.query_open_live_sim_position_rows",
+        return_value=[row],
+    ), patch(
+        "quantara_engine.live_sim.position_management.execute_through_broker",
+    ) as broker_mock:
         result = process_live_sim_exits(store, RTH_OPEN)
 
     broker_mock.assert_not_called()

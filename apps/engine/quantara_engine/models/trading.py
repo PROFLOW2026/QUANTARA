@@ -272,6 +272,7 @@ class Trade(Base):
         pg_enum(PortfolioMode, "portfolio_mode"), nullable=False
     )
     backtest_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True))
+    paper_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

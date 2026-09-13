@@ -29,6 +29,15 @@ def crypto_fast_protection_job(store: TradingStore | None = None) -> None:
         duration_ms = round((time.perf_counter() - t0) * 1000, 1)
         status = report.get("status", "success")
         worker_status = "healthy" if status in ("success", "skipped") else "degraded"
+        errors = None
+        research_errors = (report.get("research") or {}).get("errors") or []
+        live_errors = (report.get("live_sim") or {}).get("errors") or []
+        if research_errors or live_errors or report.get("health_flag"):
+            errors = {
+                "research": research_errors,
+                "live_sim": live_errors,
+                "health_flag": report.get("health_flag"),
+            }
 
         s.update_worker_status(
             "crypto_fast_protection",
@@ -40,6 +49,8 @@ def crypto_fast_protection_job(store: TradingStore | None = None) -> None:
                 "symbols": report.get("symbols"),
                 "research": report.get("research"),
                 "live_sim": report.get("live_sim"),
+                "freshness": report.get("freshness"),
+                "health_flag": report.get("health_flag"),
                 "skip_reason": report.get("reason"),
             },
         )
@@ -48,15 +59,16 @@ def crypto_fast_protection_job(store: TradingStore | None = None) -> None:
             worker_name="crypto_fast_protection",
             started_at=started_at,
             jobs_processed=int(report.get("fetches") or 0),
-            status=status,
-            errors=None,
+            status=status if status != "degraded" else "success",
+            errors=errors,
         )
         logger.info(
-            "crypto_fast_protection %s (fetches=%s, research_closed=%s, live_sim_closed=%s, %.1fms)",
+            "crypto_fast_protection %s (fetches=%s, research_closed=%s, live_sim_closed=%s, health=%s, %.1fms)",
             status,
             report.get("fetches", 0),
             (report.get("research") or {}).get("closed", 0),
             (report.get("live_sim") or {}).get("closed", 0),
+            report.get("health_flag"),
             duration_ms,
         )
         return report
