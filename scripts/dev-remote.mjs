@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Start QUANTARA for local + Vercel remote testing (Quick Tunnel):
- * Engine + Workers + Web + cloudflared --url http://localhost:8000
+ * DEV ONLY — local + temporary Quick Tunnel (random trycloudflare.com URL).
+ * Production Owner workflow uses Tailscale Funnel via START_QUANTARA.bat.
  */
 import { spawnSync } from "child_process";
 import {
@@ -38,8 +38,9 @@ function onTunnelLine(line) {
 }
 
 console.log("");
-console.log("QUANTARA remote dev (Quick Tunnel — URL changes each restart)");
-console.log("==============================================================");
+console.log("QUANTARA remote dev (DEV ONLY — Quick Tunnel, URL changes each restart)");
+console.log("====================================================================");
+console.log("Production: use START_QUANTARA.bat + SETUP_TAILSCALE_FUNNEL.bat instead.");
 console.log("Local Web UI:     http://localhost:3000");
 console.log("Local Engine API: http://localhost:8000/docs");
 console.log("Public Engine URL will appear below once the tunnel is ready.");

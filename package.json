@@ -11,6 +11,7 @@
     "dev:remote": "node scripts/dev-remote.mjs",
     "start:quantara": "node scripts/start-quantara.mjs",
     "stop:quantara": "node scripts/stop-quantara.mjs",
+    "setup:tailscale": "node scripts/setup-tailscale-funnel.mjs",
     "dev:web": "npm run dev --workspace=@quantara/web",
     "build:web": "npm run build --workspace=@quantara/web",
     "start:web": "npm run start --workspace=@quantara/web",
@@ -33,7 +34,8 @@
     "test:engine": "cd apps/engine && python -m pytest tests/ -q",
     "test:web:profit-target": "node --test apps/web/lib/profit-target.test.mjs",
     "test:web:decision-grouping": "node --test apps/web/lib/decision-grouping.test.mjs",
-    "test:launcher": "node --test scripts/test-quantara-launcher.mjs"
+    "test:launcher": "node --test scripts/test-quantara-launcher.mjs",
+    "test:tailscale-transport": "node --test scripts/test-tailscale-transport.mjs"
   },
   "devDependencies": {
     "pg": "^8.23.0"

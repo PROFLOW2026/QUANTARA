@@ -14,6 +14,10 @@ import {
   getWorkerState,
 } from "./dev-common.mjs";
 import {
+  isTailscaleInstalled,
+  stopFunnel,
+} from "./tailscale-transport.mjs";
+import {
   findQuantaraEnginePids,
   getEngineListenerPids,
   getProcessCommandLine,
@@ -112,9 +116,22 @@ async function stopEngineAuthoritative() {
   return stopped;
 }
 
-function stopTunnel() {
+function stopTailscaleFunnel() {
+  if (!isTailscaleInstalled()) {
+    console.log("Tailscale not installed — skipping Funnel stop.");
+    return;
+  }
+  const result = stopFunnel();
+  if (result.ok) {
+    console.log("Tailscale Funnel reset.");
+  } else {
+    console.log("Tailscale Funnel reset attempted (may already be stopped).");
+  }
+}
+
+function stopLegacyCloudflaredTunnel() {
   if (!isTunnelRunning()) {
-    console.log("No cloudflared tunnel process found.");
+    console.log("No legacy cloudflared Quick Tunnel process found.");
     return;
   }
   if (process.platform === "win32") {
@@ -156,7 +173,9 @@ async function main() {
   console.log("");
   await stopEngineAuthoritative();
   console.log("");
-  stopTunnel();
+  stopTailscaleFunnel();
+  console.log("");
+  stopLegacyCloudflaredTunnel();
 
   console.log("");
   console.log("Done. Trading state was not modified.");
