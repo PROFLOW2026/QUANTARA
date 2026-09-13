@@ -42,7 +42,13 @@ export function LiveSimDashboard({ data, loading }: Props) {
     return <p className="text-muted">{t("common.section_unavailable")}</p>;
   }
 
-  const decisionCount = data.candidates?.total ?? data.recent_decisions?.length ?? 0;
+  const candidates = data.candidates ?? {
+    total: 0,
+    accepted: 0,
+    rejected: 0,
+    acceptance_rate_pct: 0,
+  };
+  const decisionCount = candidates.total;
   const decisionsToggleLabel = decisionsExpanded
     ? t("home.live_sim_hide_recent_decisions")
     : t("home.live_sim_show_recent_decisions", { count: decisionCount });
@@ -108,36 +114,6 @@ export function LiveSimDashboard({ data, loading }: Props) {
         </Card>
       ) : null}
 
-      {data.candidates ? (
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader><CardTitle>{t("home.candidates_seen")}</CardTitle></CardHeader>
-            <CardContent>
-              <p className="font-mono text-2xl">{data.candidates.total}</p>
-              <p className="mt-1 text-xs text-muted">{t("home.candidates_seen_hint")}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle>{t("home.candidates_accepted")}</CardTitle></CardHeader>
-            <CardContent>
-              <p className="font-mono text-2xl">{data.candidates.accepted}</p>
-              <p className="mt-1 text-xs text-muted">{t("home.candidates_accepted_hint")}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle>{t("home.candidates_rejected")}</CardTitle></CardHeader>
-            <CardContent>
-              <p className="font-mono text-2xl">{data.candidates.rejected}</p>
-              <p className="mt-1 text-xs text-muted">{t("home.candidates_rejected_hint")}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle>{t("home.acceptance_rate")}</CardTitle></CardHeader>
-            <CardContent><p className="font-mono text-2xl">{formatPercent(data.candidates.acceptance_rate_pct)}</p></CardContent>
-          </Card>
-        </div>
-      ) : null}
-
       <Card className="mt-4">
         <CardHeader><CardTitle>{t("home.live_sim_open_positions")}</CardTitle></CardHeader>
         <CardContent>
@@ -177,21 +153,22 @@ export function LiveSimDashboard({ data, loading }: Props) {
       </Card>
 
       <Card className="mt-4">
-        <button
-          type="button"
-          className="flex w-full items-center justify-between gap-3 px-6 py-4 text-right hover:bg-surface-inner-hover-soft"
-          onClick={() => setDecisionsExpanded((open) => !open)}
-          aria-expanded={decisionsExpanded}
-        >
-          <span className="font-semibold">{decisionsToggleLabel}</span>
-          <span className="shrink-0 text-xs text-accent">
-            {decisionsExpanded ? t("home.live_sim_collapse_decisions") : t("home.live_sim_expand_decisions")}
-          </span>
-        </button>
-        {decisionsExpanded ? (
-          <CardContent className="space-y-3 border-t border-border/60 pt-4">
-            {(data.recent_decisions?.length ?? 0) === 0 ? (
-              <p className="text-sm text-muted">{t("home.no_decisions_yet")}</p>
+        <CardHeader><CardTitle>{t("home.live_sim_recent_decisions")}</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2 text-right hover:bg-surface-inner-hover-soft"
+            onClick={() => setDecisionsExpanded((open) => !open)}
+            aria-expanded={decisionsExpanded}
+          >
+            <span className="font-medium">{decisionsToggleLabel}</span>
+            <span className="shrink-0 text-xs text-accent">
+              {decisionsExpanded ? t("home.live_sim_collapse_decisions") : t("home.live_sim_expand_decisions")}
+            </span>
+          </button>
+          {decisionsExpanded ? (
+            (data.recent_decisions?.length ?? 0) === 0 ? (
+              <p className="text-sm text-muted">{t("home.no_decisions_new")}</p>
             ) : (
               <div className="max-h-[min(70vh,520px)] space-y-3 overflow-y-auto">
                 {data.recent_decisions?.map((row) => (
@@ -209,10 +186,17 @@ export function LiveSimDashboard({ data, loading }: Props) {
                   </div>
                 ))}
               </div>
-            )}
-          </CardContent>
-        ) : null}
+            )
+          ) : null}
+        </CardContent>
       </Card>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card><CardHeader><CardTitle>{t("home.candidates_seen")}</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl">{candidates.total}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle>{t("home.candidates_accepted")}</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl">{candidates.accepted}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle>{t("home.candidates_rejected")}</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl">{candidates.rejected}</p></CardContent></Card>
+        <Card><CardHeader><CardTitle>{t("home.acceptance_rate")}</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl">{formatPercent(candidates.acceptance_rate_pct)}</p></CardContent></Card>
+      </div>
     </>
   );
 }

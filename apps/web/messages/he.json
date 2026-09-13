@@ -525,6 +525,7 @@
     "rejection_reason": "סיבה",
     "no_open_positions": "אין פוזיציות פתוחות",
     "no_decisions_yet": "אין החלטות עדיין",
+    "no_decisions_new": "אין החלטות חדשות",
     "robot": "רובוט",
     "sl_risk": "סיכון SL",
     "win_rate": "אחוז הצלחה",
