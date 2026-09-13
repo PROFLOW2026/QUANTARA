@@ -56,6 +56,24 @@ def _apply_migration_file(conn, path: Path) -> None:
     conn.exec_driver_sql(sql)
 
 
+def _apply_all_migrations_via_node(url: str) -> None:
+    """Apply migrations the same way as production (node pg) — avoids psycopg2 % escaping."""
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    env["DATABASE_URL"] = url
+    env["DIRECT_URL"] = url
+    subprocess.run(
+        ["npm", "run", "db:migrate"],
+        cwd=str(root),
+        env=env,
+        check=True,
+        shell=sys.platform == "win32",
+    )
+
+
 def _broker_tables_exist(url: str) -> bool:
     try:
         engine = create_engine(url, pool_pre_ping=True)
@@ -67,12 +85,7 @@ def _broker_tables_exist(url: str) -> bool:
 
 
 def _apply_all_migrations(url: str) -> None:
-    engine = create_engine(url, pool_pre_ping=True)
-    for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
-        if "owner_recovery" in path.name:
-            continue
-        with engine.begin() as conn:
-            _apply_migration_file(conn, path)
+    _apply_all_migrations_via_node(url)
 
 
 def _seed_disposable_competition_data(url: str) -> None:

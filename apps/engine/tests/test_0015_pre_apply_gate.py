@@ -259,6 +259,216 @@ def test_cannot_activate_without_exact_target(broker_test_store):
     assert result["error"] == "allocation_must_equal_target"
 
 
+def _vendor_link_id(store, vendor_slug: str) -> str:
+    pid = _portfolio_id(store)
+    return store.session.execute(
+        text(
+            """
+            SELECT pba.id::text
+            FROM portfolio_broker_accounts pba
+            JOIN broker_accounts ba ON ba.id = pba.broker_account_id
+            WHERE pba.owner_portfolio_id = CAST(:pid AS uuid)
+              AND ba.slug = :slug
+            """
+        ),
+        {"pid": pid, "slug": vendor_slug},
+    ).scalar()
+
+
+def _reset_live_sim_single_broker_state(store) -> None:
+    pid = _portfolio_id(store)
+    store.session.execute(
+        text(
+            """
+            UPDATE owner_trading_portfolios
+            SET multi_broker_mode_enabled = FALSE, updated_at = NOW()
+            WHERE id = CAST(:pid AS uuid)
+            """
+        ),
+        {"pid": pid},
+    )
+    store.session.execute(
+        text(
+            """
+            UPDATE portfolio_broker_accounts
+            SET enabled = FALSE, updated_at = NOW()
+            WHERE owner_portfolio_id = CAST(:pid AS uuid)
+              AND NOT is_legacy_primary
+            """
+        ),
+        {"pid": pid},
+    )
+    store.session.execute(
+        text(
+            """
+            UPDATE portfolio_broker_accounts
+            SET enabled = TRUE, updated_at = NOW()
+            WHERE owner_portfolio_id = CAST(:pid AS uuid)
+              AND is_legacy_primary
+            """
+        ),
+        {"pid": pid},
+    )
+    store.session.commit()
+
+
+def test_db_rejects_multi_broker_activation_legacy_only(broker_test_store):
+    _reset_live_sim_single_broker_state(broker_test_store)
+    pid = _portfolio_id(broker_test_store)
+    with pytest.raises(DBAPIError) as exc_info:
+        broker_test_store.session.execute(
+            text(
+                """
+                UPDATE owner_trading_portfolios
+                SET multi_broker_mode_enabled = TRUE
+                WHERE id = CAST(:pid AS uuid)
+                """
+            ),
+            {"pid": pid},
+        )
+        broker_test_store.session.commit()
+    broker_test_store.session.rollback()
+    assert "legacy primary" in str(exc_info.value).lower()
+
+
+def test_db_rejects_multi_broker_activation_incomplete_allocation(broker_test_store):
+    _reset_live_sim_single_broker_state(broker_test_store)
+    svc = OwnerPortfolioService(broker_test_store)
+    svc.configure_multi_broker_allocations(
+        LIVE_SIM_OWNER_SLUG, ibkr_allocation=Decimal("6000"), kraken_allocation=Decimal("3000")
+    )
+    pid = _portfolio_id(broker_test_store)
+    legacy_id = _legacy_link_id(broker_test_store)
+    ibkr_id = _vendor_link_id(broker_test_store, "live-sim-ibkr-like")
+    broker_test_store.session.execute(
+        text("UPDATE portfolio_broker_accounts SET enabled = FALSE WHERE id = CAST(:id AS uuid)"),
+        {"id": legacy_id},
+    )
+    broker_test_store.session.execute(
+        text(
+            """
+            UPDATE portfolio_broker_accounts
+            SET enabled = TRUE, allocated_capital = 6000
+            WHERE id = CAST(:id AS uuid)
+            """
+        ),
+        {"id": ibkr_id},
+    )
+    with pytest.raises(DBAPIError) as exc_info:
+        broker_test_store.session.execute(
+            text(
+                """
+                UPDATE owner_trading_portfolios
+                SET multi_broker_mode_enabled = TRUE
+                WHERE id = CAST(:pid AS uuid)
+                """
+            ),
+            {"pid": pid},
+        )
+        broker_test_store.session.commit()
+    broker_test_store.session.rollback()
+    msg = str(exc_info.value)
+    assert "equal target_capital" in msg.lower()
+    assert "%s" not in msg
+
+
+def test_db_rejects_multi_broker_activation_over_allocation(broker_test_store):
+    _reset_live_sim_single_broker_state(broker_test_store)
+    svc = OwnerPortfolioService(broker_test_store)
+    svc.configure_multi_broker_allocations(
+        LIVE_SIM_OWNER_SLUG, ibkr_allocation=Decimal("7000"), kraken_allocation=Decimal("4000")
+    )
+    pid = _portfolio_id(broker_test_store)
+    legacy_id = _legacy_link_id(broker_test_store)
+    ibkr_id = _vendor_link_id(broker_test_store, "live-sim-ibkr-like")
+    kraken_id = _vendor_link_id(broker_test_store, "live-sim-kraken-like")
+    broker_test_store.session.execute(
+        text(
+            "ALTER TABLE portfolio_broker_accounts DISABLE TRIGGER portfolio_broker_accounts_allocation_invariant"
+        )
+    )
+    broker_test_store.session.execute(
+        text("UPDATE portfolio_broker_accounts SET enabled = FALSE WHERE id = CAST(:id AS uuid)"),
+        {"id": legacy_id},
+    )
+    broker_test_store.session.execute(
+        text(
+            """
+            UPDATE portfolio_broker_accounts
+            SET enabled = TRUE, allocated_capital = 7000
+            WHERE id = CAST(:id AS uuid)
+            """
+        ),
+        {"id": ibkr_id},
+    )
+    broker_test_store.session.execute(
+        text(
+            """
+            UPDATE portfolio_broker_accounts
+            SET enabled = TRUE, allocated_capital = 4000
+            WHERE id = CAST(:id AS uuid)
+            """
+        ),
+        {"id": kraken_id},
+    )
+    broker_test_store.session.execute(
+        text(
+            "ALTER TABLE portfolio_broker_accounts ENABLE TRIGGER portfolio_broker_accounts_allocation_invariant"
+        )
+    )
+    with pytest.raises(DBAPIError) as exc_info:
+        broker_test_store.session.execute(
+            text(
+                """
+                UPDATE owner_trading_portfolios
+                SET multi_broker_mode_enabled = TRUE
+                WHERE id = CAST(:pid AS uuid)
+                """
+            ),
+            {"pid": pid},
+        )
+        broker_test_store.session.commit()
+    broker_test_store.session.rollback()
+    msg = str(exc_info.value)
+    assert "equal target_capital" in msg.lower()
+    assert "11000.00" in msg
+    assert "%s" not in msg
+
+
+def test_valid_ibkr_kraken_activation_passes(broker_test_store):
+    _reset_live_sim_single_broker_state(broker_test_store)
+    svc = OwnerPortfolioService(broker_test_store)
+    result = svc.configure_multi_broker_allocations(
+        LIVE_SIM_OWNER_SLUG,
+        ibkr_allocation=Decimal("6000"),
+        kraken_allocation=Decimal("4000"),
+        activate=True,
+    )
+    assert result["ok"] is True
+    assert result.get("activated") is True
+    portfolio = svc.get_portfolio_row(LIVE_SIM_OWNER_SLUG)
+    assert portfolio["multi_broker_mode_enabled"] is True
+    vendors = broker_test_store.session.execute(
+        text(
+            """
+            SELECT ba.slug, ba.broker_vendor::text, pba.enabled, pba.allocated_capital
+            FROM portfolio_broker_accounts pba
+            JOIN broker_accounts ba ON ba.id = pba.broker_account_id
+            WHERE pba.owner_portfolio_id = CAST(:pid AS uuid)
+              AND NOT pba.is_legacy_primary
+            ORDER BY ba.slug
+            """
+        ),
+        {"pid": portfolio["id"]},
+    ).mappings().all()
+    assert len(vendors) == 2
+    assert all(v["enabled"] for v in vendors)
+    assert sum(v["allocated_capital"] for v in vendors) == Decimal("10000")
+    vendor_set = {v["broker_vendor"] for v in vendors}
+    assert vendor_set == {"IBKR", "KRAKEN"}
+    _reset_live_sim_single_broker_state(broker_test_store)
+
+
 def test_negative_allocation_rejected_at_app_layer(broker_test_store):
     svc = OwnerPortfolioService(broker_test_store)
     result = svc.configure_multi_broker_allocations(

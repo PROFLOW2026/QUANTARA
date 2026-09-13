@@ -49,7 +49,7 @@ On an empty `quantara_prod`:
 
 ```powershell
 npm run db:provision:local    # once — creates DB/user
-npm run db:migrate            # 0001 → 0007
+npm run db:migrate            # apply all pending project migrations
 python scripts/seed.py
 python scripts/seed_8_assets.py
 python scripts/seed_competition.py

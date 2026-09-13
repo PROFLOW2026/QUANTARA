@@ -80,6 +80,9 @@ BEGIN
     IF NEW.allocation_pct IS NOT NULL AND (NEW.allocation_pct < 0 OR NEW.allocation_pct > 100) THEN
       RAISE EXCEPTION 'allocation_pct must be between 0 and 100';
     END IF;
+    IF NEW.enabled AND NEW.allocated_capital IS NULL THEN
+      RAISE EXCEPTION 'enabled broker link requires non-null allocated_capital';
+    END IF;
   END IF;
 
   SELECT target_capital INTO v_target
@@ -94,7 +97,7 @@ BEGIN
   SELECT COALESCE(SUM(
     CASE
       WHEN TG_OP IN ('INSERT', 'UPDATE') AND pba.id = NEW.id THEN 0
-      WHEN pba.enabled THEN COALESCE(pba.allocated_capital, 0)
+      WHEN pba.enabled AND pba.allocated_capital IS NOT NULL THEN pba.allocated_capital
       ELSE 0
     END
   ), 0)
@@ -102,14 +105,14 @@ BEGIN
   FROM portfolio_broker_accounts pba
   WHERE pba.owner_portfolio_id = v_owner_id;
 
-  IF TG_OP IN ('INSERT', 'UPDATE') AND NEW.enabled THEN
-    v_sum := v_sum + COALESCE(NEW.allocated_capital, 0);
+  IF TG_OP IN ('INSERT', 'UPDATE') AND NEW.enabled AND NEW.allocated_capital IS NOT NULL THEN
+    v_sum := v_sum + NEW.allocated_capital;
   END IF;
 
   IF v_sum > v_target THEN
     RAISE EXCEPTION USING
       MESSAGE = format(
-        'enabled allocated capital (%%s) exceeds owner target capital (%%s)',
+        'enabled allocated capital (%s) exceeds owner target capital (%s)',
         v_sum, v_target
       );
   END IF;
@@ -144,7 +147,7 @@ BEGIN
   IF NEW.target_capital < v_sum THEN
     RAISE EXCEPTION USING
       MESSAGE = format(
-        'target_capital (%%s) cannot be below sum of enabled allocations (%%s)',
+        'target_capital (%s) cannot be below sum of enabled allocations (%s)',
         NEW.target_capital, v_sum
       );
   END IF;
@@ -157,6 +160,74 @@ CREATE TRIGGER owner_trading_portfolios_target_capital_floor
   BEFORE UPDATE OF target_capital ON owner_trading_portfolios
   FOR EACH ROW
   EXECUTE FUNCTION enforce_owner_target_capital_floor();
+
+CREATE OR REPLACE FUNCTION enforce_multi_broker_activation()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_sum NUMERIC(18, 2);
+  v_non_legacy_enabled INT;
+  v_legacy_enabled INT;
+  v_null_enabled INT;
+  v_vendor_count INT;
+BEGIN
+  IF OLD.multi_broker_mode_enabled IS TRUE OR NEW.multi_broker_mode_enabled IS NOT TRUE THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT
+    COALESCE(
+      SUM(pba.allocated_capital) FILTER (
+        WHERE pba.enabled AND pba.allocated_capital IS NOT NULL
+      ),
+      0
+    ),
+    COUNT(*) FILTER (WHERE pba.enabled AND NOT pba.is_legacy_primary),
+    COUNT(*) FILTER (WHERE pba.enabled AND pba.is_legacy_primary),
+    COUNT(*) FILTER (WHERE pba.enabled AND pba.allocated_capital IS NULL)
+  INTO v_sum, v_non_legacy_enabled, v_legacy_enabled, v_null_enabled
+  FROM portfolio_broker_accounts pba
+  WHERE pba.owner_portfolio_id = NEW.id;
+
+  IF v_null_enabled > 0 THEN
+    RAISE EXCEPTION 'multi_broker activation blocked: enabled link has null allocated_capital';
+  END IF;
+
+  IF v_sum <> NEW.target_capital THEN
+    RAISE EXCEPTION USING
+      MESSAGE = format(
+        'multi_broker activation requires enabled allocations to equal target_capital exactly (%s != %s)',
+        v_sum, NEW.target_capital
+      );
+  END IF;
+
+  IF v_legacy_enabled > 0 THEN
+    RAISE EXCEPTION 'multi_broker activation blocked: legacy primary broker link must be disabled';
+  END IF;
+
+  IF v_non_legacy_enabled < 2 THEN
+    RAISE EXCEPTION 'multi_broker activation blocked: requires at least two enabled non-legacy broker links';
+  END IF;
+
+  SELECT COUNT(DISTINCT ba.broker_vendor)
+  INTO v_vendor_count
+  FROM portfolio_broker_accounts pba
+  JOIN broker_accounts ba ON ba.id = pba.broker_account_id
+  WHERE pba.owner_portfolio_id = NEW.id
+    AND pba.enabled = TRUE
+    AND NOT pba.is_legacy_primary;
+
+  IF v_vendor_count < 2 THEN
+    RAISE EXCEPTION 'multi_broker activation blocked: requires enabled accounts from at least two broker vendors';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER owner_trading_portfolios_multi_broker_activation
+  BEFORE UPDATE OF multi_broker_mode_enabled ON owner_trading_portfolios
+  FOR EACH ROW
+  EXECUTE FUNCTION enforce_multi_broker_activation();
 
 CREATE INDEX portfolio_broker_accounts_portfolio_idx
   ON portfolio_broker_accounts (owner_portfolio_id, enabled);

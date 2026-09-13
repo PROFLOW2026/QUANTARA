@@ -125,34 +125,44 @@ class OwnerPortfolioService:
 
         try:
             self._ensure_vendor_accounts(portfolio["id"], slug)
-            self._update_vendor_allocation(portfolio["id"], IBKR_LIKE_SLUG, ibkr_allocation, activate)
-            self._update_vendor_allocation(portfolio["id"], KRAKEN_LIKE_SLUG, kraken_allocation, activate)
+            if activate:
+                self.store.session.execute(
+                    text(
+                        """
+                        UPDATE portfolio_broker_accounts
+                        SET enabled = FALSE, updated_at = NOW()
+                        WHERE owner_portfolio_id = CAST(:pid AS uuid)
+                          AND is_legacy_primary = TRUE
+                        """
+                    ),
+                    {"pid": portfolio["id"]},
+                )
+                self._update_vendor_allocation(
+                    portfolio["id"], IBKR_LIKE_SLUG, ibkr_allocation, True
+                )
+                self._update_vendor_allocation(
+                    portfolio["id"], KRAKEN_LIKE_SLUG, kraken_allocation, True
+                )
+                self.store.session.execute(
+                    text(
+                        """
+                        UPDATE owner_trading_portfolios
+                        SET multi_broker_mode_enabled = TRUE, updated_at = NOW()
+                        WHERE id = CAST(:pid AS uuid)
+                        """
+                    ),
+                    {"pid": portfolio["id"]},
+                )
+            else:
+                self._update_vendor_allocation(
+                    portfolio["id"], IBKR_LIKE_SLUG, ibkr_allocation, False
+                )
+                self._update_vendor_allocation(
+                    portfolio["id"], KRAKEN_LIKE_SLUG, kraken_allocation, False
+                )
         except Exception as exc:
             self.store.session.rollback()
             return {"ok": False, "error": "allocation_db_rejected", "detail": str(exc)}
-
-        if activate:
-            self.store.session.execute(
-                text(
-                    """
-                    UPDATE owner_trading_portfolios
-                    SET multi_broker_mode_enabled = TRUE, updated_at = NOW()
-                    WHERE id = CAST(:pid AS uuid)
-                    """
-                ),
-                {"pid": portfolio["id"]},
-            )
-            self.store.session.execute(
-                text(
-                    """
-                    UPDATE portfolio_broker_accounts
-                    SET enabled = FALSE, updated_at = NOW()
-                    WHERE owner_portfolio_id = CAST(:pid AS uuid)
-                      AND is_legacy_primary = TRUE
-                    """
-                ),
-                {"pid": portfolio["id"]},
-            )
 
         try:
             self.store.session.commit()
