@@ -28,7 +28,13 @@ from quantara_engine.live_sim.candidate_log import (
     update_allocation_metadata,
 )
 from quantara_engine.live_sim.constants import REJECTION_HE
-from quantara_engine.live_sim.sizing import size_live_sim_entry
+from quantara_engine.live_sim.account_bootstrap import repair_pristine_live_sim_spot_crypto_cash
+from quantara_engine.live_sim.sizing import (
+    entry_mark_price_for_sizing,
+    size_live_sim_entry,
+    validate_live_sim_broker_pre_trade,
+)
+from quantara_engine.broker.spot_crypto_cash import effective_spot_crypto_cash
 from quantara_engine.live_sim.opportunity import (
     live_sim_canonical_opportunity_key,
     live_sim_execution_idempotency_key,
@@ -60,9 +66,9 @@ def _account_row(store: TradingStore) -> dict | None:
     return store.session.execute(
         text(
             """
-            SELECT id::text, slug, equity, balance, cash, unrealized_pnl, realized_pnl,
-                   starting_cash, is_active, pending_owner_reset, account_state::text,
-                   activated_at, risk_settings
+            SELECT id::text, slug, equity, balance, cash, spot_crypto_cash, unrealized_pnl,
+                   realized_pnl, starting_cash, is_active, pending_owner_reset,
+                   account_state::text, activated_at, risk_settings
             FROM broker_accounts WHERE slug = :slug
             """
         ),
@@ -85,6 +91,25 @@ def _current_asset_notional_usd(store: TradingStore, account_id: str, db_symbol:
     if not row or not row["net_quantity"]:
         return Decimal("0")
     return abs(Decimal(str(row["net_quantity"]))) * Decimal(str(row["mark_price"]))
+
+
+def _spot_crypto_buying_power(account: dict, instrument) -> Decimal:
+    cash = Decimal(str(account.get("cash") or account.get("equity") or account["starting_cash"]))
+    spot_raw = account.get("spot_crypto_cash")
+    spot = Decimal(str(spot_raw)) if spot_raw is not None else cash
+    from quantara_engine.broker.instruments import get_instrument_spec
+
+    spec = get_instrument_spec(instrument.symbol.upper().replace("/", ""))
+    if spec.asset_class == "crypto":
+        return effective_spot_crypto_cash(cash=cash, spot_crypto_cash=spot)
+    return cash
+
+
+def _ensure_live_sim_account_ready(store: TradingStore, account: dict | None) -> dict | None:
+    if not account:
+        return account
+    repair_pristine_live_sim_spot_crypto_cash(store)
+    return _account_row(store)
 
 
 def _live_sim_max_asset_leverage(instrument) -> Decimal:
@@ -343,11 +368,69 @@ def _resume_pending_allocation(
     equity = Decimal(str(account["equity"] or account["starting_cash"]))
     open_risk = compute_open_sl_risk(store, account_id)
     dir_enum = Direction.LONG if existing["direction"] == "long" else Direction.SHORT
-    qty = Decimal(str(existing["calculated_quantity"]))
-    expected_risk = Decimal(str(existing["calculated_risk_usd"] or 0))
+    sl = Decimal(str(existing["stop_loss"]))
+    entry_ref = Decimal(str(existing["proposed_entry"]))
     target_risk = target_risk_for_equity(
         equity, load_risk_settings(dict(account))
     )
+    assumptions = execution_assumptions_for(instrument, exec_candle.close)
+    from quantara_engine.broker.profile import profile_for_account_slug
+
+    fx = store.build_currency_context_for_instruments([instrument]).fx_rates
+    buying_power = _spot_crypto_buying_power(account, instrument)
+    sizing = size_live_sim_entry(
+        equity=equity,
+        cash=buying_power,
+        target_risk=target_risk,
+        entry_reference=entry_ref,
+        stop_loss=sl,
+        direction=dir_enum,
+        instrument=instrument,
+        fx_rates=fx,
+        execution_assumptions=assumptions,
+        max_asset_leverage=_live_sim_max_asset_leverage(instrument),
+        current_asset_notional=_current_asset_notional_usd(
+            store, account_id, instrument.symbol.upper().replace("/", "")
+        ),
+    )
+    if sizing.deny_reason or sizing.quantity <= 0:
+        mark_allocation_rejected(
+            store,
+            existing["id"],
+            rejection_reason=sizing.deny_reason or "MIN_QUANTITY",
+            rejection_detail=REJECTION_HE.get(sizing.deny_reason or "MIN_QUANTITY", sizing.deny_reason or ""),
+        )
+        return {"status": "rejected", "reason": sizing.deny_reason or "MIN_QUANTITY"}
+
+    mark = entry_mark_price_for_sizing(entry_ref, dir_enum, assumptions)
+    profile = profile_for_account_slug(LIVE_SIM_10K_ACCOUNT_SLUG)
+    spot_raw = Decimal(str(account.get("spot_crypto_cash") or "0"))
+    cash_raw = Decimal(str(account.get("cash") or account.get("equity") or account["starting_cash"]))
+    accepted, broker_reason = validate_live_sim_broker_pre_trade(
+        equity=equity,
+        cash=cash_raw,
+        spot_crypto_cash=spot_raw,
+        quantity=sizing.quantity,
+        mark_price=mark,
+        direction=dir_enum,
+        instrument=instrument,
+        profile=profile,
+        fx_rates=fx,
+    )
+    if not accepted:
+        from quantara_engine.broker.display import broker_reason_he
+
+        detail = broker_reason_he(broker_reason or "broker_rejected")
+        mark_allocation_rejected(
+            store,
+            existing["id"],
+            rejection_reason="BROKER_REJECTED",
+            rejection_detail=detail,
+        )
+        return {"status": "rejected", "reason": "BROKER_REJECTED", "detail": detail}
+
+    qty = sizing.quantity
+    expected_risk = sizing.expected_risk_usd
 
     return _execute_accepted_allocation(
         store,
@@ -364,8 +447,8 @@ def _resume_pending_allocation(
         direction=existing["direction"],
         dir_enum=dir_enum,
         signal_candle_timestamp=signal_ts,
-        entry_ref=Decimal(str(existing["proposed_entry"])),
-        sl=Decimal(str(existing["stop_loss"])),
+        entry_ref=entry_ref,
+        sl=sl,
         take_profit=Decimal(str(existing["take_profit"])) if existing.get("take_profit") else None,
         qty=qty,
         expected_risk=expected_risk,
@@ -373,7 +456,7 @@ def _resume_pending_allocation(
         exec_candle=exec_candle,
         open_risk=open_risk,
         equity=equity,
-        sizing_reason=(existing.get("metadata") or {}).get("sizing_reason"),
+        sizing_reason=sizing.sizing_reason or (existing.get("metadata") or {}).get("sizing_reason"),
     )
 
 
@@ -390,7 +473,7 @@ def resume_all_pending_live_sim_allocations(
         "broker_rejected": 0,
         "filled": 0,
     }
-    account = _account_row(store)
+    account = _ensure_live_sim_account_ready(store, _account_row(store))
     if not account or not account.get("is_active"):
         return report
 
@@ -476,7 +559,7 @@ def maybe_allocate_live_sim(
     if signal is None or signal.action not in (SignalAction.BUY, SignalAction.SELL):
         return result
 
-    account = _account_row(store)
+    account = _ensure_live_sim_account_ready(store, _account_row(store))
     if not account or not account.get("is_active") or account.get("pending_owner_reset"):
         return {"status": "skipped", "reason": "account_inactive"}
 
@@ -701,11 +784,11 @@ def maybe_allocate_live_sim(
         )
         return {"status": "rejected", "reason": "INVALID_STOP_LOSS"}
 
-    cash = Decimal(str(account.get("cash") or account.get("equity") or account["starting_cash"]))
+    buying_power = _spot_crypto_buying_power(account, instrument)
     sym_db = instrument.symbol.upper().replace("/", "")
     sizing = size_live_sim_entry(
         equity=equity,
-        cash=cash,
+        cash=buying_power,
         target_risk=target_risk,
         entry_reference=entry_ref,
         stop_loss=sl,
@@ -776,6 +859,31 @@ def maybe_allocate_live_sim(
     )
     if not gate.allowed:
         return _reject(gate.reason or "GATE", gate.detail or REJECTION_HE.get(gate.reason or "", ""))
+
+    from quantara_engine.broker.profile import profile_for_account_slug
+
+    mark = entry_mark_price_for_sizing(entry_ref, dir_enum, assumptions)
+    profile = profile_for_account_slug(LIVE_SIM_10K_ACCOUNT_SLUG)
+    spot_raw = Decimal(str(account.get("spot_crypto_cash") or "0"))
+    cash_raw = Decimal(str(account.get("cash") or account.get("equity") or account["starting_cash"]))
+    broker_ok, broker_reason = validate_live_sim_broker_pre_trade(
+        equity=equity,
+        cash=cash_raw,
+        spot_crypto_cash=spot_raw,
+        quantity=qty,
+        mark_price=mark,
+        direction=dir_enum,
+        instrument=instrument,
+        profile=profile,
+        fx_rates=ctx.fx_rates,
+    )
+    if not broker_ok:
+        from quantara_engine.broker.display import broker_reason_he
+
+        return _reject(
+            "BROKER_REJECTED",
+            broker_reason_he(broker_reason or "broker_rejected"),
+        )
 
     exec_ts = next_execution_timestamp(candle.timestamp, instance.timeframe)
     pending_meta = {

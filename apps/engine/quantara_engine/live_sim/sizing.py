@@ -17,6 +17,8 @@ from quantara_engine.risk.sizing import (
 )
 
 BROKER_LEVERAGE_QUANTIZE = Decimal("0.0001")
+# Keep notional strictly below max asset leverage after broker-side quantization.
+LIVE_SIM_NOTIONAL_HEADROOM_USD = Decimal("2.00")
 
 
 @dataclass(frozen=True)
@@ -83,7 +85,8 @@ def max_safe_quantity_for_live_sim(
     fx_table = fx_rates or FxRateTable.usd_only()
     fx = fx_table.quote_per_usd
 
-    max_total_notional = equity * max_asset_leverage
+    headroom = LIVE_SIM_NOTIONAL_HEADROOM_USD
+    max_total_notional = max(Decimal("0"), equity * max_asset_leverage - headroom)
     remaining_leverage_notional = max(Decimal("0"), max_total_notional - current_asset_notional)
 
     max_by_lev_qty = (
@@ -108,9 +111,10 @@ def max_safe_quantity_for_live_sim(
     while qty >= instrument.min_quantity:
         projected = current_asset_notional + quote_notional_usd(qty, mark, spec, fx)
         lev = broker_quantized_asset_leverage(projected, equity)
-        if lev <= max_asset_leverage:
-            headroom = max(Decimal("0"), max_total_notional - projected)
-            return qty, headroom
+        # Match broker pre-trade strict comparison (reject when lev > max).
+        if lev <= max_asset_leverage and projected <= max_total_notional:
+            remaining = max(Decimal("0"), max_total_notional - projected)
+            return qty, remaining
         qty = round_quantity(qty - instrument.quantity_step, instrument.quantity_step)
 
     return Decimal("0"), Decimal("0")
@@ -217,3 +221,55 @@ def size_live_sim_entry(
         sizing_reason=sizing_reason,
         headroom_notional_usd=headroom,
     )
+
+
+def validate_live_sim_broker_pre_trade(
+    *,
+    equity: Decimal,
+    cash: Decimal,
+    spot_crypto_cash: Decimal,
+    quantity: Decimal,
+    mark_price: Decimal,
+    direction: Direction,
+    instrument: Instrument,
+    profile,
+    fx_rates: FxRateTable | None = None,
+) -> tuple[bool, str | None]:
+    """Return (accepted, rejection_reason) using the same broker gate as execution."""
+    from quantara_engine.broker.account import build_account_snapshot
+    from quantara_engine.broker.pre_trade import evaluate_broker_order
+    from quantara_engine.broker.spot_crypto_cash import effective_spot_crypto_cash
+    from quantara_engine.broker.types import BrokerOrderRequest
+
+    db_sym = instrument.symbol.upper().replace("/", "")
+    spec = get_instrument_spec(db_sym)
+    fx = (fx_rates or FxRateTable.usd_only()).quote_per_usd
+    account = build_account_snapshot(
+        cash=cash,
+        balance=cash,
+        realized_pnl=Decimal("0"),
+        positions={},
+        fx_rates=fx,
+        spot_crypto_cash=effective_spot_crypto_cash(
+            cash=cash,
+            spot_crypto_cash=spot_crypto_cash,
+        ),
+    )
+    decision = evaluate_broker_order(
+        account,
+        profile,
+        BrokerOrderRequest(
+            symbol=db_sym,
+            asset_class=spec.asset_class,
+            direction="long" if direction == Direction.LONG else "short",
+            quantity=quantity,
+            mark_price=mark_price,
+            data_fresh=True,
+            market_open=True,
+        ),
+        fx,
+    )
+    if decision.accepted:
+        return True, None
+    reason = decision.rejection_reason.value if decision.rejection_reason else "broker_rejected"
+    return False, reason

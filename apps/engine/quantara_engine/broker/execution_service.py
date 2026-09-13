@@ -165,14 +165,21 @@ class BrokerExecutionService:
         fx = resolve_dashboard_fx_rates(self.store, quote_currencies_for_instruments(instruments))
         fx_map = {k: v for k, v in fx.quote_per_usd.items()}
 
+        from quantara_engine.broker.spot_crypto_cash import effective_spot_crypto_cash
+
+        raw_cash = Decimal(str(row["cash"]))
+        raw_spot = Decimal(str(row["spot_crypto_cash"]))
         snap = build_account_snapshot(
-            cash=Decimal(str(row["cash"])),
+            cash=raw_cash,
             balance=Decimal(str(row["balance"])),
             realized_pnl=Decimal(str(row["realized_pnl"])),
             positions=positions,
             fx_rates=fx_map,
             profile=self.profile,
-            spot_crypto_cash=Decimal(str(row["spot_crypto_cash"])),
+            spot_crypto_cash=effective_spot_crypto_cash(
+                cash=raw_cash,
+                spot_crypto_cash=raw_spot,
+            ),
         )
         # row realized_pnl is NET; gross/fees available via get_account_row
         stored = str(row.get("account_state") or AccountState.PAUSED.value)

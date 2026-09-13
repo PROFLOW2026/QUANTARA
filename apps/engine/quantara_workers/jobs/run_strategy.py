@@ -997,7 +997,10 @@ def _execute_strategy_cycle(
             from quantara_engine.live_sim.allocator import resume_all_pending_live_sim_allocations
 
             live_sim_resume = resume_all_pending_live_sim_allocations(s, started_at)
-            if live_sim_resume.get("resumed") or live_sim_resume.get("expired"):
+            if any(
+                live_sim_resume.get(k)
+                for k in ("resumed", "expired", "broker_rejected", "filled")
+            ):
                 logger.info(
                     "Live-sim pending resume: %s",
                     live_sim_resume,
