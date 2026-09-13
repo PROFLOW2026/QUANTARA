@@ -244,6 +244,39 @@ def _process_candle_batch(
         eval_processor.all_candles = candles
         shared_signal, _ = eval_processor.evaluate_signal(candle_index)
         live_sim_signal = shared_signal
+        if allow_live_execution and shared_signal is not None:
+            try:
+                from quantara_engine.learning.hooks import observe_generic_eval, observe_robot_a_candle
+
+                slug = template["instance"].strategy_slug
+                if slug == "gold-trend-pullback":
+                    observe_robot_a_candle(
+                        s,
+                        instrument=instrument,
+                        timeframe=timeframe,
+                        candles=candles,
+                        candle_index=candle_index,
+                        active_signal=shared_signal,
+                        strategy_slug=slug,
+                        parameter_overrides=template["instance"].parameter_overrides,
+                        paper_run_id=None,
+                        allow_live_execution=allow_live_execution,
+                        now=started_at,
+                    )
+                else:
+                    observe_generic_eval(
+                        s,
+                        instrument=instrument,
+                        timeframe=timeframe,
+                        candles=candles,
+                        candle_index=candle_index,
+                        active_signal=shared_signal,
+                        strategy_slug=slug,
+                        allow_live_execution=allow_live_execution,
+                        now=started_at,
+                    )
+            except Exception:
+                logger.exception("Learning hook failed (non-fatal)")
     elif allow_live_execution:
         # Robots C/D/E: one canonical live-sim signal from template tier (not per risk tier).
         live_sim_eval = CandleProcessor(
@@ -259,6 +292,23 @@ def _process_candle_batch(
         )
         live_sim_eval.all_candles = candles
         live_sim_signal, _ = live_sim_eval.evaluate_signal(candle_index)
+        if live_sim_signal is not None:
+            try:
+                from quantara_engine.learning.hooks import observe_generic_eval
+
+                observe_generic_eval(
+                    s,
+                    instrument=instrument,
+                    timeframe=timeframe,
+                    candles=candles,
+                    candle_index=candle_index,
+                    active_signal=live_sim_signal,
+                    strategy_slug=template["instance"].strategy_slug,
+                    allow_live_execution=allow_live_execution,
+                    now=started_at,
+                )
+            except Exception:
+                logger.exception("Learning hook failed (non-fatal)")
 
     total_decisions = 0
     for entry in group:

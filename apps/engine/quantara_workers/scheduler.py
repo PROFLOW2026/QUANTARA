@@ -15,6 +15,7 @@ from quantara_workers.jobs.finnhub_validation import finnhub_validation_job
 from quantara_workers.jobs.non_crypto_fast_protection import non_crypto_fast_protection_job
 from quantara_workers.jobs.execute_intents import execute_intents_job
 from quantara_workers.jobs.fetch_data import fetch_bulk_job, fetch_live_job
+from quantara_workers.jobs.learning_maintenance import learning_maintenance_job
 from quantara_workers.jobs.position_management import position_management_job
 from quantara_workers.jobs.run_backtest import run_backtest_job
 from quantara_workers.jobs.run_strategy import run_strategy_historical_job, run_strategy_job
@@ -163,6 +164,14 @@ class WorkerScheduler:
             id="run_strategy_historical",
             replace_existing=True,
             **_HISTORICAL_STRATEGY_OPTS,
+        )
+        # Observational learning layer — never mutates Research / Live Sim trading.
+        self.scheduler.add_job(
+            learning_maintenance_job,
+            CronTrigger(minute="5,35", second=40),
+            id="learning_maintenance",
+            replace_existing=True,
+            **_HOUSEKEEPING_OPTS,
         )
 
     def start(self) -> None:

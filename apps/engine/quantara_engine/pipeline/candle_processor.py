@@ -703,6 +703,66 @@ class CandleProcessor:
                         broker_fill_id=self._broker_last_fill_id,
                         strategy_position_id=position.id,
                     )
+                try:
+                    from quantara_engine.learning.activation import get_active_baseline
+                    from quantara_engine.learning.funnel import record_funnel_event
+                    from quantara_engine.learning.planned_vs_actual import record_planned_vs_actual
+
+                    baseline = get_active_baseline(self.store) if self.store else None
+                    baseline_id = baseline["id"] if baseline else None
+                    signal_close = None
+                    if intent.signal_candle_timestamp is not None:
+                        for c in self.all_candles:
+                            if c.timestamp == intent.signal_candle_timestamp:
+                                signal_close = c.close
+                                break
+                    record_planned_vs_actual(
+                        self.store,
+                        baseline_id=baseline_id,
+                        source_type="research",
+                        symbol=self.instrument.symbol,
+                        direction=intent.direction.value,
+                        actual_fill_price=fill.fill_price,
+                        quantity=fill.fill_quantity,
+                        planned_sl=intent.stop_loss,
+                        planned_tp=intent.take_profit,
+                        signal_candle_close=signal_close,
+                        planned_entry_ref=signal_close,
+                        execution_candle_open=candle.open,
+                        planned_risk_usd=intent.target_risk_amount,
+                        equity_at_entry=self.state.portfolio.equity,
+                        spread=fill.spread_cost,
+                        slippage=fill.slippage,
+                        fees=fill.fees,
+                        timeframe=self.instance.timeframe,
+                        portfolio_id=self.state.portfolio.id,
+                        position_id=position.id,
+                    )
+                    record_funnel_event(
+                        self.store,
+                        baseline_id=baseline_id,
+                        stage="fill",
+                        reason="entry_fill",
+                        strategy_slug=self.instance.strategy_slug,
+                        symbol=self.instrument.symbol,
+                        timeframe=self.instance.timeframe,
+                        direction=intent.direction.value,
+                        candle_timestamp=candle.timestamp,
+                    )
+                    record_funnel_event(
+                        self.store,
+                        baseline_id=baseline_id,
+                        stage="position_opened",
+                        reason="position_open",
+                        strategy_slug=self.instance.strategy_slug,
+                        symbol=self.instrument.symbol,
+                        timeframe=self.instance.timeframe,
+                        direction=intent.direction.value,
+                        candle_timestamp=candle.timestamp,
+                        source_id=position.id,
+                    )
+                except Exception:
+                    pass
                 intent.status = IntentStatus.EXECUTED
                 self._persist_execution(intent, order, fill, "entry", candle, position)
         self.pending_intents = [

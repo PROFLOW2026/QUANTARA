@@ -1173,6 +1173,48 @@ def analytics_regime_performance(store: StoreDep):
     return build_regime_performance(store)
 
 
+@router.get("/analytics/trading-week-learning")
+def analytics_trading_week_learning(
+    store: StoreDep,
+    report_date: str | None = None,
+):
+    """Observational Trading Week Learning Layer report (Hebrew UI consumer)."""
+    from datetime import date as date_cls
+
+    from quantara_engine.learning.reports import build_daily_learning_report, build_week_learning_summary
+
+    parsed = None
+    if report_date:
+        parsed = date_cls.fromisoformat(report_date)
+    daily = build_daily_learning_report(store, report_date=parsed)
+    weekly = build_week_learning_summary(store)
+    return {
+        "daily": daily,
+        "weekly": weekly,
+        "observational_only": True,
+        "active_trading_unchanged": True,
+    }
+
+
+@router.post("/analytics/trading-week-learning/activate")
+def activate_trading_week_learning(store: StoreDep):
+    """Ensure baseline snapshot exists; does not alter strategy parameters."""
+    from quantara_engine.learning.activation import ensure_trading_week_baseline
+
+    baseline = ensure_trading_week_baseline(store)
+    return {
+        "baseline": {
+            "id": baseline["id"],
+            "week_label": baseline.get("week_label"),
+            "activated_at": baseline.get("activated_at").isoformat()
+            if hasattr(baseline.get("activated_at"), "isoformat")
+            else baseline.get("activated_at"),
+            "commit_sha": baseline.get("commit_sha"),
+        },
+        "observational_only": True,
+    }
+
+
 @router.get("/portfolios")
 def portfolios_list(store: StoreDep):
     from quantara_engine.competition.multi_strategy_constants import PORTFOLIO_DEF_BY_ID as MULTI_DEFS

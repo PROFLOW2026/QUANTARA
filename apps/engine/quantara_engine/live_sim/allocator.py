@@ -284,6 +284,61 @@ def _execute_accepted_allocation(
         },
     )
 
+    try:
+        from quantara_engine.learning.activation import get_active_baseline
+        from quantara_engine.learning.funnel import record_funnel_event
+        from quantara_engine.learning.planned_vs_actual import record_planned_vs_actual
+
+        baseline = get_active_baseline(store)
+        baseline_id = baseline["id"] if baseline else None
+        record_planned_vs_actual(
+            store,
+            baseline_id=baseline_id,
+            source_type="live_sim",
+            symbol=instrument.symbol,
+            direction=direction,
+            actual_fill_price=fill.fill_price,
+            quantity=qty,
+            planned_sl=sl,
+            planned_tp=take_profit,
+            signal_candle_close=entry_ref,
+            planned_entry_ref=entry_ref,
+            execution_candle_open=exec_candle.open,
+            planned_risk_usd=expected_risk,
+            equity_at_entry=equity,
+            spread=getattr(fill, "spread_cost", None),
+            slippage=getattr(fill, "slippage", None),
+            fees=getattr(fill, "fees", None),
+            timeframe=instance.timeframe,
+            broker_account_id=account_id,
+            live_sim_position_id=pos_id,
+        )
+        record_funnel_event(
+            store,
+            baseline_id=baseline_id,
+            stage="fill",
+            reason="live_sim_entry_fill",
+            strategy_slug=strategy_slug,
+            symbol=instrument.symbol,
+            timeframe=instance.timeframe,
+            direction=direction,
+            candle_timestamp=exec_candle.timestamp,
+        )
+        record_funnel_event(
+            store,
+            baseline_id=baseline_id,
+            stage="position_opened",
+            reason="live_sim_position_open",
+            strategy_slug=strategy_slug,
+            symbol=instrument.symbol,
+            timeframe=instance.timeframe,
+            direction=direction,
+            candle_timestamp=exec_candle.timestamp,
+            source_id=pos_id,
+        )
+    except Exception:
+        pass
+
     sym_pct = float((open_risk.by_symbol.get(sym, Decimal("0")) + expected_risk) / equity * 100)
     grp_pct = (
         float((open_risk.by_group.get(grp, Decimal("0")) + expected_risk) / equity * 100)

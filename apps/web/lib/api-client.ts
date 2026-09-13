@@ -708,6 +708,13 @@ export interface RegimePerformanceRow {
   average_trade: number;
 }
 
+export interface TradingWeekLearningResponse {
+  daily: Record<string, unknown>;
+  weekly: Record<string, unknown>;
+  observational_only: boolean;
+  active_trading_unchanged: boolean;
+}
+
 export interface RiskConcentrationResponse {
   mode: string;
   broker_equity_usd: number;
@@ -1292,6 +1299,15 @@ export const api = {
   getRegimePerformance: () =>
     apiFetch<{ rows: RegimePerformanceRow[]; trade_count: number }>(
       "/analytics/regime-performance"
+    ),
+  getTradingWeekLearning: (reportDate?: string) =>
+    apiFetch<TradingWeekLearningResponse>(
+      `/analytics/trading-week-learning${reportDate ? `?report_date=${encodeURIComponent(reportDate)}` : ""}`
+    ),
+  activateTradingWeekLearning: () =>
+    apiFetch<{ baseline: { id: string; week_label?: string; activated_at?: string; commit_sha?: string }; observational_only: boolean }>(
+      "/analytics/trading-week-learning/activate",
+      { method: "POST" }
     ),
   getEngineHealth: () => apiFetch<EngineHealthResponse>("/health"),
   getWorkersStatus: () => apiFetch<WorkerStatus>("/workers/status"),
