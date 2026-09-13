@@ -15,7 +15,13 @@ def resolve_asset_display_price(
     fallback_price: float | None,
     fallback_candle: datetime | None,
 ) -> tuple[float | None, datetime | None]:
-    """Return (price, as_of) for Home/market status — canonical 1m wins when stored."""
+    """Return (price, as_of) — in-memory stream hub first, then persisted canonical mark."""
+    from quantara_engine.market_data.streaming.live_mark_read import hub_mark_price
+
+    live = hub_mark_price(db_symbol)
+    if live:
+        return float(live[0]), live[1]
+
     canon = display_price_from_canonical_mark(store, db_symbol)
     if canon:
         return float(canon[0]), canon[1]

@@ -35,17 +35,20 @@ def _streaming_enabled() -> bool:
 def stream_manager_status() -> dict:
     hub = get_live_mark_hub()
     persister = get_mark_persister()
+    from quantara_engine.market_data.streaming.mark_persist import PERSIST_MIN_INTERVAL_SEC
+
     return {
         **_status,
         "hub": hub.stats(),
         "persist_writes": persister.writes,
+        "persist_interval_sec": PERSIST_MIN_INTERVAL_SEC,
     }
 
 
 async def _on_tick(db_symbol: str, price: Decimal, at: datetime, source: str) -> None:
     hub = get_live_mark_hub()
-    if hub.update(db_symbol, price, at, source=source):
-        get_mark_persister().maybe_persist(db_symbol, price, at, source=source)
+    hub.update(db_symbol, price, at, source=source)
+    get_mark_persister().maybe_persist(db_symbol, price, at, source=source)
 
 
 async def _run_streams() -> None:

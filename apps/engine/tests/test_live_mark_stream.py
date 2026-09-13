@@ -33,15 +33,26 @@ def test_hub_snapshot_latest_price():
 
 def test_throttled_persister_limits_writes():
     persister = ThrottledMarkPersister(min_interval_sec=60.0)
-    at = datetime.now(timezone.utc)
-
-    class _Store:
-        pass
-
-    # First call would try DB — mock by patching session_scope in integration tests.
-    # Here we only verify throttle gate without DB.
-    persister._last_persist_mono["BTCUSD"] = 0.0
-    persister._min_interval_sec = 60.0
     now_mono = __import__("time").monotonic()
     persister._last_persist_mono["BTCUSD"] = now_mono
+    persister.maybe_persist("BTCUSD", Decimal("100"), datetime.now(timezone.utc), source="test")
     assert persister.writes == 0
+
+
+def test_default_persist_interval_is_fifteen_seconds(monkeypatch):
+    monkeypatch.delenv("STREAM_MARK_PERSIST_SEC", raising=False)
+    import importlib
+
+    import quantara_engine.market_data.streaming.mark_persist as mp
+
+    importlib.reload(mp)
+    assert mp.PERSIST_MIN_INTERVAL_SEC == 15.0
+
+
+def test_hub_get_entry():
+    hub = LiveMarkHub()
+    now = datetime.now(timezone.utc)
+    hub.update("ETHUSD", Decimal("2000"), now, source="test")
+    entry = hub.get_entry("ETHUSD")
+    assert entry is not None
+    assert entry.price == Decimal("2000")

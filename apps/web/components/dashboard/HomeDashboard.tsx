@@ -23,13 +23,17 @@ import { RiskConcentrationPanel } from "@/components/trading/RiskConcentrationPa
 import { Card, CardContent, CardHeader, CardTitle, SectionPanel } from "@/components/ui/card";
 import { useHomeDashboardPoll } from "@/hooks/useHomeDashboardPoll";
 import { useLiveMarkStream } from "@/hooks/useLiveMarkStream";
-import { mergeLiveMarksIntoAssets } from "@/lib/live-mark-stream";
+import {
+  applyLiveMarksToExposureSummary,
+  mergeLiveMarksIntoAssets,
+} from "@/lib/live-mark-stream";
 import { t } from "@/lib/i18n";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 
 function HomeDashboardContent() {
   const searchParams = useSearchParams();
   const view = parseHomeView(searchParams.get("view"));
+  const { liveMarks, connected: liveStreamConnected } = useLiveMarkStream();
   const {
     assetDecisions,
     today,
@@ -48,8 +52,7 @@ function HomeDashboardContent() {
     dataRefreshError,
     loading,
     refresh,
-  } = useHomeDashboardPoll();
-  const { liveMarks } = useLiveMarkStream();
+  } = useHomeDashboardPoll({ liveStreamConnected });
 
   const competitionReady = Boolean(competition?.active && !competitionUnavailable);
   const portfolios = competitionReady ? (competition?.portfolios ?? []) : [];
@@ -80,11 +83,20 @@ function HomeDashboardContent() {
   const portfolioCount = competitionReady
     ? (competition?.experiment?.portfolio_count ?? portfolios.length)
     : null;
+  const restAssetRows = assetAnalytics?.assets ?? [];
   const assetRows = useMemo(
-    () => mergeLiveMarksIntoAssets(assetAnalytics?.assets ?? [], liveMarks),
-    [assetAnalytics?.assets, liveMarks]
+    () => mergeLiveMarksIntoAssets(restAssetRows, liveMarks),
+    [restAssetRows, liveMarks]
   );
-  const exposureSummary = assetAnalytics?.summary ?? null;
+  const exposureSummary = useMemo(
+    () =>
+      applyLiveMarksToExposureSummary(
+        assetAnalytics?.summary ?? null,
+        restAssetRows,
+        assetRows
+      ),
+    [assetAnalytics?.summary, restAssetRows, assetRows]
+  );
   const strategyRunner = workers?.workers?.find((w) => w.name === "strategy_runner");
   const freshness = workers?.strategy_freshness ?? strategyRunner?.freshness;
   if (view === "live-sim") {

@@ -161,6 +161,16 @@ def resolve_equity_live_mark(
         return None
 
     now = _as_utc(now or datetime.now(timezone.utc))
+
+    from quantara_engine.market_data.streaming.live_mark_read import (
+        hub_mark_for_symbol,
+        hub_mark_fresh,
+    )
+
+    hub_entry = hub_mark_for_symbol(db_sym)
+    if hub_entry and hub_mark_fresh(hub_entry, now=now):
+        return hub_entry.price, hub_entry.at, hub_entry.source
+
     entry = load_fast_canonical_marks(store).get(db_sym)
     if not entry:
         return None

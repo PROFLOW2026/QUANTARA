@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from datetime import datetime
@@ -20,11 +21,21 @@ from quantara_engine.persistence.store import TradingStore
 
 logger = logging.getLogger(__name__)
 
-PERSIST_MIN_INTERVAL_SEC = 1.0
+def _default_persist_interval_sec() -> float:
+    raw = os.environ.get("STREAM_MARK_PERSIST_SEC", "15").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        return 15.0
+    return max(5.0, min(value, 120.0))
+
+
+PERSIST_MIN_INTERVAL_SEC = _default_persist_interval_sec()
 
 
 class ThrottledMarkPersister:
-    def __init__(self, min_interval_sec: float = PERSIST_MIN_INTERVAL_SEC) -> None:
+    def __init__(self, min_interval_sec: float | None = None) -> None:
+        min_interval_sec = PERSIST_MIN_INTERVAL_SEC if min_interval_sec is None else min_interval_sec
         self._min_interval_sec = min_interval_sec
         self._lock = threading.Lock()
         self._last_persist_mono: dict[str, float] = {}

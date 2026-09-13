@@ -455,6 +455,7 @@ def analytics_assets(store: StoreDep):
         closed_trades = 0
         realized_pnl = 0.0
         unrealized_pnl = 0.0
+        persisted_price: float | None = None
 
         if inst:
             counts = candle_counts.get(inst.id, counts)
@@ -473,7 +474,13 @@ def analytics_assets(store: StoreDep):
                     asset.trading_sessions, last_candle, now
                 )
 
-            from quantara_engine.api.display_price import resolve_asset_display_price
+            from quantara_engine.api.display_price import (
+                display_price_from_canonical_mark,
+                resolve_asset_display_price,
+            )
+
+            persisted_mark = display_price_from_canonical_mark(store, asset.db_symbol)
+            persisted_price = float(persisted_mark[0]) if persisted_mark else latest_price
 
             latest_price, mark_at = resolve_asset_display_price(
                 store,
@@ -490,6 +497,18 @@ def analytics_assets(store: StoreDep):
             realized_pnl = float(metrics.get("realized_pnl", 0.0))
             unrealized_pnl = float(metrics.get("unrealized_pnl", 0.0))
 
+            from quantara_engine.market_data.streaming.live_mark_read import (
+                hub_mark_for_symbol,
+                hub_mark_fresh,
+                recompute_unrealized_pnl_at_mark,
+            )
+
+            hub_entry = hub_mark_for_symbol(asset.db_symbol)
+            if hub_entry and hub_mark_fresh(hub_entry, now=now) and open_positions > 0:
+                unrealized_pnl = recompute_unrealized_pnl_at_mark(
+                    store, inst.id, hub_entry.price
+                )
+
         risk_metrics = exposure_by_instrument.get(inst.id if inst else "", None)
         if open_positions > 0 and risk_metrics is not None:
             open_exposure = (
@@ -497,6 +516,14 @@ def analytics_assets(store: StoreDep):
                 if risk_metrics.open_exposure is not None
                 else None
             )
+            if (
+                open_exposure is not None
+                and persisted_price
+                and latest_price
+                and persisted_price > 0
+                and abs(latest_price - persisted_price) > 1e-9
+            ):
+                open_exposure = open_exposure * (latest_price / persisted_price)
             open_risk_usd = (
                 float(risk_metrics.open_risk_usd)
                 if risk_metrics.open_risk_usd is not None

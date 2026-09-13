@@ -70,6 +70,11 @@ class LiveMarkHub:
             self._messages_received += 1
             return True
 
+    def get_entry(self, db_symbol: str) -> LiveMarkEntry | None:
+        sym = normalize_db_symbol(db_symbol)
+        with self._lock:
+            return self._marks.get(sym)
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             marks = {sym: entry.to_dict() for sym, entry in self._marks.items()}
