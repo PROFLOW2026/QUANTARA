@@ -87,11 +87,19 @@ def refresh_all_asset_states_from_positions(
     store: TradingStore,
     owner_slug: str,
 ) -> None:
-    """Recompute per-asset unrealized/exposure/SL from live_sim_positions."""
+    """Recompute per-asset unrealized/exposure/SL from canonical broker_positions.
+
+    live_sim_positions is strategy attribution only; broker_positions are financial truth.
+    Also bumps asset high-water mark monotonically when equity rises.
+    """
+    from quantara_engine.live_sim.asset_gate_settings import update_asset_high_water_mark
+
     rows = store.session.execute(
         text(
             """
-            SELECT a.canonical_symbol, a.broker_account_id::text AS aid
+            SELECT a.id::text AS asset_id, a.canonical_symbol,
+                   a.broker_account_id::text AS aid,
+                   a.current_cash, a.high_water_mark
             FROM owner_portfolio_asset_allocations a
             JOIN owner_trading_portfolios otp ON otp.id = a.owner_portfolio_id
             WHERE otp.slug = :slug AND a.enabled = TRUE
@@ -105,13 +113,27 @@ def refresh_all_asset_states_from_positions(
         aid = row["aid"]
         if not aid:
             continue
-        agg = store.session.execute(
+        # Broker position MTM is financial authority for this asset's symbol.
+        bp = store.session.execute(
             text(
                 """
                 SELECT
-                  COALESCE(SUM(p.unrealized_pnl), 0) AS unrealized,
-                  COALESCE(SUM(ABS(p.quantity) * COALESCE(p.current_price, p.entry_price)), 0) AS exposure,
-                  COALESCE(SUM(p.planned_sl_risk_usd), 0) AS sl_risk
+                  COALESCE(SUM(bp.unrealized_pnl), 0) AS unrealized,
+                  COALESCE(SUM(ABS(bp.net_quantity) * COALESCE(bp.mark_price, bp.average_price)), 0)
+                    AS exposure
+                FROM broker_positions bp
+                JOIN instruments i ON i.id = bp.instrument_id
+                WHERE bp.broker_account_id = CAST(:aid AS uuid)
+                  AND i.symbol = :sym
+                  AND bp.net_quantity <> 0
+                """
+            ),
+            {"aid": aid, "sym": sym},
+        ).mappings().first()
+        sl = store.session.execute(
+            text(
+                """
+                SELECT COALESCE(SUM(p.planned_sl_risk_usd), 0) AS sl_risk
                 FROM live_sim_positions p
                 JOIN instruments i ON i.id = p.instrument_id
                 WHERE p.broker_account_id = CAST(:aid AS uuid)
@@ -121,14 +143,19 @@ def refresh_all_asset_states_from_positions(
             ),
             {"aid": aid, "sym": sym},
         ).mappings().first()
+        unrealized = Decimal(str(bp["unrealized"] or 0)) if bp else Decimal("0")
+        exposure = Decimal(str(bp["exposure"] or 0)) if bp else Decimal("0")
+        sl_risk = Decimal(str(sl["sl_risk"] or 0)) if sl else Decimal("0")
         refresh_asset_market_state(
             store,
             owner_slug=owner_slug,
             canonical_symbol=sym,
-            unrealized_pnl=Decimal(str(agg["unrealized"] or 0)),
-            gross_exposure=Decimal(str(agg["exposure"] or 0)),
-            open_sl_risk_usd=Decimal(str(agg["sl_risk"] or 0)),
+            unrealized_pnl=unrealized,
+            gross_exposure=exposure,
+            open_sl_risk_usd=sl_risk,
         )
+        equity = Decimal(str(row["current_cash"] or 0)) + unrealized
+        update_asset_high_water_mark(store, row["asset_id"], equity)
 
 
 def aggregate_assets_by_broker(

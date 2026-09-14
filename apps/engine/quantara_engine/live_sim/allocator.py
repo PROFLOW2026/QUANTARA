@@ -339,6 +339,34 @@ def _execute_accepted_allocation(
             "log_id": log_id,
         },
     )
+    # Link attribution lots created before the shadow position id existed.
+    if broker_res.broker_fill_id:
+        from quantara_engine.broker.attribution import link_strategy_position_to_fill
+
+        link_strategy_position_to_fill(
+            store,
+            broker_fill_id=broker_res.broker_fill_id,
+            strategy_position_id=pos_id,
+        )
+    # Partial fills may create multiple fill rows under one order — link all.
+    if broker_res.broker_order_id:
+        fill_ids = store.session.execute(
+            text(
+                """
+                SELECT id::text FROM broker_fills
+                WHERE broker_order_id = CAST(:oid AS uuid)
+                """
+            ),
+            {"oid": broker_res.broker_order_id},
+        ).scalars().all()
+        from quantara_engine.broker.attribution import link_strategy_position_to_fill
+
+        for fid in fill_ids:
+            link_strategy_position_to_fill(
+                store,
+                broker_fill_id=str(fid),
+                strategy_position_id=pos_id,
+            )
 
     try:
         from quantara_engine.learning.activation import get_active_baseline

@@ -1107,6 +1107,9 @@ export interface LiveSimAccountSummary {
   available: boolean;
   slug?: string;
   label_he?: string;
+  authority?: string;
+  multi_broker_mode?: boolean;
+  legacy_excluded?: boolean;
   owner_portfolio?: LiveSimOwnerPortfolioSummary | null;
   broker_breakdown?: LiveSimBrokerBreakdown[] | null;
   starting_capital?: number;
@@ -1114,8 +1117,10 @@ export interface LiveSimAccountSummary {
   cash?: number;
   balance?: number;
   available_margin?: number;
+  initial_margin?: number;
   realized_pnl?: number;
   unrealized_pnl?: number;
+  total_pnl?: number;
   daily_pnl?: number;
   total_return_pct?: number;
   high_water_mark?: number;
@@ -1145,12 +1150,40 @@ export interface LiveSimAccountSummary {
     planned_sl_risk_usd: number;
     unrealized_pnl: number;
     opened_at?: string | null;
+    broker?: string;
+  }>;
+  closed_trades?: Array<{
+    id: string;
+    symbol: string;
+    robot?: string | null;
+    strategy_slug: string;
+    timeframe: string;
+    direction: string;
+    opened_at?: string | null;
+    closed_at?: string | null;
+    entry_price: number;
+    exit_price?: number | null;
+    quantity: number;
+    stop_loss?: number | null;
+    take_profit?: number | null;
+    close_reason?: string | null;
+    gross_pnl: number;
+    fees: number;
+    funding: number;
+    net_realized_pnl: number;
+    broker?: string;
+    broker_vendor?: string;
+    execution_product?: string | null;
   }>;
   candidates?: {
     total: number;
     accepted: number;
     rejected: number;
     acceptance_rate_pct: number;
+    passed_risk?: number;
+    orders_sent?: number;
+    fills?: number;
+    positions_opened?: number;
   };
   recent_decisions?: LiveSimAllocation[];
   risk_settings?: {

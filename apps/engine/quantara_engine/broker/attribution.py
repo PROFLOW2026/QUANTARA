@@ -291,7 +291,11 @@ def attributed_remaining_quantity(
             ),
             {"aid": broker_account_id, "sym": symbol.upper(), "spid": strategy_position_id},
         ).mappings().first()
-        return Decimal(str(row["qty"])) if row else Decimal("0")
+        qty = Decimal(str(row["qty"])) if row else Decimal("0")
+        if qty > 0:
+            return qty
+        # Live Sim entries historically left strategy_position_id NULL until linked.
+        # Fall through to opportunity/portfolio match when direct link is missing.
 
     if portfolio_id and opportunity_key:
         row = store.session.execute(

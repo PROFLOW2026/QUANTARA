@@ -191,17 +191,14 @@ def aggregate_owner_portfolio(store: TradingStore, *, slug: str) -> OwnerPortfol
         for a in asset_rows
     ]
 
+    # Broker account totals are owner financial truth. Asset rows are attribution /
+    # isolation only — never overwrite equity/PnL/exposure from stale envelopes.
     equal_asset = bool(portfolio.get("equal_asset_allocation_enabled"))
-    configured_assets = len(asset_rows) > 0
-    if equal_asset and configured_assets:
-        from quantara_engine.owner_portfolio.asset_ledger import aggregate_owner_from_assets
-
-        asset_totals = aggregate_owner_from_assets(store, owner_slug=slug)
-        totals["equity"] = asset_totals["equity"]
-        totals["realized"] = asset_totals["realized_pnl"]
-        totals["unrealized"] = asset_totals["unrealized_pnl"]
-        totals["gross"] = asset_totals["gross_exposure"]
-        totals["allocated"] = asset_totals["allocated"]
+    if equal_asset and asset_rows:
+        totals["allocated"] = sum(
+            (a.starting_allocated_capital for a in asset_rows if a.enabled),
+            Decimal("0"),
+        )
 
     target = Decimal(str(portfolio["target_capital"]))
     return OwnerPortfolioSnapshot(

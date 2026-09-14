@@ -179,8 +179,8 @@ def query_open_live_sim_position_rows(
             """
             SELECT p.id::text, p.instrument_id::text, p.direction::text, p.quantity,
                    p.entry_price, p.stop_loss, p.take_profit, p.timeframe,
-                   p.canonical_opportunity_key, p.broker_account_id::text,
-                   p.opened_at,
+                   p.opportunity_key, p.canonical_opportunity_key,
+                   p.broker_account_id::text, p.opened_at,
                    i.symbol, ba.slug AS broker_account_slug
             FROM live_sim_positions p
             JOIN instruments i ON i.id = p.instrument_id

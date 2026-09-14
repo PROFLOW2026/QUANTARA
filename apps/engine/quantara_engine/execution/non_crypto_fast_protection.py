@@ -11,7 +11,6 @@ from sqlalchemy import text
 
 from quantara_engine.broker.accounts import LIVE_SIM_VIRTUAL_PORTFOLIO_ID
 from quantara_engine.broker.execution_bridge import execute_through_broker
-from quantara_engine.broker.execution_service import BrokerExecutionService
 from quantara_engine.domain.types import Direction
 from quantara_engine.execution.cost_profile import execution_assumptions_for
 from quantara_engine.execution.crypto_fast_protection import (
@@ -52,6 +51,7 @@ from quantara_engine.execution.position_management import (
     clear_position_management_cursor,
     process_position_management,
 )
+from quantara_engine.live_sim.close_authority import finalize_live_sim_position_close
 from quantara_engine.live_sim.opportunity import live_sim_execution_idempotency_key
 from quantara_engine.market_data.adapters.alpaca import AlpacaError, AlpacaMarketDataProvider
 from quantara_engine.market_data.adapters.tiingo import TiingoError, TiingoMarketDataProvider
@@ -581,23 +581,21 @@ def _process_live_sim(
                 idempotency_key=idem,
                 is_close=True,
                 strategy_position_id=pos_id,
+                opportunity_key=row.get("opportunity_key"),
                 order_purpose=purpose,
                 skip_if_not_competition=False,
                 account_slug=account_slug,
             )
-            if broker_res and broker_res.accepted:
-                store.session.execute(
-                    text(
-                        """
-                        UPDATE live_sim_positions
-                        SET status = 'closed', closed_at = :ts, updated_at = NOW()
-                        WHERE id = :id AND status = 'open'
-                        """
-                    ),
-                    {"id": pos_id, "ts": candle.timestamp},
-                )
-                svc = BrokerExecutionService(store, account_slug=account_slug)
-                svc.mark_to_market({instrument.symbol.upper(): candle.close}, at=candle.timestamp)
+            if finalize_live_sim_position_close(
+                store,
+                position_id=pos_id,
+                closed_at=candle.timestamp,
+                account_slug=account_slug,
+                instrument_symbol=instrument.symbol,
+                mark_price=candle.close,
+                broker_res=broker_res,
+                requested_quantity=pos.quantity,
+            ):
                 cursors.pop(pos_id, None)
                 closed += 1
                 logger.info("Live-sim 1m closed %s via %s", instrument.symbol, purpose)

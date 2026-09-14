@@ -267,7 +267,8 @@ def close_live_sim_position(
         text(
             """
             SELECT p.id::text, p.instrument_id::text, p.direction::text, p.quantity,
-                   p.timeframe, i.symbol, ba.slug AS broker_account_slug
+                   p.timeframe, p.opportunity_key, i.symbol,
+                   ba.slug AS broker_account_slug
             FROM live_sim_positions p
             JOIN instruments i ON i.id = p.instrument_id
             JOIN broker_accounts ba ON ba.id = p.broker_account_id
@@ -338,6 +339,7 @@ def close_live_sim_position(
         idempotency_key=idem,
         is_close=True,
         strategy_position_id=position_id,
+        opportunity_key=row.get("opportunity_key"),
         order_purpose="close",
         skip_if_not_competition=False,
         account_slug=account_slug,
@@ -357,21 +359,30 @@ def close_live_sim_position(
             broker_order_id=broker_res.broker_order_id,
         )
 
-    store.session.execute(
-        text(
-            """
-            UPDATE live_sim_positions
-            SET status = 'closed', closed_at = :ts, updated_at = NOW()
-            WHERE id = :id AND status = 'open'
-            """
-        ),
-        {"id": position_id, "ts": candle.timestamp},
+    from quantara_engine.live_sim.close_authority import (
+        finalize_live_sim_position_close,
+        live_sim_physical_close_succeeded,
     )
 
-    from quantara_engine.broker.execution_service import BrokerExecutionService
+    if not live_sim_physical_close_succeeded(broker_res):
+        return ManualCloseResult(
+            position_id,
+            "rejected",
+            detail="shadow_only_or_no_physical_close",
+            symbol=instrument.symbol,
+            broker_order_id=broker_res.broker_order_id if broker_res else None,
+        )
 
-    svc = BrokerExecutionService(store, account_slug=account_slug)
-    svc.mark_to_market({instrument.symbol.upper(): candle.close}, at=candle.timestamp)
+    finalize_live_sim_position_close(
+        store,
+        position_id=position_id,
+        closed_at=candle.timestamp,
+        account_slug=account_slug,
+        instrument_symbol=instrument.symbol,
+        mark_price=candle.close,
+        broker_res=broker_res,
+        requested_quantity=qty,
+    )
 
     realized = float(broker_res.realized_pnl) if broker_res and broker_res.realized_pnl else None
     logger.info("Manual close live-sim %s %s at %s", instrument.symbol, position_id, fill.fill_price)

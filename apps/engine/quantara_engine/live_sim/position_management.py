@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-
-from sqlalchemy import text
+from decimal import Decimal as Dc
 
 from quantara_engine.broker.accounts import LIVE_SIM_VIRTUAL_PORTFOLIO_ID
 from quantara_engine.broker.execution_bridge import execute_through_broker
-from quantara_engine.broker.execution_service import BrokerExecutionService
 from quantara_engine.domain.types import Direction
+from quantara_engine.domain.types import Direction as D
+from quantara_engine.domain.types import Position as DomainPosition
 from quantara_engine.execution.cost_profile import execution_assumptions_for
-from quantara_engine.execution.paper_broker import PaperBrokerAdapter
 from quantara_engine.execution.exit_triggers import detect_exit_trigger
+from quantara_engine.execution.paper_broker import PaperBrokerAdapter
+from quantara_engine.live_sim.close_authority import finalize_live_sim_position_close
 from quantara_engine.live_sim.execution_routing import query_open_live_sim_position_rows
 from quantara_engine.live_sim.opportunity import live_sim_execution_idempotency_key
 from quantara_engine.persistence.store import TradingStore
@@ -41,20 +42,16 @@ def process_live_sim_exits(store: TradingStore, now: datetime) -> dict:
         if not candles:
             continue
 
-        from decimal import Decimal as Dc
-
-        from quantara_engine.domain.types import Direction as D
-        from quantara_engine.domain.types import Position as DomainPosition
-
         direction = D.LONG if str(row["direction"]).lower() == "long" else D.SHORT
         account_slug = str(row["broker_account_slug"])
+        qty = Dc(str(row["quantity"]))
         pos = DomainPosition(
             id=row["id"],
             portfolio_id=LIVE_SIM_VIRTUAL_PORTFOLIO_ID,
             strategy_instance_id="",
             instrument_id=row["instrument_id"],
             direction=direction,
-            quantity=Dc(str(row["quantity"])),
+            quantity=qty,
             entry_price=Dc(str(row["entry_price"])),
             current_price=Dc(str(row["entry_price"])),
             stop_loss=Dc(str(row["stop_loss"])),
@@ -94,25 +91,28 @@ def process_live_sim_exits(store: TradingStore, now: datetime) -> dict:
                 idempotency_key=idem,
                 is_close=True,
                 strategy_position_id=row["id"],
+                opportunity_key=row.get("opportunity_key"),
                 order_purpose=purpose,
                 skip_if_not_competition=False,
                 account_slug=account_slug,
             )
-            if broker_res and broker_res.accepted:
-                store.session.execute(
-                    text(
-                        """
-                        UPDATE live_sim_positions
-                        SET status = 'closed', closed_at = :ts, updated_at = NOW()
-                        WHERE id = :id
-                        """
-                    ),
-                    {"id": row["id"], "ts": candle.timestamp},
-                )
-                svc = BrokerExecutionService(store, account_slug=account_slug)
-                svc.mark_to_market({instrument.symbol.upper(): candle.close}, at=candle.timestamp)
+            if finalize_live_sim_position_close(
+                store,
+                position_id=row["id"],
+                closed_at=candle.timestamp,
+                account_slug=account_slug,
+                instrument_symbol=instrument.symbol,
+                mark_price=candle.close,
+                broker_res=broker_res,
+                requested_quantity=qty,
+            ):
                 closed += 1
-                logger.info("Live-sim closed %s via %s on %s", instrument.symbol, purpose, account_slug)
+                logger.info(
+                    "Live-sim closed %s via %s on %s",
+                    instrument.symbol,
+                    purpose,
+                    account_slug,
+                )
             break
 
     return {"closed": closed, "open_checked": len(rows)}

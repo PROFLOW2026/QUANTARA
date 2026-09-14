@@ -48,58 +48,28 @@ export function LiveSimDashboard({ data, loading }: Props) {
     accepted: 0,
     rejected: 0,
     acceptance_rate_pct: 0,
+    orders_sent: 0,
+    fills: 0,
+    positions_opened: 0,
   };
   const decisionCount = candidates.total;
   const decisionsToggleLabel = decisionsExpanded
     ? t("home.live_sim_hide_recent_decisions")
     : t("home.live_sim_show_recent_decisions", { count: decisionCount });
 
-  const owner = data.owner_portfolio;
-  const showOwnerTotals = owner?.multi_broker_mode_enabled && owner;
+  const openCount = data.open_positions?.length ?? 0;
+  const closedCount = data.closed_trades_count ?? data.closed_trades?.length ?? 0;
+  const totalPnl = data.total_pnl ?? (data.realized_pnl ?? 0) + (data.unrealized_pnl ?? 0);
 
   return (
     <>
-      {showOwnerTotals ? (
-        <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <HomeSummaryCard label={t("home.live_sim_owner_total_equity")}>
-            <HomeSummaryValue>{formatCurrency(owner.total_equity ?? data.equity ?? 0)}</HomeSummaryValue>
-          </HomeSummaryCard>
-          <HomeSummaryCard label={t("home.live_sim_owner_total_cash")}>
-            <HomeSummaryValue>{formatCurrency(owner.total_cash ?? data.cash ?? 0)}</HomeSummaryValue>
-          </HomeSummaryCard>
-          <HomeSummaryCard label={t("home.live_sim_owner_total_pnl")}>
-            <PnLDisplay
-              value={(owner.total_realized_pnl ?? 0) + (owner.total_unrealized_pnl ?? 0)}
-              size="lg"
-            />
-          </HomeSummaryCard>
-          <HomeSummaryCard label={t("home.gross_exposure")}>
-            <HomeSummaryValue>{formatCurrency(owner.total_gross_exposure ?? data.gross_exposure ?? 0)}</HomeSummaryValue>
-          </HomeSummaryCard>
-        </div>
-      ) : null}
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <HomeSummaryCard label={t("home.live_sim_starting_capital")}>
-          <HomeSummaryValue>{formatCurrency(data.starting_capital ?? 10000)}</HomeSummaryValue>
-        </HomeSummaryCard>
+      {/* Owner financial truth — primary */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <HomeSummaryCard label={t("home.live_sim_equity")}>
           <HomeSummaryValue>{formatCurrency(data.equity ?? 0)}</HomeSummaryValue>
         </HomeSummaryCard>
-        <HomeSummaryCard label={t("home.live_sim_cash")}>
-          <HomeSummaryValue>{formatCurrency(data.cash ?? 0)}</HomeSummaryValue>
-        </HomeSummaryCard>
-        <HomeSummaryCard label={t("home.live_sim_available_margin")}>
-          <HomeSummaryValue>{formatCurrency(data.available_margin ?? 0)}</HomeSummaryValue>
-        </HomeSummaryCard>
-      </div>
-
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <HomeSummaryCard label={t("home.daily_pnl")}>
-          <PnLDisplay value={data.daily_pnl ?? 0} size="lg" />
-        </HomeSummaryCard>
-        <HomeSummaryCard label={t("home.total_return")}>
-          <HomeSummaryValue>{formatPercent(data.total_return_pct ?? 0)}</HomeSummaryValue>
+        <HomeSummaryCard label={t("home.live_sim_total_pnl")}>
+          <PnLDisplay value={totalPnl} size="lg" />
         </HomeSummaryCard>
         <HomeSummaryCard label={t("home.realized_pnl")}>
           <PnLDisplay value={data.realized_pnl ?? 0} size="lg" />
@@ -107,61 +77,44 @@ export function LiveSimDashboard({ data, loading }: Props) {
         <HomeSummaryCard label={t("home.unrealized_pnl")}>
           <PnLDisplay value={data.unrealized_pnl ?? 0} size="lg" />
         </HomeSummaryCard>
-      </div>
-
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <HomeSummaryCard label={t("home.live_sim_drawdown")}>
-          <HomeSummaryValue>{formatPercent(data.current_drawdown_pct ?? 0)}</HomeSummaryValue>
+        <HomeSummaryCard label={t("home.live_sim_open_count")}>
+          <HomeSummaryValue>{openCount}</HomeSummaryValue>
         </HomeSummaryCard>
-        <HomeSummaryCard label={t("home.live_sim_sl_risk")}>
-          <HomeSummaryValue>{formatPercent(data.open_sl_risk_pct ?? 0)}</HomeSummaryValue>
+        <HomeSummaryCard label={t("home.live_sim_closed_count")}>
+          <HomeSummaryValue>{closedCount}</HomeSummaryValue>
         </HomeSummaryCard>
         <HomeSummaryCard label={t("home.gross_exposure")}>
           <HomeSummaryValue>{formatCurrency(data.gross_exposure ?? 0)}</HomeSummaryValue>
         </HomeSummaryCard>
-        <HomeSummaryCard label={t("home.live_sim_runtime")}>
-          <HomeSummaryValue>{data.runtime_duration_he ?? "—"}</HomeSummaryValue>
+        <HomeSummaryCard label={t("home.live_sim_open_risk")}>
+          <HomeSummaryValue>
+            {formatCurrency(data.open_sl_risk_usd ?? 0)} ({formatPercent(data.open_sl_risk_pct ?? 0)})
+          </HomeSummaryValue>
+        </HomeSummaryCard>
+        <HomeSummaryCard label={t("home.live_sim_drawdown")}>
+          <HomeSummaryValue>{formatPercent(data.current_drawdown_pct ?? 0)}</HomeSummaryValue>
         </HomeSummaryCard>
       </div>
 
-      {data.broker_breakdown?.length ? (
-        <Card className="mt-4">
-          <CardHeader><CardTitle>{t("home.live_sim_broker_breakdown")}</CardTitle></CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2">
-            {data.broker_breakdown.map((b) => (
-              <div key={b.slug} className="rounded-md border border-border/60 p-3 text-sm">
-                <p className="font-medium">{b.label_he}</p>
-                <p>{t("home.live_sim_allocated_capital")}: {formatCurrency(b.allocated_capital)}</p>
-                <p>{t("home.live_sim_cash")}: {formatCurrency(b.cash)}</p>
-                <p>{t("home.live_sim_equity")}: {formatCurrency(b.equity)}</p>
-                <p>{t("home.live_sim_available_margin")}: {formatCurrency(b.available_margin)}</p>
-                <PnLDisplay value={b.realized_pnl + b.unrealized_pnl} size="sm" />
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <LiveSimAllocationSettingsPanel />
-
-      {data.risk_settings ? (
-        <Card className="mt-4">
-          <CardHeader><CardTitle>{t("home.live_sim_risk_settings")}</CardTitle></CardHeader>
-          <CardContent className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
-            <p>{t("home.risk_per_trade")}: {formatPercent(data.risk_settings.risk_per_trade_pct)} ≈ ${data.risk_settings.risk_per_trade_usd_approx.toFixed(0)}</p>
-            <p>{t("home.max_total_sl_risk")}: {formatPercent(data.risk_settings.max_total_open_sl_risk_pct)}</p>
-            <p>{t("home.max_symbol_sl_risk")}: {formatPercent(data.risk_settings.max_symbol_sl_risk_pct)}</p>
-            <p>{t("home.max_group_sl_risk")}: {formatPercent(data.risk_settings.max_group_sl_risk_pct)}</p>
-            <p>{t("home.daily_loss_gate")}: {formatPercent(data.risk_settings.daily_loss_gate_pct)}</p>
-            <p>{t("home.drawdown_gate")}: {formatPercent(data.risk_settings.max_drawdown_gate_pct)}</p>
-          </CardContent>
-        </Card>
-      ) : null}
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <HomeSummaryCard label={t("home.live_sim_starting_capital")}>
+          <HomeSummaryValue>{formatCurrency(data.starting_capital ?? 10000)}</HomeSummaryValue>
+        </HomeSummaryCard>
+        <HomeSummaryCard label={t("home.live_sim_cash")}>
+          <HomeSummaryValue>{formatCurrency(data.cash ?? 0)}</HomeSummaryValue>
+        </HomeSummaryCard>
+        <HomeSummaryCard label={t("home.live_sim_available_margin")}>
+          <HomeSummaryValue>{formatCurrency(data.available_margin ?? 0)}</HomeSummaryValue>
+        </HomeSummaryCard>
+        <HomeSummaryCard label={t("home.total_return")}>
+          <HomeSummaryValue>{formatPercent(data.total_return_pct ?? 0)}</HomeSummaryValue>
+        </HomeSummaryCard>
+      </div>
 
       <Card className="mt-4">
         <CardHeader><CardTitle>{t("home.live_sim_open_positions")}</CardTitle></CardHeader>
         <CardContent>
-          {(data.open_positions?.length ?? 0) === 0 ? (
+          {openCount === 0 ? (
             <p className="text-sm text-muted">{t("home.no_open_positions")}</p>
           ) : (
             <div className="overflow-x-auto">
@@ -180,7 +133,12 @@ export function LiveSimDashboard({ data, loading }: Props) {
                 <tbody>
                   {data.open_positions?.map((p) => (
                     <tr key={p.id} className="border-b border-border/50">
-                      <td className="py-2">{p.symbol}</td>
+                      <td className="py-2">
+                        {p.symbol}
+                        {p.broker ? (
+                          <span className="ms-1 text-xs text-muted">({p.broker.replace("live-sim-", "")})</span>
+                        ) : null}
+                      </td>
                       <td className="py-2">{p.direction}</td>
                       <td className="py-2">{p.robot ?? p.strategy_slug}</td>
                       <td className="py-2 text-end font-mono">{p.quantity}</td>
@@ -193,6 +151,79 @@ export function LiveSimDashboard({ data, loading }: Props) {
               </table>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card className="mt-4">
+        <CardHeader><CardTitle>{t("home.live_sim_closed_trades")}</CardTitle></CardHeader>
+        <CardContent>
+          {(data.closed_trades?.length ?? 0) === 0 ? (
+            <p className="text-sm text-muted">{t("home.live_sim_no_closed_trades")}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-muted">
+                    <th className="py-2 text-start">{t("positions.asset")}</th>
+                    <th className="py-2 text-start">{t("home.robot")}</th>
+                    <th className="py-2 text-start">{t("positions.direction")}</th>
+                    <th className="py-2 text-end">{t("positions.entry")}</th>
+                    <th className="py-2 text-end">יציאה</th>
+                    <th className="py-2 text-start">{t("home.live_sim_close_reason")}</th>
+                    <th className="py-2 text-end">{t("home.live_sim_net_realized")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.closed_trades?.map((tr) => (
+                    <tr key={tr.id} className="border-b border-border/50">
+                      <td className="py-2">{tr.symbol}</td>
+                      <td className="py-2">{tr.robot ?? tr.strategy_slug}</td>
+                      <td className="py-2">{tr.direction}</td>
+                      <td className="py-2 text-end font-mono">{tr.entry_price}</td>
+                      <td className="py-2 text-end font-mono">{tr.exit_price ?? "—"}</td>
+                      <td className="py-2">{tr.close_reason ?? "—"}</td>
+                      <td className="py-2 text-end">
+                        <PnLDisplay value={tr.net_realized_pnl} size="sm" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="mt-4">
+        <CardHeader><CardTitle>{t("home.live_sim_funnel_title")}</CardTitle></CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="rounded-md border border-border/60 p-3">
+              <p className="text-xs text-muted">{t("home.live_sim_funnel_candidates")}</p>
+              <p className="font-mono text-2xl">{candidates.total}</p>
+            </div>
+            <div className="rounded-md border border-border/60 p-3">
+              <p className="text-xs text-muted">{t("home.live_sim_funnel_passed")}</p>
+              <p className="font-mono text-2xl">{candidates.passed_risk ?? candidates.accepted}</p>
+            </div>
+            <div className="rounded-md border border-border/60 p-3">
+              <p className="text-xs text-muted">{t("home.live_sim_funnel_orders")}</p>
+              <p className="font-mono text-2xl">{candidates.orders_sent ?? 0}</p>
+            </div>
+            <div className="rounded-md border border-border/60 p-3">
+              <p className="text-xs text-muted">{t("home.live_sim_funnel_fills")}</p>
+              <p className="font-mono text-2xl">{candidates.fills ?? 0}</p>
+            </div>
+            <div className="rounded-md border border-border/60 p-3">
+              <p className="text-xs text-muted">{t("home.live_sim_funnel_opened")}</p>
+              <p className="font-mono text-2xl">{candidates.positions_opened ?? 0}</p>
+            </div>
+            <div className="rounded-md border border-border/60 p-3">
+              <p className="text-xs text-muted">{t("home.live_sim_funnel_rejected")}</p>
+              <p className="font-mono text-2xl">{candidates.rejected}</p>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-muted">{t("home.live_sim_accepted_not_executed_note")}</p>
         </CardContent>
       </Card>
 
@@ -235,12 +266,39 @@ export function LiveSimDashboard({ data, loading }: Props) {
         </CardContent>
       </Card>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card><CardHeader><CardTitle>{t("home.candidates_seen")}</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl">{candidates.total}</p></CardContent></Card>
-        <Card><CardHeader><CardTitle>{t("home.candidates_accepted")}</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl">{candidates.accepted}</p></CardContent></Card>
-        <Card><CardHeader><CardTitle>{t("home.candidates_rejected")}</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl">{candidates.rejected}</p></CardContent></Card>
-        <Card><CardHeader><CardTitle>{t("home.acceptance_rate")}</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl">{formatPercent(candidates.acceptance_rate_pct)}</p></CardContent></Card>
-      </div>
+      {data.broker_breakdown?.length ? (
+        <Card className="mt-4">
+          <CardHeader><CardTitle>{t("home.live_sim_broker_secondary")}</CardTitle></CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            {data.broker_breakdown.map((b) => (
+              <div key={b.slug} className="rounded-md border border-border/60 p-3 text-sm">
+                <p className="font-medium">{b.label_he}</p>
+                <p>{t("home.live_sim_cash")}: {formatCurrency(b.cash)}</p>
+                <p>{t("home.live_sim_equity")}: {formatCurrency(b.equity)}</p>
+                <p>{t("home.live_sim_available_margin")}: {formatCurrency(b.available_margin)}</p>
+                <p>{t("home.realized_pnl")}: <PnLDisplay value={b.realized_pnl} size="sm" /></p>
+                <p>{t("home.unrealized_pnl")}: <PnLDisplay value={b.unrealized_pnl} size="sm" /></p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <LiveSimAllocationSettingsPanel />
+
+      {data.risk_settings ? (
+        <Card className="mt-4">
+          <CardHeader><CardTitle>{t("home.live_sim_risk_settings")}</CardTitle></CardHeader>
+          <CardContent className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+            <p>{t("home.risk_per_trade")}: {formatPercent(data.risk_settings.risk_per_trade_pct)} ≈ ${data.risk_settings.risk_per_trade_usd_approx.toFixed(0)}</p>
+            <p>{t("home.max_total_sl_risk")}: {formatPercent(data.risk_settings.max_total_open_sl_risk_pct)}</p>
+            <p>{t("home.max_symbol_sl_risk")}: {formatPercent(data.risk_settings.max_symbol_sl_risk_pct)}</p>
+            <p>{t("home.max_group_sl_risk")}: {formatPercent(data.risk_settings.max_group_sl_risk_pct)}</p>
+            <p>{t("home.daily_loss_gate")}: {formatPercent(data.risk_settings.daily_loss_gate_pct)}</p>
+            <p>{t("home.drawdown_gate")}: {formatPercent(data.risk_settings.max_drawdown_gate_pct)}</p>
+          </CardContent>
+        </Card>
+      ) : null}
     </>
   );
 }

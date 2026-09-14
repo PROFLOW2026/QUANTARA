@@ -1099,6 +1099,25 @@ class BrokerExecutionService:
 
         self._refresh_account_from_db(account_id)
         self.run_liquidation_if_required(at=at)
+        try:
+            from quantara_engine.broker.accounts import (
+                LIVE_SIM_IBKR_LIKE_SLUG,
+                LIVE_SIM_KRAKEN_LIKE_SLUG,
+                LIVE_SIM_10K_ACCOUNT_SLUG,
+            )
+            from quantara_engine.owner_portfolio.asset_ledger import (
+                refresh_all_asset_states_from_positions,
+            )
+            from quantara_engine.owner_portfolio.service import LIVE_SIM_OWNER_SLUG
+
+            if self.account_slug in {
+                LIVE_SIM_IBKR_LIKE_SLUG,
+                LIVE_SIM_KRAKEN_LIKE_SLUG,
+                LIVE_SIM_10K_ACCOUNT_SLUG,
+            }:
+                refresh_all_asset_states_from_positions(self.store, LIVE_SIM_OWNER_SLUG)
+        except Exception:
+            pass
 
     def _set_account_state(self, account_id: str, state: AccountState) -> None:
         self.store.session.execute(
