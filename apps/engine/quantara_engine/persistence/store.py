@@ -1385,6 +1385,7 @@ class TradingStore:
             OrmCandle.low,
             OrmCandle.close,
             OrmCandle.volume,
+            OrmCandle.source,
             OrmCandle.is_complete,
         )
 
@@ -1403,7 +1404,7 @@ class TradingStore:
             low=row.low,
             close=row.close,
             volume=row.volume,
-            source="db",
+            source=getattr(row, "source", None) or "db",
             is_complete=row.is_complete,
         )
 

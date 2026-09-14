@@ -189,8 +189,19 @@ def _fetch_alpaca_1m_batch(
 
     candles_by_instrument: dict[str, list] = {}
     for iid, candles in by_instrument.items():
+        new_ts: list[datetime] = []
         for candle in candles:
             store.upsert_candle(candle)
+            new_ts.append(candle.timestamp)
+        if new_ts:
+            from quantara_engine.market_data.derive_from_1m import derive_higher_from_1m
+
+            derive_higher_from_1m(
+                store,
+                iid,
+                new_ts,
+                session_mode="us_rth",
+            )
         since = since_by_instrument.get(iid, earliest_since)
         stored = store.list_candles(
             iid,
@@ -226,8 +237,14 @@ def _fetch_twelve_data_1m(
     except TwelveDataError as exc:
         logger.warning("Twelve Data 1m fetch failed for %s: %s", db_sym, exc)
         return []
+    new_ts: list = []
     for candle in candles:
         store.upsert_candle(candle)
+        new_ts.append(candle.timestamp)
+    if new_ts:
+        from quantara_engine.market_data.derive_from_1m import derive_higher_from_1m
+
+        derive_higher_from_1m(store, instrument.id, new_ts, session_mode="utc")
     return candles
 
 
@@ -255,8 +272,14 @@ def _fetch_tiingo_1m(
     except TiingoError as exc:
         logger.warning("Tiingo 1m fetch failed for %s: %s", db_sym, exc)
         return []
+    new_ts: list = []
     for candle in candles:
         store.upsert_candle(candle)
+        new_ts.append(candle.timestamp)
+    if new_ts:
+        from quantara_engine.market_data.derive_from_1m import derive_higher_from_1m
+
+        derive_higher_from_1m(store, instrument.id, new_ts, session_mode="utc")
     return candles
 
 
@@ -349,7 +372,7 @@ def _fetch_fx_protection_candles(
 
     tiingo_ok = (
         not is_in_cooldown(store, "tiingo")
-        and provider_can_request(store, "tiingo", purpose="candles")
+        and provider_can_request(store, "tiingo", purpose="fx_rate")
     )
     mode = quota_mode(store, tiingo_primary_ok=tiingo_ok)
     td_ok = can_fetch_twelve_data_1m(store)
@@ -427,6 +450,12 @@ def _fetch_fx_protection_candles(
             limit=MAX_CANDLES_PER_POSITION_PER_RUN,
         )
         candles_by_instrument[instrument.id] = stored_after or fetched or stored
+
+        # Keep canonical 5m warm from stored 1m even when no provider call this cycle.
+        if stored_after or stored:
+            from quantara_engine.market_data.derive_from_1m import derive_higher_from_1m
+
+            derive_higher_from_1m(store, instrument.id, session_mode="utc")
 
         if used_provider == "tiingo":
             source = "tiingo_1m"

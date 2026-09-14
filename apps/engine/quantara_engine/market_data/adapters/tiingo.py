@@ -175,7 +175,14 @@ class TiingoMarketDataProvider:
             raise TiingoError("Asset context required for Tiingo fetch")
         return provider_symbol(self._asset, ProviderName.TIINGO)
 
-    def _fetch_rows(self, timeframe: str, start: datetime, limit: int) -> list[dict[str, Any]]:
+    def _fetch_rows(
+        self,
+        timeframe: str,
+        start: datetime,
+        limit: int,
+        *,
+        purpose: str = "candles",
+    ) -> list[dict[str, Any]]:
         symbol = self._provider_ticker()
         freq = RESAMPLE_MAP.get(timeframe)
         if not freq:
@@ -201,7 +208,7 @@ class TiingoMarketDataProvider:
             }
             url = f"https://api.tiingo.com/iex/{symbol}/prices?" + urllib.parse.urlencode(params)
 
-        payload = self._request(url, symbol, purpose="candles")
+        payload = self._request(url, symbol, purpose=purpose)
         if isinstance(payload, list):
             if self._asset and self._asset.asset_class == AssetClass.CRYPTO:
                 rows: list[dict[str, Any]] = []
@@ -376,7 +383,15 @@ class TiingoMarketDataProvider:
             start = since - timedelta(days=1)
         # Protection 1m lookback stays small to keep payloads light.
         limit = 120 if timeframe == PROVIDER_TIMEFRAME else 30
-        rows = self._fetch_rows(timeframe, start, limit=limit)
+        # FX/commodity 1m protection uses the FX reserve, not scheduled candle budget.
+        purpose = "candles"
+        if (
+            timeframe == "1m"
+            and self._asset is not None
+            and self._asset.asset_class in (AssetClass.FOREX, AssetClass.COMMODITY)
+        ):
+            purpose = "fx_rate"
+        rows = self._fetch_rows(timeframe, start, limit=limit, purpose=purpose)
         return self._to_candles(rows, instrument_id, timeframe, since=since)
 
     def fetch_bootstrap(self, instrument_id: str, timeframe: str, bars: int = BOOTSTRAP_OUTPUT_SIZE) -> list[Candle]:

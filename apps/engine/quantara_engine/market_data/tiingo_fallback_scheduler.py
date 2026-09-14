@@ -78,6 +78,12 @@ def _primary_eligible(store: TradingStore, asset: AssetDefinition) -> bool:
 
 
 def _needs_tiingo_fallback(store: TradingStore, asset: AssetDefinition) -> bool:
+    # FX + US equities build canonical 5m from local 1m (Tiingo FX 1m / Alpaca 1m).
+    # Do not spend scheduled Tiingo candle budget on duplicate 5m for them.
+    from quantara_engine.execution.crypto_mark_valuation import FAST_EQUITY_DB_SYMBOLS, FAST_FX_DB_SYMBOLS
+
+    if asset.db_symbol in FAST_FX_DB_SYMBOLS or asset.db_symbol in FAST_EQUITY_DB_SYMBOLS:
+        return False
     if _primary_eligible(store, asset):
         return False
     chain = provider_chain_for_asset(asset)

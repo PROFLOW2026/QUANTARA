@@ -115,16 +115,17 @@ def test_open_position_assets_prioritized():
         store._settings[f"last_candle:{asset.db_symbol}"] = (now - timedelta(minutes=20)).isoformat()
         store._settings[f"stored:{asset.db_symbol}"] = 500
 
-    store.session.execute.return_value.all.return_value = [("NVDA", 5)]
-
+    # Crypto remains on Tiingo 5m fallback; FX/equities use local 1m→5m.
     with patch(
         "quantara_engine.market_data.tiingo_fallback_scheduler._open_positions_by_symbol",
-        return_value={"NVDA": 5},
+        return_value={"BTCUSD": 5},
     ):
         plan = build_tiingo_fallback_plan(store, now)
 
     assert plan.fallback_active
-    assert "NVDA" in plan.allowed_symbols
+    assert "BTCUSD" in plan.allowed_symbols
+    assert "NVDA" not in plan.allowed_symbols
+    assert "XAUUSD" not in plan.allowed_symbols
     assert plan.safe_calls <= tiingo_candle_remaining(store)
 
 
@@ -134,7 +135,7 @@ def test_stale_assets_ranked_above_fresh_when_no_open_positions():
     _set_tiingo_used(store, 40)
     now = datetime(2026, 9, 11, 16, 40, tzinfo=timezone.utc)
     for asset in list_target_assets():
-        age_min = 60 if asset.db_symbol == "TSLA" else 8
+        age_min = 60 if asset.db_symbol == "ETHUSD" else 8
         store._settings[f"last_candle:{asset.db_symbol}"] = (now - timedelta(minutes=age_min)).isoformat()
         store._settings[f"stored:{asset.db_symbol}"] = 500
 
@@ -145,7 +146,7 @@ def test_stale_assets_ranked_above_fresh_when_no_open_positions():
         plan = build_tiingo_fallback_plan(store, now)
 
     if plan.allowed_symbols:
-        assert "TSLA" in plan.allowed_symbols
+        assert "ETHUSD" in plan.allowed_symbols
 
 
 def test_candle_sufficient_assets_deferred_without_tiingo_call():
@@ -228,15 +229,20 @@ def test_fair_rotation_cursor_advances():
 
 
 def test_no_asset_starved_beyond_20m_when_budget_available():
-    """Stale assets must be scheduled within ~4 cycles (20m) when Tiingo quota remains."""
+    """Stale crypto assets must be scheduled within ~4 cycles when Tiingo quota remains."""
     store = FakeStore()
     _block_primaries(store)
     _set_tiingo_used(store, 10)
     now = datetime(2026, 9, 11, 16, 0, tzinfo=timezone.utc)
-    symbols = [a.db_symbol for a in list_target_assets()]
+    # Only crypto uses Tiingo 5m fallback after local 1m→5m architecture.
+    symbols = ["BTCUSD", "ETHUSD"]
     for sym in symbols:
         store._settings[f"last_candle:{sym}"] = (now - timedelta(minutes=25)).isoformat()
         store._settings[f"stored:{sym}"] = 500
+    for asset in list_target_assets():
+        if asset.db_symbol not in symbols:
+            store._settings[f"last_candle:{asset.db_symbol}"] = (now - timedelta(minutes=25)).isoformat()
+            store._settings[f"stored:{asset.db_symbol}"] = 500
 
     seen: set[str] = set()
     with patch(
@@ -248,7 +254,8 @@ def test_no_asset_starved_beyond_20m_when_budget_available():
             plan = build_tiingo_fallback_plan(store, cycle_now)
             seen.update(plan.allowed_symbols)
 
-    assert len(seen) >= min(3, len(symbols))
+    assert len(seen) >= min(2, len(symbols))
+    assert seen <= set(symbols)
 
 
 def test_primary_healthy_skips_fallback_plan():

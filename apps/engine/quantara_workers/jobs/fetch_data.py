@@ -19,6 +19,8 @@ from quantara_engine.market_data.aggregation import (
     incremental_derive_from_5m,
     incremental_source_limit,
 )
+from quantara_engine.market_data.derive_from_1m import derive_higher_from_1m
+from quantara_engine.execution.crypto_mark_valuation import FAST_EQUITY_DB_SYMBOLS, FAST_FX_DB_SYMBOLS
 from quantara_engine.market_data.credits import (
     FetchPriority,
     is_blocked as twelve_data_blocked,
@@ -101,6 +103,40 @@ def _aggregation_mode(asset) -> str:
     if asset.asset_class in (AssetClass.STOCK, AssetClass.INDEX):
         return "us_rth"
     return "utc"
+
+
+def _supports_local_1m_canonical(asset) -> bool:
+    """FX Tiingo 1m and Alpaca equity 1m can build canonical 5m locally."""
+    return asset.db_symbol in FAST_FX_DB_SYMBOLS or asset.db_symbol in FAST_EQUITY_DB_SYMBOLS
+
+
+def _try_local_1m_canonical(
+    store: TradingStore,
+    instrument,
+    asset,
+    now: datetime,
+) -> tuple[int, int, bool]:
+    """
+    Derive 5m/15m/1h from stored 1m.
+
+    Returns (count_5m, higher_count, fresh_enough_to_skip_provider).
+    """
+    if not _supports_local_1m_canonical(asset):
+        return 0, 0, False
+    count_5m, higher = derive_higher_from_1m(
+        store,
+        instrument.id,
+        session_mode=_aggregation_mode(asset),
+    )
+    last_ts = store.latest_candle_timestamp(instrument.id, PROVIDER_TIMEFRAME)
+    stored = store.count_candles(instrument.id, PROVIDER_TIMEFRAME)
+    fresh = (
+        last_ts is not None
+        and stored >= STRATEGY_MIN_CANDLES
+        and is_market_data_fresh(last_ts, PROVIDER_TIMEFRAME, now)
+        and not should_fetch_timeframe(PROVIDER_TIMEFRAME, last_ts, now)
+    )
+    return count_5m, higher, fresh
 
 
 _BOOTSTRAP_TIMEFRAMES: tuple[str, ...] = ("5m", "15m", "1h")
@@ -186,6 +222,9 @@ def _should_poll_asset(
 
         primary_ok = not twelve_data_blocked(store) and can_fetch(store, FetchPriority.SCHEDULED)
         if not primary_ok and not has_eligible_provider(store, asset, priority=FetchPriority.SCHEDULED):
+            # FX builds 5m from protection 1m — keep the derive path alive.
+            if asset.db_symbol in FAST_FX_DB_SYMBOLS:
+                return True, None
             if twelve_data_blocked(store):
                 return False, "deferred (Twelve Data blocked; no fallback available)"
             return False, "deferred (Twelve Data credit guard; no fallback available)"
@@ -210,7 +249,11 @@ def _should_poll_asset(
         if asset.asset_class in (AssetClass.STOCK, AssetClass.INDEX):
             if not is_us_equity_rth(now) and stored >= STRATEGY_MIN_CANDLES:
                 return False, "deferred (US market closed — last session data retained)"
+        # Tiingo conservation must not block Alpaca-primary assets when local 1m
+        # can still refresh canonical 5m, or when Alpaca itself remains eligible.
         if not has_eligible_provider(store, asset, priority=FetchPriority.SCHEDULED):
+            if asset.db_symbol in FAST_EQUITY_DB_SYMBOLS:
+                return True, None  # allow derive-only / Alpaca recovery path
             return False, "deferred (no eligible provider — cooldown or budget)"
 
     sessions = asset.trading_sessions or {}
@@ -378,6 +421,14 @@ def _fetch_asset_live(
     stored = store.count_candles(instrument.id, timeframe)
     force_bootstrap = stored < STRATEGY_MIN_CANDLES
 
+    # Prefer local 1m→5m so FX/equity do not burn a second provider call for 5m.
+    local_5m, local_higher, local_fresh = _try_local_1m_canonical(store, instrument, asset, now)
+    if local_fresh and not force_bootstrap:
+        timings["local_1m_agg"] = timings.get("local_1m_agg", 0.0) + (time.perf_counter() - t0) * 1000
+        if asset.db_symbol == "XAUUSD" and local_5m:
+            update_spot_from_latest_5m(store, instrument.id)
+        return local_5m, local_higher, None, "aggregated"
+
     should_poll, defer_reason = _should_poll_asset(
         store,
         asset,
@@ -389,11 +440,79 @@ def _fetch_asset_live(
         plan=plan,
     )
     if not should_poll:
+        # Even when deferred for provider budget, keep local aggregation warm.
+        if local_5m or local_higher:
+            timings["local_1m_agg"] = timings.get("local_1m_agg", 0.0) + (time.perf_counter() - t0) * 1000
+            return local_5m, local_higher, defer_reason, "aggregated"
         timings[provider_key] = timings.get(provider_key, 0.0) + (time.perf_counter() - t0) * 1000
         return 0, 0, defer_reason, None
 
     if skip_fetch:
-        return 0, 0, None, None
+        return local_5m, local_higher, None, "aggregated" if local_5m else None
+
+    # Equities: fetch Alpaca 1m and aggregate when primary is healthy — avoids Tiingo 5m.
+    if (
+        asset.db_symbol in FAST_EQUITY_DB_SYMBOLS
+        and asset.primary_provider == ProviderName.ALPACA
+        and has_eligible_provider(store, asset, priority=FetchPriority.SCHEDULED)
+        and not force_bootstrap
+    ):
+        from quantara_engine.market_data.adapters.alpaca import AlpacaMarketDataProvider
+        from quantara_engine.market_data.polling import FAST_PROTECTION_TIMEFRAME
+        from quantara_engine.market_data.provider_resolver import is_provider_eligible
+
+        if is_provider_eligible(store, ProviderName.ALPACA, priority=FetchPriority.SCHEDULED):
+            last_1m = store.latest_candle_timestamp(instrument.id, FAST_PROTECTION_TIMEFRAME)
+            provider = AlpacaMarketDataProvider(
+                store=store,
+                caller="fetch_live_job:equity_1m",
+                priority=FetchPriority.SCHEDULED,
+                asset=asset,
+            )
+            try:
+                candles_1m = provider.fetch_latest(
+                    instrument.id,
+                    FAST_PROTECTION_TIMEFRAME,
+                    since=last_1m,
+                )
+            except AlpacaError as exc:
+                logger.warning("Alpaca equity 1m fetch failed for %s: %s", asset.db_symbol, exc)
+                candles_1m = []
+            new_ts: list[datetime] = []
+            for candle in dedupe_complete_candles(candles_1m):
+                try:
+                    validate_candle(candle)
+                except Exception as exc:
+                    logger.warning("Invalid equity 1m skipped (%s): %s", asset.db_symbol, exc)
+                    continue
+                store.upsert_candle(candle)
+                new_ts.append(candle.timestamp)
+            if new_ts:
+                d5, dh = derive_higher_from_1m(
+                    store,
+                    instrument.id,
+                    new_ts,
+                    session_mode=_aggregation_mode(asset),
+                )
+                local_5m += d5
+                local_higher += dh
+                _mark_alpaca_live_fetch(store, asset.db_symbol, now)
+            last_ts = store.latest_candle_timestamp(instrument.id, timeframe)
+            if last_ts is not None and is_market_data_fresh(last_ts, timeframe, now):
+                timings["alpaca"] = timings.get("alpaca", 0.0) + (time.perf_counter() - t0) * 1000
+                return local_5m, local_higher, None, ProviderName.ALPACA.value
+
+    # FX: never spend scheduled Tiingo/TD 5m when 1m protection stream is the authority.
+    if asset.db_symbol in FAST_FX_DB_SYMBOLS and not force_bootstrap:
+        last_ts = store.latest_candle_timestamp(instrument.id, timeframe)
+        if last_ts is not None and is_market_data_fresh(last_ts, timeframe, now):
+            timings["local_1m_agg"] = timings.get("local_1m_agg", 0.0) + (time.perf_counter() - t0) * 1000
+            return local_5m, local_higher, None, "aggregated"
+        # Stale 5m but still skip separate FX 5m provider fetch — protection 1m owns the stream.
+        # Only gap-fill via provider when history is critically thin (bootstrap handled above).
+        if stored >= STRATEGY_MIN_CANDLES:
+            timings["local_1m_agg"] = timings.get("local_1m_agg", 0.0) + (time.perf_counter() - t0) * 1000
+            return local_5m, local_higher, None, "aggregated"
 
     new_timestamps: list[datetime] = []
     count = 0
@@ -449,13 +568,14 @@ def _fetch_asset_live(
         validated.append(candle)
         new_timestamps.append(candle.timestamp)
 
-    derived = 0
+    derived = local_higher
+    count = local_5m
     if len(validated) >= GAP_FILL_CHUNK_THRESHOLD:
-        count = _persist_candles_chunked(validated)
+        count += _persist_candles_chunked(validated)
         if count:
             with session_scope() as derive_session:
                 derive_store = TradingStore(derive_session)
-                derived = _derive_full(
+                derived += _derive_full(
                     derive_store,
                     instrument.id,
                     session_mode=_aggregation_mode(asset),
@@ -485,14 +605,14 @@ def _fetch_asset_live(
             count += 1
     timings["persist_5m_ms"] = timings.get("persist_5m_ms", 0.0) + (time.perf_counter() - persist_t0) * 1000
 
-    if count and used_provider == ProviderName.ALPACA:
+    if validated and used_provider == ProviderName.ALPACA:
         _mark_alpaca_live_fetch(store, asset.db_symbol, now)
-    elif count and used_provider == ProviderName.TIINGO:
+    elif validated and used_provider == ProviderName.TIINGO:
         _mark_tiingo_fetch(store, asset.db_symbol, now)
 
     derive_t0 = time.perf_counter()
     if new_timestamps:
-        derived = _derive_incremental(
+        derived += _derive_incremental(
             store,
             instrument.id,
             new_timestamps,
@@ -500,10 +620,10 @@ def _fetch_asset_live(
         )
     timings["derive_ms"] = timings.get("derive_ms", 0.0) + (time.perf_counter() - derive_t0) * 1000
 
-    if asset.db_symbol == "XAUUSD" and count:
+    if asset.db_symbol == "XAUUSD" and validated:
         update_spot_from_latest_5m(store, instrument.id)
 
-    return count, derived, error, used_provider.value if used_provider else None
+    return count, derived, error, used_provider.value if used_provider else ("aggregated" if local_5m else None)
 
 
 def _record_budget_best_effort(
@@ -1095,7 +1215,7 @@ def fetch_live_job(store: TradingStore | None = None) -> None:
                     if recent and getattr(recent[0], "source", None):
                         live_provider = str(recent[0].source)
                 status = {
-                    "status": "healthy" if latest else "stale",
+                    "status": "healthy" if latest and is_market_data_fresh(latest, PROVIDER_TIMEFRAME, now) else "stale",
                     "provider": live_provider,
                     "configured_primary": configured_primary,
                     "actual_source": live_provider,

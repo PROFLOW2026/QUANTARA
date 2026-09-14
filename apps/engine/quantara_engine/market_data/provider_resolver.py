@@ -167,6 +167,11 @@ def _classify_failure(exc: Exception) -> tuple[bool, str]:
     # Twelve Data 429 is handled via mark_blocked, not generic cooldown.
     if code == 429 or "run out of api credits" in lower:
         return False, msg
+    # Client-built invalid Alpaca ranges must not poison provider cooldown.
+    if "end should not be before start" in lower:
+        return False, msg
+    if code == 400 or "http 400" in lower:
+        return False, msg
     # Auth failures: cooldown to avoid retry storms (Tiingo intermittent 403).
     if code in (401, 403) or "invalid token" in lower or "http 401" in lower or "http 403" in lower:
         return True, msg

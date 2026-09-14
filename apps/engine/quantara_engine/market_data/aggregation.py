@@ -1,4 +1,4 @@
-"""Derive higher-timeframe candles from canonical 5m bars."""
+"""Derive higher-timeframe candles from canonical 5m bars (and 1m→5m)."""
 
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ from quantara_engine.market_data.sessions import (
 )
 
 DERIVED_FROM_5M: tuple[str, ...] = ("15m", "1h")
+CANONICAL_FROM_1M: str = "5m"
+_1M_PER_5M = timeframe_minutes("5m") // timeframe_minutes("1m")
 
 
 def bucket_start(timestamp: datetime, timeframe: str) -> datetime:
@@ -28,6 +30,44 @@ def bucket_start(timestamp: datetime, timeframe: str) -> datetime:
 def _expected_5m_timestamps(bucket: datetime, count: int) -> list[datetime]:
     base = timeframe_minutes("5m")
     return [bucket + timedelta(minutes=base * i) for i in range(count)]
+
+
+def _expected_1m_timestamps(bucket: datetime, count: int = _1M_PER_5M) -> list[datetime]:
+    return [bucket + timedelta(minutes=i) for i in range(count)]
+
+
+def _aggregate_ohlcv(
+    components: list[Candle],
+    *,
+    timeframe: str,
+    bucket: datetime,
+    source: str,
+) -> Candle:
+    volumes = [c.volume for c in components if c.volume is not None]
+    volume: Decimal | None
+    if volumes:
+        volume = sum(volumes, start=Decimal("0"))
+    else:
+        volume = None
+    return Candle(
+        instrument_id=components[0].instrument_id,
+        timeframe=timeframe,
+        timestamp=bucket,
+        open=components[0].open,
+        high=max(c.high for c in components),
+        low=min(c.low for c in components),
+        close=components[-1].close,
+        volume=volume,
+        source=source,
+        is_complete=True,
+    )
+
+
+def _component_source(components: list[Candle], *, default: str = "aggregated") -> str:
+    sources = {str(c.source) for c in components if c.source}
+    if len(sources) == 1:
+        return next(iter(sources))
+    return default
 
 
 def aggregate_from_5m(
@@ -83,29 +123,117 @@ def aggregate_from_5m(
         if [c.timestamp for c in components] != expected:
             continue
 
-        volumes = [c.volume for c in components if c.volume is not None]
-        volume: Decimal | None
-        if volumes:
-            volume = sum(volumes, start=Decimal("0"))
-        else:
-            volume = None
-
         derived.append(
-            Candle(
-                instrument_id=components[0].instrument_id,
+            _aggregate_ohlcv(
+                components,
                 timeframe=target_timeframe,
-                timestamp=bucket,
-                open=components[0].open,
-                high=max(c.high for c in components),
-                low=min(c.low for c in components),
-                close=components[-1].close,
-                volume=volume,
+                bucket=bucket,
                 source=source,
-                is_complete=True,
             )
         )
 
     return derived
+
+
+def aggregate_from_1m(
+    base_candles: list[Candle],
+    *,
+    source: str | None = None,
+    session_mode: str = "utc",
+) -> list[Candle]:
+    """
+    Build completed canonical 5m candles from completed 1m inputs.
+
+    Requires exactly five consecutive completed 1m bars on exact UTC (or US RTH)
+    boundaries. Partial buckets are never emitted (no lookahead).
+    """
+    by_bucket: dict[datetime, list[Candle]] = {}
+
+    for candle in base_candles:
+        if candle.timeframe != "1m" or not candle.is_complete:
+            continue
+        if bucket_start(candle.timestamp, "1m") != candle.timestamp:
+            continue
+        if session_mode == "us_rth":
+            bucket = us_rth_bucket_start(candle.timestamp, "5m")
+            if bucket is None:
+                continue
+        else:
+            bucket = bucket_start(candle.timestamp, "5m")
+        by_bucket.setdefault(bucket, []).append(candle)
+
+    derived: list[Candle] = []
+    for bucket in sorted(by_bucket):
+        components = sorted(by_bucket[bucket], key=lambda c: c.timestamp)
+        # Dedupe same-minute duplicates (multi-source 1m rows).
+        deduped: dict[datetime, Candle] = {}
+        for c in components:
+            deduped[c.timestamp] = c
+        components = [deduped[ts] for ts in sorted(deduped)]
+        if len(components) != _1M_PER_5M:
+            continue
+        expected = _expected_1m_timestamps(bucket, _1M_PER_5M)
+        if [c.timestamp for c in components] != expected:
+            continue
+        bar_source = source if source is not None else _component_source(components)
+        derived.append(
+            _aggregate_ohlcv(
+                components,
+                timeframe=CANONICAL_FROM_1M,
+                bucket=bucket,
+                source=bar_source,
+            )
+        )
+
+    return derived
+
+
+def incremental_1m_source_limit(new_1m_count: int) -> int:
+    """Minimal 1m lookback when deriving only 5m buckets touched by new 1m bars."""
+    return _1M_PER_5M * 3 + max(new_1m_count, 1) + _1M_PER_5M
+
+
+def affected_5m_buckets_from_1m(
+    timestamps: list[datetime],
+    *,
+    session_mode: str,
+) -> set[datetime]:
+    buckets: set[datetime] = set()
+    for ts in timestamps:
+        if session_mode == "us_rth":
+            bucket = us_rth_bucket_start(ts, "5m")
+        else:
+            bucket = bucket_start(ts, "5m")
+        if bucket is not None:
+            buckets.add(bucket)
+    return buckets
+
+
+def incremental_derive_from_1m(
+    base_candles: list[Candle],
+    new_1m_timestamps: list[datetime],
+    *,
+    session_mode: str = "utc",
+    source: str | None = None,
+) -> list[Candle]:
+    """Derive only completed 5m buckets affected by newly upserted 1m candles."""
+    if not base_candles or not new_1m_timestamps:
+        return []
+    target_buckets = affected_5m_buckets_from_1m(
+        new_1m_timestamps,
+        session_mode=session_mode,
+    )
+    if not target_buckets:
+        return []
+    return [
+        candle
+        for candle in aggregate_from_1m(
+            base_candles,
+            session_mode=session_mode,
+            source=source,
+        )
+        if candle.timestamp in target_buckets
+    ]
 
 
 def aggregation_lookback_bars(target_timeframe: str, extra_buckets: int = 2) -> int:

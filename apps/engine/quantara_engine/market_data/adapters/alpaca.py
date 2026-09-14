@@ -121,6 +121,18 @@ class AlpacaMarketDataProvider:
             raise AlpacaError("Asset context required for Alpaca fetch")
         return provider_symbol(self._asset, ProviderName.ALPACA)
 
+    @staticmethod
+    def _valid_request_range(start: datetime | None, end: datetime | None = None) -> bool:
+        """Alpaca rejects start >= end (implicit end = now when omitted)."""
+        if start is None:
+            return True
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        end = end or datetime.now(timezone.utc)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        return start < end
+
     def _fetch_bars(
         self,
         *,
@@ -129,10 +141,21 @@ class AlpacaMarketDataProvider:
         start: datetime | None,
         limit: int,
         page_token: str | None = None,
+        end: datetime | None = None,
     ) -> tuple[list[dict[str, Any]], str | None]:
         tf = TIMEFRAME_MAP.get(timeframe)
         if not tf:
             raise AlpacaError(f"Unsupported timeframe: {timeframe}")
+
+        # Client-side guard: never HTTP for invalid ranges (avoids cooldown storms).
+        if page_token is None and not self._valid_request_range(start, end):
+            logger.info(
+                "Skipping Alpaca bars — invalid range start=%s end=%s symbol=%s",
+                start,
+                end or "now",
+                symbol,
+            )
+            return [], None
 
         if self._asset and self._asset.asset_class == AssetClass.CRYPTO:
             params: dict[str, Any] = {
@@ -142,6 +165,8 @@ class AlpacaMarketDataProvider:
             }
             if start:
                 params["start"] = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+            if end:
+                params["end"] = end.strftime("%Y-%m-%dT%H:%M:%SZ")
             if page_token:
                 params["page_token"] = page_token
             url = f"{self.base_url}/v1beta3/crypto/us/bars?" + urllib.parse.urlencode(params)
@@ -153,6 +178,8 @@ class AlpacaMarketDataProvider:
             }
             if start:
                 params["start"] = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+            if end:
+                params["end"] = end.strftime("%Y-%m-%dT%H:%M:%SZ")
             if page_token:
                 params["page_token"] = page_token
             url = f"{self.base_url}/v2/stocks/{symbol}/bars?" + urllib.parse.urlencode(params)
@@ -289,6 +316,7 @@ class AlpacaMarketDataProvider:
         timeframe: str,
         start: datetime | None,
         limit: int,
+        end: datetime | None = None,
     ) -> dict[str, list[dict[str, Any]]]:
         """Multi-symbol equity bars (one HTTP request)."""
         if not symbols:
@@ -296,6 +324,14 @@ class AlpacaMarketDataProvider:
         tf = TIMEFRAME_MAP.get(timeframe)
         if not tf:
             raise AlpacaError(f"Unsupported timeframe: {timeframe}")
+        if not self._valid_request_range(start, end):
+            logger.info(
+                "Skipping Alpaca batch bars — invalid range start=%s end=%s symbols=%s",
+                start,
+                end or "now",
+                ",".join(symbols),
+            )
+            return {sym: [] for sym in symbols}
         params: dict[str, Any] = {
             "symbols": ",".join(symbols),
             "timeframe": tf,
@@ -304,6 +340,8 @@ class AlpacaMarketDataProvider:
         }
         if start:
             params["start"] = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+        if end:
+            params["end"] = end.strftime("%Y-%m-%dT%H:%M:%SZ")
         url = f"{self.base_url}/v2/stocks/bars?" + urllib.parse.urlencode(params)
         payload = self._request(url, ",".join(symbols))
         bars = payload.get("bars")
@@ -328,14 +366,23 @@ class AlpacaMarketDataProvider:
             return {}
         if since.tzinfo is None:
             since = since.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
         symbol_to_iid = {ticker: iid for iid, ticker in entries}
         tickers = list(symbol_to_iid.keys())
         start = since - timedelta(minutes=15)
+        if not self._valid_request_range(start, now):
+            logger.info(
+                "Skipping Alpaca equity 1m batch — invalid range start=%s since=%s",
+                start,
+                since,
+            )
+            return {}
         rows_by_symbol = self._fetch_equity_bars_batch(
             symbols=tickers,
             timeframe=FAST_PROTECTION_TIMEFRAME,
             start=start,
             limit=100,
+            end=now,
         )
         out: dict[str, list[Candle]] = {}
         for ticker, rows in rows_by_symbol.items():
@@ -353,14 +400,26 @@ class AlpacaMarketDataProvider:
         timeframe: str,
         since: datetime | None = None,
     ) -> list[Candle]:
-        if timeframe != PROVIDER_TIMEFRAME:
-            raise AlpacaError(f"Alpaca fetch blocked for {timeframe}; use {PROVIDER_TIMEFRAME}")
+        if timeframe not in (PROVIDER_TIMEFRAME, FAST_PROTECTION_TIMEFRAME):
+            raise AlpacaError(
+                f"Alpaca fetch blocked for {timeframe}; use {PROVIDER_TIMEFRAME} or {FAST_PROTECTION_TIMEFRAME}"
+            )
         now = datetime.now(timezone.utc)
-        if since is not None and (now - since).total_seconds() > 86400:
+        if (
+            timeframe == PROVIDER_TIMEFRAME
+            and since is not None
+            and (now - since).total_seconds() > 86400
+        ):
             return self.fetch_gap_fill(instrument_id, timeframe, since, end=now)
 
         symbol = self._provider_ticker()
         if since is not None:
+            if since.tzinfo is None:
+                since = since.replace(tzinfo=timezone.utc)
+            # No completed bar can exist yet — skip HTTP.
+            bar_step = timedelta(minutes=timeframe_minutes(timeframe))
+            if since + bar_step > now:
+                return []
             start = since - timedelta(minutes=15)
             if (now - since).total_seconds() > 3600:
                 start = since - timedelta(hours=6)
@@ -368,6 +427,14 @@ class AlpacaMarketDataProvider:
         else:
             start = now - timedelta(days=2)
             limit = 100
+        if not self._valid_request_range(start, now):
+            logger.info(
+                "Skipping Alpaca fetch_latest — invalid range start=%s symbol=%s tf=%s",
+                start,
+                symbol,
+                timeframe,
+            )
+            return []
         rows = self._fetch_bars_paginated(
             symbol=symbol, timeframe=timeframe, start=start, limit=limit
         )

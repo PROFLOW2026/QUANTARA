@@ -77,7 +77,8 @@ def test_twelve_data_blocked_still_polls_when_tiingo_fallback_available():
     assert reason is None
 
 
-def test_twelve_data_blocked_no_fallback_deferred():
+def test_twelve_data_blocked_fx_still_allows_local_1m_derive():
+    """XAU/GBP keep polling so local 1m→5m can run when TD+Tiingo 5m are unavailable."""
     from unittest.mock import patch
 
     class FakeStore:
@@ -109,8 +110,8 @@ def test_twelve_data_blocked_no_fallback_deferred():
             force_bootstrap=False,
             live=True,
         )
-    assert should is False
-    assert reason is not None and "blocked" in reason
+    assert should is True
+    assert reason is None
 
 
 def test_tiingo_deferred_outside_us_rth_when_bootstrapped():
