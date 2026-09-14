@@ -323,7 +323,17 @@ export function formatProviderUsageLine(
       (health as { provider_plan_limit?: number }).provider_plan_limit ??
       health.daily_limit ??
       800;
-    return t("home.provider_usage_daily", { used, limit });
+    const guardRemaining = (health as { guard_remaining?: number }).guard_remaining;
+    const mode = (health as { quota_mode?: string }).quota_mode;
+    const base = t("home.provider_usage_daily", { used, limit });
+    const extras: string[] = [];
+    if (guardRemaining != null) {
+      extras.push(`guard ${guardRemaining}`);
+    }
+    if (mode) {
+      extras.push(String(mode).toLowerCase());
+    }
+    return extras.length ? `${base} · ${extras.join(" · ")}` : base;
   }
   if (provider === "alpaca") {
     const usedDay = health.used_day ?? 0;

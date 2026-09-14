@@ -51,14 +51,22 @@ class TiingoMarketDataProvider:
         caller: str = "tiingo",
         priority: FetchPriority = FetchPriority.SCHEDULED,
         asset: AssetDefinition | None = None,
+        allow_non_canonical_timeframes: bool = False,
     ) -> None:
         self.api_key = settings.tiingo_api_key.strip()
         if not self.api_key:
             raise TiingoError("TIINGO_API_KEY is not configured")
+        lower = self.api_key.lower()
+        if any(
+            marker in lower
+            for marker in ("your_", "changeme", "replace", "example", "xxx", "placeholder")
+        ):
+            raise TiingoError("TIINGO_API_KEY looks like a placeholder")
         self._store = store
         self._caller = caller
         self._priority = priority
         self._asset = asset
+        self._allow_non_canonical_timeframes = allow_non_canonical_timeframes
 
     def bind_context(
         self,
@@ -80,6 +88,18 @@ class TiingoMarketDataProvider:
             "Content-Type": "application/json",
         }
 
+    def _with_token(self, url: str) -> str:
+        """Ensure token is present as query param (Tiingo accepts header + query).
+
+        Some FX paths intermittently reject header-only auth; dual auth is the
+        documented client pattern and does not change the secret value.
+        """
+        parsed = urllib.parse.urlparse(url)
+        q = dict(urllib.parse.parse_qsl(parsed.query, keep_blank_values=True))
+        if "token" not in q:
+            q["token"] = self.api_key
+        return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(q)))
+
     def _request(
         self,
         url: str,
@@ -88,9 +108,13 @@ class TiingoMarketDataProvider:
         purpose: str = "candles",
         count: int = 1,
     ) -> list[dict[str, Any]] | dict[str, Any]:
+        from quantara_engine.market_data.provider_cooldown import is_in_cooldown
+
+        if self._store is not None and is_in_cooldown(self._store, self.source):
+            raise TiingoError(f"Tiingo cooldown active for {symbol}")
         if not can_request(self._store, self.source, count=count, purpose=purpose):
             raise TiingoError(f"Tiingo budget blocked request for {symbol}")
-        req = urllib.request.Request(url, headers=self._headers())
+        req = urllib.request.Request(self._with_token(url), headers=self._headers())
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 payload = json.loads(resp.read().decode())
@@ -114,6 +138,14 @@ class TiingoMarketDataProvider:
                 success=False,
                 error=f"HTTP {exc.code}: {body}",
             )
+            if exc.code in (401, 403) and self._store is not None:
+                from quantara_engine.market_data.provider_cooldown import mark_cooldown
+
+                mark_cooldown(
+                    self._store,
+                    self.source,
+                    reason=f"HTTP {exc.code}: auth rejected",
+                )
             raise TiingoError(f"HTTP {exc.code}: {body}") from exc
         except urllib.error.URLError as exc:
             record_request(
@@ -324,12 +356,16 @@ class TiingoMarketDataProvider:
         timeframe: str,
         since: datetime | None = None,
     ) -> list[Candle]:
-        if timeframe != PROVIDER_TIMEFRAME:
+        if timeframe != PROVIDER_TIMEFRAME and not self._allow_non_canonical_timeframes:
             raise TiingoError(f"Tiingo fetch blocked for {timeframe}; use {PROVIDER_TIMEFRAME}")
+        if timeframe != PROVIDER_TIMEFRAME and timeframe != "1m":
+            raise TiingoError(f"Tiingo non-canonical fetch only allows 1m, got {timeframe}")
         start = (since or datetime.now(timezone.utc) - timedelta(days=5)).replace(tzinfo=timezone.utc)
         if since:
             start = since - timedelta(days=1)
-        rows = self._fetch_rows(timeframe, start, limit=120)
+        # Protection 1m lookback stays small to keep payloads light.
+        limit = 120 if timeframe == PROVIDER_TIMEFRAME else 30
+        rows = self._fetch_rows(timeframe, start, limit=limit)
         return self._to_candles(rows, instrument_id, timeframe, since=since)
 
     def fetch_bootstrap(self, instrument_id: str, timeframe: str, bars: int = BOOTSTRAP_OUTPUT_SIZE) -> list[Candle]:

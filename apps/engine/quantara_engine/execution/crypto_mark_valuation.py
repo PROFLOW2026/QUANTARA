@@ -55,12 +55,12 @@ def should_skip_5m_position_management(
     now: datetime | None = None,
 ) -> bool:
     """
-    Skip 5m PM when the 1m fast path is active for this symbol.
+    Skip 5m PM when the 1m fast path is actively protecting this symbol.
 
-    FX falls back to 5m when the Twelve Data credit guard blocks fast fetches.
+    FX: skip only when a recent 1m protection source was recorded; otherwise
+    keep canonical 5m as fail-safe so open positions are never unprotected.
     Equities fall back outside US RTH. Crypto always uses 1m when listed.
     """
-    from quantara_engine.execution.fx_fast_credit_guard import can_run_fast_fx_fetch
     from quantara_engine.market_data.sessions import is_forex_session, is_us_equity_rth
 
     db_sym = normalize_db_symbol(symbol)
@@ -73,7 +73,21 @@ def should_skip_5m_position_management(
         now = now or datetime.now(timezone.utc)
         if not is_forex_session(now):
             return False
-        return can_run_fast_fx_fetch(store)
+        from quantara_engine.execution.fx_protection_sources import protection_sources_snapshot
+
+        snap = protection_sources_snapshot(store).get(db_sym) or {}
+        source = str(snap.get("source") or "")
+        at_raw = snap.get("at")
+        if source in ("tiingo_1m", "twelve_data_1m", "stored_1m") and at_raw:
+            try:
+                at = datetime.fromisoformat(str(at_raw).replace("Z", "+00:00"))
+                if at.tzinfo is None:
+                    at = at.replace(tzinfo=timezone.utc)
+                if (now - at).total_seconds() <= 600:
+                    return True
+            except ValueError:
+                pass
+        return False
     return False
 
 
@@ -284,7 +298,24 @@ def _update_live_sim_position_marks(
         return 0
 
     spec = get_instrument_spec(normalize_db_symbol(instrument.symbol))
-    fx = {"USD": Decimal("1")}
+    fx: dict[str, Decimal] = {"USD": Decimal("1")}
+    quote = (spec.quote_currency or "USD").upper()
+    if quote == "JPY":
+        try:
+            fx["JPY"] = store.resolve_jpy_per_usd()
+        except Exception as exc:
+            logger.warning(
+                "Live-sim GBPJPY mark skipped — JPY FX unavailable: %s",
+                exc,
+            )
+            return 0
+    elif quote != "USD":
+        logger.warning(
+            "Live-sim mark for %s skipped — unsupported quote %s",
+            instrument.symbol,
+            quote,
+        )
+        return 0
     updated = 0
     for row in rows:
         qty = Decimal(str(row["quantity"]))

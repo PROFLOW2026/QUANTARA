@@ -90,6 +90,13 @@ function ProviderHealthCard({
           {t("home.provider_guard_limit", { limit: health.guard_limit })}
         </p>
       ) : null}
+      {name === "twelvedata" && health?.fx_protection_sources ? (
+        <p className="text-xs text-muted">
+          {Object.entries(health.fx_protection_sources)
+            .map(([sym, src]) => `${sym}=${src}`)
+            .join(" · ")}
+        </p>
+      ) : null}
     </div>
   );
 }

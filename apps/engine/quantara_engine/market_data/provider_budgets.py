@@ -230,12 +230,20 @@ def status_payload(store: TradingStore | None, provider: str) -> dict[str, Any]:
 
 def all_provider_status(store: TradingStore | None) -> dict[str, dict[str, Any]]:
     from quantara_engine.market_data.credits import status_payload as twelve_status
+    from quantara_engine.execution.fx_protection_sources import protection_sources_snapshot
 
     worker_raw = {}
     if store is not None:
         worker_raw = store.get_settings_dict().get("worker_status:data_fetcher") or {}
 
     td = twelve_status(store)
+    if store is not None:
+        fx_prot = protection_sources_snapshot(store)
+        if fx_prot:
+            td["fx_protection_sources"] = {
+                sym: (entry.get("source") if isinstance(entry, dict) else entry)
+                for sym, entry in fx_prot.items()
+            }
     alpaca = status_payload(store, "alpaca")
     tiingo = status_payload(store, "tiingo")
     tiingo_snap = tiingo_budget_snapshot(store)

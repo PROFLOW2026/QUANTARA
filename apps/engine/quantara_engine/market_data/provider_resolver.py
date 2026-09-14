@@ -164,8 +164,12 @@ def _classify_failure(exc: Exception) -> tuple[bool, str]:
     msg = str(exc)
     code = getattr(exc, "code", None)
     lower = msg.lower()
-    if code in (429, 401, 403) or "run out of api credits" in lower:
+    # Twelve Data 429 is handled via mark_blocked, not generic cooldown.
+    if code == 429 or "run out of api credits" in lower:
         return False, msg
+    # Auth failures: cooldown to avoid retry storms (Tiingo intermittent 403).
+    if code in (401, 403) or "invalid token" in lower or "http 401" in lower or "http 403" in lower:
+        return True, msg
     if code in (404, 422) or "not found" in lower:
         return True, msg
     if "timeout" in lower or "network error" in lower:

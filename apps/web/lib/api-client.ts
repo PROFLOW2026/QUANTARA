@@ -594,6 +594,9 @@ export interface ProviderHealthStatus {
   used_today?: number;
   provider_plan_limit?: number;
   guard_limit?: number;
+  guard_remaining?: number;
+  quota_mode?: string;
+  fx_protection_sources?: Record<string, string>;
   internal_guard_limit?: number;
   internal_guard_active?: boolean;
   remaining?: number;

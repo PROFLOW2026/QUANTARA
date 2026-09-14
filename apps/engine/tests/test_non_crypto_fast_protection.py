@@ -445,12 +445,18 @@ def test_fx_open_position_fetches_when_credits_available():
 
     with ExitStack() as stack:
         _pm_patch_stack(stack)
-        fx_fetch = stack.enter_context(
+        tiingo_fetch = stack.enter_context(
             patch(
-                "quantara_engine.execution.non_crypto_fast_protection._fetch_twelve_data_1m",
+                "quantara_engine.execution.non_crypto_fast_protection._fetch_tiingo_1m",
                 return_value=[
                     _candle_1m(datetime(2026, 9, 14, 12, 1, tzinfo=TZ), high="2000", iid="xau")
                 ],
+            )
+        )
+        td_fetch = stack.enter_context(
+            patch(
+                "quantara_engine.execution.non_crypto_fast_protection._fetch_twelve_data_1m",
+                return_value=[],
             )
         )
         stack.enter_context(
@@ -468,6 +474,18 @@ def test_fx_open_position_fetches_when_credits_available():
         stack.enter_context(
             patch(
                 "quantara_engine.execution.non_crypto_fast_protection.can_run_fast_fx_fetch",
+                return_value=True,
+            )
+        )
+        stack.enter_context(
+            patch(
+                "quantara_engine.execution.non_crypto_fast_protection.is_in_cooldown",
+                return_value=False,
+            )
+        )
+        stack.enter_context(
+            patch(
+                "quantara_engine.execution.non_crypto_fast_protection.provider_can_request",
                 return_value=True,
             )
         )
@@ -492,7 +510,7 @@ def test_fx_open_position_fetches_when_credits_available():
         stack.enter_context(
             patch(
                 "quantara_engine.execution.non_crypto_fast_protection.fx_fast_budget_report",
-                return_value={"remaining_fast_budget": 400},
+                return_value={"remaining_fast_budget": 400, "quota_mode": "NORMAL"},
             )
         )
         store.get_instrument_by_symbol.return_value = xau
@@ -500,8 +518,10 @@ def test_fx_open_position_fetches_when_credits_available():
         store.list_candles.return_value = []
         report = run_non_crypto_fast_protection(store, datetime(2026, 9, 14, 12, 5, tzinfo=TZ))
 
-    fx_fetch.assert_called_once()
+    tiingo_fetch.assert_called_once()
+    td_fetch.assert_not_called()
     assert "XAUUSD" in report["fx_fetched"]
+    assert report["fx_sources"]["XAUUSD"] == "tiingo_1m"
 
 
 def test_fx_credit_guard_fallback_to_5m():
@@ -580,14 +600,14 @@ def test_credit_guard_never_exceeds_internal_limit():
     store = MagicMock()
     used = INTERNAL_GUARD_LIMIT - SCHEDULED_INGEST_RESERVE
     with patch(
-        "quantara_engine.execution.fx_fast_credit_guard.status_payload",
-        return_value={"used_today": used},
+        "quantara_engine.execution.fx_fast_credit_guard.safe_used_today",
+        return_value=used,
     ), patch(
         "quantara_engine.execution.fx_fast_credit_guard.can_fetch",
         return_value=False,
     ):
         assert remaining_fast_fx_budget(store) == 0
-        assert can_run_fast_fx_fetch(store) is False
+        assert can_run_fast_fx_fetch(store) is True  # conservation still allows 1m reuse
 
 
 def test_1m_mark_not_overwritten_by_older_5m():
@@ -608,19 +628,20 @@ def test_1m_mark_not_overwritten_by_older_5m():
 
 def test_fx_credit_guard_falls_back_to_5m_pm():
     store = MagicMock()
-    with patch(
-        "quantara_engine.execution.fx_fast_credit_guard.can_run_fast_fx_fetch",
-        return_value=False,
-    ):
-        from quantara_engine.execution.crypto_mark_valuation import (
-            should_skip_5m_position_management,
-        )
+    store.get_settings_dict.return_value = {
+        "fx_protection:last_source": {
+            "XAUUSD": {"source": "5m_fallback", "at": datetime(2026, 9, 14, 12, 0, tzinfo=TZ).isoformat()},
+        }
+    }
+    from quantara_engine.execution.crypto_mark_valuation import (
+        should_skip_5m_position_management,
+    )
 
-        assert should_skip_5m_position_management(
-            store,
-            "XAUUSD",
-            now=datetime(2026, 9, 14, 12, 5, tzinfo=TZ),
-        ) is False
+    assert should_skip_5m_position_management(
+        store,
+        "XAUUSD",
+        now=datetime(2026, 9, 14, 12, 5, tzinfo=TZ),
+    ) is False
 
 
 def test_manage_all_open_positions_skips_fast_symbols():

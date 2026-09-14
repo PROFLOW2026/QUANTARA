@@ -32,9 +32,18 @@ from quantara_engine.execution.crypto_mark_valuation import (
 from quantara_engine.execution.equity_live_mark import store_equity_alpaca_fallback_mark
 from quantara_engine.execution.exit_triggers import detect_exit_trigger
 from quantara_engine.execution.fx_fast_credit_guard import (
+    can_fetch_twelve_data_1m,
     can_run_fast_fx_fetch,
     fx_fast_budget_report,
-    select_fx_symbols_this_cycle,
+    quota_mode,
+)
+from quantara_engine.execution.fx_protection_sources import (
+    STORED_1M_FRESHNESS,
+    any_position_near_stop,
+    latest_mark_from_candles,
+    mark_provider_fetched,
+    plan_fx_protection_fetch,
+    record_protection_source,
 )
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
 from quantara_engine.execution.position_management import (
@@ -45,10 +54,14 @@ from quantara_engine.execution.position_management import (
 )
 from quantara_engine.live_sim.opportunity import live_sim_execution_idempotency_key
 from quantara_engine.market_data.adapters.alpaca import AlpacaError, AlpacaMarketDataProvider
+from quantara_engine.market_data.adapters.tiingo import TiingoError, TiingoMarketDataProvider
 from quantara_engine.market_data.adapters.twelvedata import TwelveDataError, TwelveDataMarketDataProvider
 from quantara_engine.market_data.credits import FetchPriority as TDFetchPriority
 from quantara_engine.market_data.polling import FAST_PROTECTION_TIMEFRAME
 from quantara_engine.market_data.provider_budgets import FetchPriority as AlpacaFetchPriority
+from quantara_engine.market_data.provider_budgets import FetchPriority as TiingoFetchPriority
+from quantara_engine.market_data.provider_budgets import can_request as provider_can_request
+from quantara_engine.market_data.provider_cooldown import is_in_cooldown
 from quantara_engine.market_data.registry import ProviderName, get_asset, provider_symbol
 from quantara_engine.market_data.sessions import is_forex_session, is_us_equity_rth
 from quantara_engine.market_data.symbols import normalize_db_symbol
@@ -215,6 +228,215 @@ def _fetch_twelve_data_1m(
     for candle in candles:
         store.upsert_candle(candle)
     return candles
+
+
+def _fetch_tiingo_1m(
+    store: TradingStore,
+    db_sym: str,
+    *,
+    since: datetime,
+) -> list:
+    instrument = store.get_instrument_by_symbol(db_sym)
+    if not instrument:
+        return []
+    asset = get_asset(db_sym)
+    if not asset:
+        return []
+    provider = TiingoMarketDataProvider(
+        store=store,
+        caller="non_crypto_fast_protection",
+        priority=TiingoFetchPriority.OPEN_POSITION,
+        asset=asset,
+        allow_non_canonical_timeframes=True,
+    )
+    try:
+        candles = provider.fetch_latest(instrument.id, FAST_PROTECTION_TIMEFRAME, since=since)
+    except TiingoError as exc:
+        logger.warning("Tiingo 1m fetch failed for %s: %s", db_sym, exc)
+        return []
+    for candle in candles:
+        store.upsert_candle(candle)
+    return candles
+
+
+def _stored_1m_fresh(
+    store: TradingStore,
+    instrument_id: str,
+    *,
+    since: datetime,
+    now: datetime,
+) -> tuple[bool, list]:
+    stored = store.list_candles(
+        instrument_id,
+        FAST_PROTECTION_TIMEFRAME,
+        since=since,
+        limit=MAX_CANDLES_PER_POSITION_PER_RUN,
+    )
+    from quantara_engine.market_data.polling import is_bar_complete
+
+    completed = [
+        c
+        for c in stored
+        if c.is_complete or is_bar_complete(c.timestamp, c.timeframe, now)
+    ]
+    if not completed:
+        return False, stored
+    completed.sort(key=lambda c: c.timestamp)
+    age = now - completed[-1].timestamp
+    return age <= STORED_1M_FRESHNESS, stored
+
+
+def _fx_positions_for_symbol(
+    research_work: list[tuple[Position, StrategyInstance, Instrument]],
+    live_sim_rows: list[dict[str, Any]],
+    db_sym: str,
+) -> list[Position]:
+    from quantara_engine.domain.types import Direction as D
+    from quantara_engine.domain.types import Position as DomainPosition
+
+    out: list[Position] = []
+    for position, _, instrument in research_work:
+        if normalize_db_symbol(instrument.symbol) == db_sym:
+            out.append(position)
+    for row in live_sim_rows:
+        if normalize_db_symbol(row["symbol"]) != db_sym:
+            continue
+        direction = D.LONG if str(row["direction"]).lower() == "long" else D.SHORT
+        out.append(
+            DomainPosition(
+                id=row["id"],
+                portfolio_id=LIVE_SIM_VIRTUAL_PORTFOLIO_ID,
+                strategy_instance_id="",
+                instrument_id=row["instrument_id"],
+                direction=direction,
+                quantity=Decimal(str(row["quantity"])),
+                entry_price=Decimal(str(row["entry_price"])),
+                current_price=Decimal(str(row["entry_price"])),
+                stop_loss=Decimal(str(row["stop_loss"])),
+                take_profit=Decimal(str(row["take_profit"])) if row["take_profit"] else None,
+                opened_at=datetime.now(timezone.utc),
+            )
+        )
+    return out
+
+
+def _fetch_fx_protection_candles(
+    store: TradingStore,
+    open_fx_symbols: set[str],
+    *,
+    research_work: list[tuple[Position, StrategyInstance, Instrument]],
+    live_sim_rows: list[dict[str, Any]],
+    since_by_instrument: dict[str, datetime],
+    now: datetime,
+) -> tuple[int, dict[str, list], dict[str, Any]]:
+    """
+    Per-symbol FX protection fetch (NOT per position).
+
+    Hierarchy: stored completed 1m → Tiingo 1m → Twelve Data 1m → 5m fail-safe.
+    """
+    candles_by_instrument: dict[str, list] = {}
+    fetches = 0
+    fx_fetched: list[str] = []
+    fx_sources: dict[str, str] = {}
+    fx_skipped_credit: list[str] = []
+    td_calls = 0
+    tiingo_calls = 0
+
+    tiingo_ok = (
+        not is_in_cooldown(store, "tiingo")
+        and provider_can_request(store, "tiingo", purpose="candles")
+    )
+    mode = quota_mode(store, tiingo_primary_ok=tiingo_ok)
+    td_ok = can_fetch_twelve_data_1m(store)
+
+    # Always evaluate EVERY open FX symbol once (shared dataset for all positions).
+    for db_sym in sorted(open_fx_symbols):
+        instrument = store.get_instrument_by_symbol(db_sym)
+        if not instrument:
+            continue
+        since = since_by_instrument.get(instrument.id, now - timedelta(minutes=10))
+        fresh, stored = _stored_1m_fresh(store, instrument.id, since=since, now=now)
+        positions = _fx_positions_for_symbol(research_work, live_sim_rows, db_sym)
+        mark = latest_mark_from_candles(stored, now) if stored else None
+        near = any_position_near_stop(positions, mark)
+
+        plan = plan_fx_protection_fetch(
+            store,
+            db_sym,
+            quota_mode=mode,
+            tiingo_eligible=tiingo_ok,
+            td_eligible=td_ok,
+            near_sl=near,
+            has_fresh_stored_1m=fresh,
+            now=now,
+        )
+
+        fetched: list = []
+        if plan.fetch_provider == "tiingo":
+            fetched = _fetch_tiingo_1m(store, db_sym, since=since)
+            fetches += 1
+            tiingo_calls += 1
+            if fetched:
+                mark_provider_fetched(store, db_sym, "tiingo", now=now)
+                tiingo_ok = True
+            else:
+                # Fall through to TD if eligible this same cycle.
+                tiingo_ok = False
+                mode = quota_mode(store, tiingo_primary_ok=False)
+                plan = plan_fx_protection_fetch(
+                    store,
+                    db_sym,
+                    quota_mode=mode,
+                    tiingo_eligible=False,
+                    td_eligible=td_ok,
+                    near_sl=near,
+                    has_fresh_stored_1m=fresh,
+                    now=now,
+                )
+                if plan.fetch_provider == "twelvedata":
+                    fetched = _fetch_twelve_data_1m(store, db_sym, since=since)
+                    fetches += 1
+                    td_calls += 1
+                    if fetched:
+                        mark_provider_fetched(store, db_sym, "twelvedata", now=now)
+        elif plan.fetch_provider == "twelvedata":
+            fetched = _fetch_twelve_data_1m(store, db_sym, since=since)
+            fetches += 1
+            td_calls += 1
+            if fetched:
+                mark_provider_fetched(store, db_sym, "twelvedata", now=now)
+
+        stored_after = store.list_candles(
+            instrument.id,
+            FAST_PROTECTION_TIMEFRAME,
+            since=since,
+            limit=MAX_CANDLES_PER_POSITION_PER_RUN,
+        )
+        candles_by_instrument[instrument.id] = stored_after or fetched or stored
+
+        source = plan.source
+        if fetched and plan.fetch_provider == "tiingo":
+            source = "tiingo_1m"
+        elif fetched and plan.fetch_provider == "twelvedata":
+            source = "twelve_data_1m"
+        elif candles_by_instrument[instrument.id]:
+            source = "stored_1m" if fresh or stored_after else plan.source
+        record_protection_source(store, db_sym, source, reason=plan.reason)
+        fx_sources[db_sym] = source
+        if plan.fetch_provider:
+            fx_fetched.append(db_sym)
+        elif source == "5m_fallback":
+            fx_skipped_credit.append(f"{db_sym}:{plan.reason}")
+
+    meta = {
+        "fx_fetched": fx_fetched,
+        "fx_sources": fx_sources,
+        "fx_skipped_credit": fx_skipped_credit,
+        "td_calls": td_calls,
+        "tiingo_calls": tiingo_calls,
+        "quota_mode": mode,
+    }
+    return fetches, candles_by_instrument, meta
 
 
 def _process_research(
@@ -452,6 +674,10 @@ def run_non_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[s
     fx_fetched: list[str] = []
     fx_skipped_credit: list[str] = []
     fx_skipped_session: list[str] = []
+    fx_sources: dict[str, str] = {}
+    td_calls = 0
+    tiingo_calls = 0
+    protection_mode = ""
 
     if mark_equity_symbols:
         if is_us_equity_rth(now):
@@ -468,27 +694,28 @@ def run_non_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[s
 
     if open_fx_symbols and is_forex_session(now):
         if can_run_fast_fx_fetch(store):
-            selected = select_fx_symbols_this_cycle(sorted(open_fx_symbols), now=now)
-            for db_sym in selected:
-                instrument = store.get_instrument_by_symbol(db_sym)
-                if not instrument:
-                    continue
-                since = since_by_instrument.get(instrument.id, now - timedelta(minutes=10))
-                fetched = _fetch_twelve_data_1m(store, db_sym, since=since)
-                fetches += 1 if fetched is not None else 0
-                stored = store.list_candles(
-                    instrument.id,
-                    FAST_PROTECTION_TIMEFRAME,
-                    since=since,
-                    limit=MAX_CANDLES_PER_POSITION_PER_RUN,
-                )
-                candles_by_instrument[instrument.id] = stored or fetched
-                fx_fetched.append(db_sym)
-            not_selected = sorted(set(open_fx_symbols) - set(selected))
-            for sym in not_selected:
-                fx_skipped_credit.append(f"{sym}:budget_alternate")
+            fx_fetches, fx_candles, fx_meta = _fetch_fx_protection_candles(
+                store,
+                open_fx_symbols,
+                research_work=research_work,
+                live_sim_rows=live_sim_rows,
+                since_by_instrument=since_by_instrument,
+                now=now,
+            )
+            fetches += fx_fetches
+            candles_by_instrument.update(fx_candles)
+            fx_fetched = list(fx_meta.get("fx_fetched") or [])
+            fx_skipped_credit = list(fx_meta.get("fx_skipped_credit") or [])
+            fx_sources = dict(fx_meta.get("fx_sources") or {})
+            td_calls = int(fx_meta.get("td_calls") or 0)
+            tiingo_calls = int(fx_meta.get("tiingo_calls") or 0)
+            protection_mode = str(fx_meta.get("quota_mode") or "")
         else:
             fx_skipped_credit.extend(sorted(open_fx_symbols))
+            for db_sym in sorted(open_fx_symbols):
+                record_protection_source(store, db_sym, "5m_fallback", reason="fast_fx_exhausted")
+                fx_sources[db_sym] = "5m_fallback"
+            protection_mode = "EXHAUSTED"
     elif open_fx_symbols:
         fx_skipped_session.extend(sorted(open_fx_symbols))
 
@@ -547,8 +774,12 @@ def run_non_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[s
         "equity_mark_symbols": sorted(mark_equity_symbols),
         "fx_symbols": sorted(open_fx_symbols),
         "fx_fetched": fx_fetched,
+        "fx_sources": fx_sources,
         "fx_skipped_credit": fx_skipped_credit,
         "fx_skipped_session": fx_skipped_session,
+        "fx_td_calls": td_calls,
+        "fx_tiingo_calls": tiingo_calls,
+        "protection_mode": protection_mode or fx_fast_budget_report(store).get("quota_mode"),
         "fx_budget": fx_fast_budget_report(store),
         "research": research_result,
         "live_sim": live_sim_result,

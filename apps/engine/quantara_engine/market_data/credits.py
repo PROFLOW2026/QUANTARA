@@ -29,6 +29,8 @@ HEALTH_LOCK_TIMEOUT = "3s"
 HEALTH_STATEMENT_TIMEOUT = "5s"
 HEALTH_HTTP_TIMEOUT_SECONDS = 10
 HEALTH_SYNC_WALL_TIMEOUT_SECONDS = 20
+# Cross-process advisory lock for credit ledger RMW (stable 32-bit key).
+CREDIT_LEDGER_LOCK_KEY = 847_291_02
 
 ENDPOINT_CREDITS: dict[str, int] = {
     "time_series": 1,
@@ -188,6 +190,67 @@ def credits_for_endpoint(endpoint: str) -> int:
     return ENDPOINT_CREDITS.get(endpoint, 1)
 
 
+def safe_used_today(store: TradingStore | None) -> int:
+    """
+    Guard authority: max(local ledger, provider api_usage).
+
+    Provider truth wins when higher so a corrupted/low local ledger cannot
+    bypass quota protection. Local ledger can still raise the floor when ahead.
+    """
+    credits_state = _load_state(store)
+    health_state = _load_health_state(store)
+    state = _merge_status_state(credits_state, health_state)
+    ledger = int(credits_state.get("used") or 0)
+    provider = state.get("provider_daily_usage")
+    if provider is None:
+        return ledger
+    return max(ledger, int(provider))
+
+
+def _apply_usage_event(
+    state: dict[str, Any],
+    event: CreditEvent,
+    consumed: int,
+) -> dict[str, Any]:
+    state = dict(state)
+    if state.get("date") != _today_key():
+        state = _empty_state()
+    state["used"] = int(state.get("used") or 0) + consumed
+    events = state.setdefault("events", [])
+    if isinstance(events, list):
+        events.append(event.__dict__)
+        if len(events) > MAX_LOG_ENTRIES:
+            state["events"] = events[-MAX_LOG_ENTRIES:]
+    return state
+
+
+def _record_usage_on_session(
+    session: Session,
+    *,
+    endpoint: str,
+    symbol: str,
+    interval: str | None,
+    caller: str,
+    consumed: int,
+    event: CreditEvent,
+) -> int:
+    """Atomic ledger append under advisory xact lock. Returns new used total."""
+    session.execute(
+        text("SELECT pg_advisory_xact_lock(:k)"),
+        {"k": CREDIT_LEDGER_LOCK_KEY},
+    )
+    raw = _read_setting_dict(session, SETTINGS_KEY)
+    state = raw if isinstance(raw, dict) and raw.get("date") == _today_key() else _empty_state()
+    state = _apply_usage_event(state, event, consumed)
+    _upsert_setting_dict(
+        session,
+        SETTINGS_KEY,
+        state,
+        description="Twelve Data credit ledger",
+    )
+    return int(state["used"])
+
+
 def record_usage(
     store: TradingStore | None,
     *,
@@ -197,7 +260,7 @@ def record_usage(
     caller: str,
     credits: int | None = None,
 ) -> CreditEvent:
-    """Append a credit event to today's ledger."""
+    """Append a credit event exactly once (atomic). Works even when store is None."""
     consumed = credits if credits is not None else credits_for_endpoint(endpoint)
     event = CreditEvent(
         provider="twelvedata",
@@ -208,18 +271,54 @@ def record_usage(
         credits=consumed,
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
-    state = _load_state(store)
-    state["used"] = int(state.get("used") or 0) + consumed
-    events = state.setdefault("events", [])
-    if isinstance(events, list):
-        events.append(event.__dict__)
-    _save_state(store, state)
+    if consumed <= 0:
+        return event
+
+    used_after: int | None = None
+    try:
+        if store is not None and getattr(store, "session", None) is not None:
+            used_after = _record_usage_on_session(
+                store.session,
+                endpoint=endpoint,
+                symbol=symbol,
+                interval=interval,
+                caller=caller,
+                consumed=consumed,
+                event=event,
+            )
+            # Keep caller's settings cache coherent if present.
+            try:
+                cache = getattr(store, "_settings_cache", None)
+                if isinstance(cache, dict):
+                    cache.pop(SETTINGS_KEY, None)
+            except Exception:
+                pass
+        else:
+            with health_session_scope() as session:
+                used_after = _record_usage_on_session(
+                    session,
+                    endpoint=endpoint,
+                    symbol=symbol,
+                    interval=interval,
+                    caller=caller,
+                    consumed=consumed,
+                    event=event,
+                )
+    except Exception as exc:
+        logger.warning(
+            "Twelve Data credit record failed endpoint=%s caller=%s: %s",
+            endpoint,
+            caller,
+            exc,
+        )
+        return event
+
     logger.info(
         "Twelve Data credit +%s endpoint=%s caller=%s used_today=%s",
         consumed,
         endpoint,
         caller,
-        state["used"],
+        used_after,
     )
     return event
 
@@ -227,11 +326,39 @@ def record_usage(
 def sync_provider_usage(store: TradingStore | None, provider_usage: dict[str, Any]) -> None:
     """Reconcile provider-reported usage from Twelve Data api_usage (credit ledger row)."""
     if store is None:
+        # Still persist via isolated session so health sync without store updates ledger floor.
+        try:
+            with health_session_scope() as session:
+                state = _read_setting_dict(session, SETTINGS_KEY) or _empty_state()
+                if state.get("date") != _today_key():
+                    state = _empty_state()
+                daily_usage = provider_usage.get("daily_usage")
+                if daily_usage is not None:
+                    usage = int(daily_usage)
+                    state["provider_daily_usage"] = usage
+                    state["used"] = max(int(state.get("used") or 0), usage)
+                daily_limit = provider_usage.get("plan_daily_limit")
+                if daily_limit is None:
+                    daily_limit = provider_usage.get("daily_limit")
+                if daily_limit is not None:
+                    state["provider_daily_limit"] = int(daily_limit)
+                state["last_sync"] = datetime.now(timezone.utc).isoformat()
+                _upsert_setting_dict(
+                    session,
+                    SETTINGS_KEY,
+                    state,
+                    description="Twelve Data credit ledger",
+                )
+        except Exception as exc:
+            logger.warning("Twelve Data provider usage sync (isolated) failed: %s", exc)
         return
     state = _load_state(store)
     daily_usage = provider_usage.get("daily_usage")
     if daily_usage is not None:
-        state["provider_daily_usage"] = int(daily_usage)
+        usage = int(daily_usage)
+        state["provider_daily_usage"] = usage
+        # Raise local ledger floor to provider truth (never lower).
+        state["used"] = max(int(state.get("used") or 0), usage)
     daily_limit = provider_usage.get("plan_daily_limit")
     if daily_limit is None:
         daily_limit = provider_usage.get("daily_limit")
@@ -267,6 +394,23 @@ def _persist_health_success(provider_usage: dict[str, Any]) -> None:
             state,
             description="Twelve Data provider health snapshot",
         )
+        # Raise credit-ledger floor to provider truth (never lower ledger).
+        if daily_usage is not None:
+            credits = _read_setting_dict(session, SETTINGS_KEY) or _empty_state()
+            if credits.get("date") != _today_key():
+                credits = _empty_state()
+            usage = int(daily_usage)
+            credits["provider_daily_usage"] = usage
+            credits["used"] = max(int(credits.get("used") or 0), usage)
+            credits["last_sync"] = now
+            if daily_limit is not None:
+                credits["provider_daily_limit"] = int(daily_limit)
+            _upsert_setting_dict(
+                session,
+                SETTINGS_KEY,
+                credits,
+                description="Twelve Data credit ledger",
+            )
 
 
 def _persist_health_error(error: str, *, code: int | None = None) -> None:
@@ -335,15 +479,19 @@ def is_blocked(store: TradingStore | None) -> bool:
 
 
 def can_fetch(store: TradingStore | None, priority: FetchPriority) -> bool:
-    """Conservative guard — critical fetches always allowed until hard cap."""
-    credits_state = _load_state(store)
-    health_state = _load_health_state(store)
-    state = _merge_status_state(credits_state, health_state)
-    used = int(state.get("provider_daily_usage") or state.get("used") or 0)
+    """Conservative guard — uses max(ledger, provider api_usage).
+
+    When budget is constrained, defer nonessential Twelve Data work first so
+    remaining credits prioritize open-position protection.
+    """
+    used = safe_used_today(store)
     if used >= DAILY_HARD_LIMIT:
         return priority <= FetchPriority.OPEN_POSITION
-    if used >= INTERNAL_GUARD_LIMIT and priority >= FetchPriority.SPOT_UI:
-        return False
+    if used >= INTERNAL_GUARD_LIMIT:
+        return priority <= FetchPriority.OPEN_POSITION
+    # Conservation band: stop scheduled / UI / audit enrichment.
+    if used >= 520:
+        return priority <= FetchPriority.CATCH_UP
     if used >= INTERNAL_GUARD_LIMIT - 20 and priority >= FetchPriority.AUDIT:
         return False
     return True
@@ -378,13 +526,12 @@ def status_payload(store: TradingStore | None) -> dict[str, Any]:
     credits_state = _load_state(store)
     health_state = _load_health_state(store)
     state = _merge_status_state(credits_state, health_state)
-    if state.get("provider_daily_usage") is not None:
-        used_today = int(state["provider_daily_usage"])
-    else:
-        used_today = int(state.get("used") or 0)
-    plan_limit = int(state.get("provider_daily_limit") or DAILY_HARD_LIMIT)
     ledger_used = int(credits_state.get("used") or 0)
+    provider_usage = state.get("provider_daily_usage")
+    used_today = safe_used_today(store)
+    plan_limit = int(state.get("provider_daily_limit") or DAILY_HARD_LIMIT)
     health = _provider_health_status(state)
+    guard_remaining = max(0, INTERNAL_GUARD_LIMIT - used_today)
     return {
         "provider": "twelvedata",
         "status": health,
@@ -393,12 +540,21 @@ def status_payload(store: TradingStore | None) -> dict[str, Any]:
         "remaining": max(0, plan_limit - used_today),
         "provider_plan_limit": plan_limit,
         "daily_limit": plan_limit,
+        "provider_daily_usage": int(provider_usage) if provider_usage is not None else None,
         "estimated_run_rate_per_hour": estimate_run_rate_per_hour(store),
         "daily_hard_limit": DAILY_HARD_LIMIT,
         "internal_guard_limit": INTERNAL_GUARD_LIMIT,
         "guard_limit": INTERNAL_GUARD_LIMIT,
-        "internal_guard_active": ledger_used >= INTERNAL_GUARD_LIMIT,
+        "guard_remaining": guard_remaining,
+        "internal_guard_active": used_today >= INTERNAL_GUARD_LIMIT,
         "ledger_used": ledger_used,
+        "quota_mode": (
+            "EXHAUSTED"
+            if used_today >= INTERNAL_GUARD_LIMIT
+            else "CONSERVATION"
+            if used_today >= 520
+            else "NORMAL"
+        ),
         "last_sync": state.get("last_sync"),
         "last_success": state.get("last_health_sync") or state.get("last_sync"),
         "last_error": state.get("last_error"),
@@ -414,12 +570,13 @@ def _status_payload_from_sessions() -> dict[str, Any]:
         if health_state.get("date") != _today_key():
             health_state = _empty_health_state()
         merged = _merge_status_state(credits_state, health_state)
-        if merged.get("provider_daily_usage") is not None:
-            used_today = int(merged["provider_daily_usage"])
-        else:
-            used_today = int(merged.get("used") or 0)
-        plan_limit = int(merged.get("provider_daily_limit") or DAILY_HARD_LIMIT)
         ledger_used = int(credits_state.get("used") or 0)
+        provider_usage = merged.get("provider_daily_usage")
+        if provider_usage is not None:
+            used_today = max(ledger_used, int(provider_usage))
+        else:
+            used_today = ledger_used
+        plan_limit = int(merged.get("provider_daily_limit") or DAILY_HARD_LIMIT)
         health = _provider_health_status(merged)
         return {
             "provider": "twelvedata",
@@ -429,12 +586,21 @@ def _status_payload_from_sessions() -> dict[str, Any]:
             "remaining": max(0, plan_limit - used_today),
             "provider_plan_limit": plan_limit,
             "daily_limit": plan_limit,
+            "provider_daily_usage": int(provider_usage) if provider_usage is not None else None,
             "estimated_run_rate_per_hour": 0.0,
             "daily_hard_limit": DAILY_HARD_LIMIT,
             "internal_guard_limit": INTERNAL_GUARD_LIMIT,
             "guard_limit": INTERNAL_GUARD_LIMIT,
-            "internal_guard_active": ledger_used >= INTERNAL_GUARD_LIMIT,
+            "guard_remaining": max(0, INTERNAL_GUARD_LIMIT - used_today),
+            "internal_guard_active": used_today >= INTERNAL_GUARD_LIMIT,
             "ledger_used": ledger_used,
+            "quota_mode": (
+                "EXHAUSTED"
+                if used_today >= INTERNAL_GUARD_LIMIT
+                else "CONSERVATION"
+                if used_today >= 520
+                else "NORMAL"
+            ),
             "last_sync": merged.get("last_sync"),
             "last_success": merged.get("last_health_sync") or merged.get("last_sync"),
             "last_error": merged.get("last_error"),
