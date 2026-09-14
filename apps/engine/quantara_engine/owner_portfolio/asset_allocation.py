@@ -110,7 +110,7 @@ def is_equal_asset_mode_active(store: TradingStore, owner_slug: str) -> bool:
     ).mappings().first()
     if not row:
         return False
-    return bool(row["equal_asset_allocation_enabled"] and row["multi_broker_mode_enabled"])
+    return bool(row.get("equal_asset_allocation_enabled") and row.get("multi_broker_mode_enabled"))
 
 
 def is_equal_asset_configured(store: TradingStore, owner_slug: str) -> bool:

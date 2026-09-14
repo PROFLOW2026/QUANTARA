@@ -146,12 +146,15 @@ def select_quantity_for_risk_budget(
     fx_rates: FxRateTable,
     execution_assumptions: ExecutionAssumptions | None,
     tolerance_pct: Decimal = DEFAULT_RISK_ROUNDING_TOLERANCE_PCT,
+    hard_max_risk_usd: Decimal | None = None,
 ) -> tuple[Decimal, Decimal, str | None]:
     """
     Pick valid stepped quantity closest to target risk without exceeding tolerance cap.
     Never force min_quantity when it would materially exceed the risk budget.
     """
     max_risk = max_allowed_risk_amount(target_risk, tolerance_pct)
+    if hard_max_risk_usd is not None:
+        max_risk = min(max_risk, hard_max_risk_usd)
     min_qty = instrument.min_quantity
     step = instrument.quantity_step
 

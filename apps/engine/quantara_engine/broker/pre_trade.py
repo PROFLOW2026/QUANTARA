@@ -63,6 +63,8 @@ def _project_post_trade(
     spec,
     fx_rates: dict[str, Decimal],
     profile: BrokerProfile,
+    *,
+    product_rules: AssetClassRules | None = None,
 ) -> tuple[Decimal, Decimal, Decimal, Decimal, Decimal]:
     """Return projected gross, net, initial_margin, maintenance, asset_notional."""
     projected_qty = current_qty + order_signed
@@ -77,7 +79,10 @@ def _project_post_trade(
         if qty == 0:
             continue
         s = get_instrument_spec(sym)
-        rules = profile.rules_for(s.asset_class)
+        if sym == symbol and product_rules is not None:
+            rules = product_rules
+        else:
+            rules = profile.rules_for(s.asset_class)
         notional = quote_notional_usd(qty, pos.mark_price if sym != symbol else mark_price, s, fx_rates)
         gross += notional
         net += notional if qty > 0 else -notional
@@ -85,7 +90,7 @@ def _project_post_trade(
         maintenance += maintenance_margin_for_notional(notional, rules)
 
     if symbol not in account.positions and projected_qty != 0:
-        rules = profile.rules_for(spec.asset_class)
+        rules = product_rules if product_rules is not None else profile.rules_for(spec.asset_class)
         notional = quote_notional_usd(projected_qty, mark_price, spec, fx_rates)
         gross += notional
         net += notional if projected_qty > 0 else -notional
@@ -252,7 +257,15 @@ def evaluate_broker_order(
         )
 
     projected_gross, projected_net, proj_initial, _, projected_asset_notional = _project_post_trade(
-        account, request.symbol, current_qty, order_signed, request.mark_price, spec, fx_rates, profile
+        account,
+        request.symbol,
+        current_qty,
+        order_signed,
+        request.mark_price,
+        spec,
+        fx_rates,
+        profile,
+        product_rules=rules,
     )
     projected_equity = account.equity
     proj_gross_lev = gross_leverage(projected_gross, projected_equity)
@@ -275,6 +288,7 @@ def evaluate_broker_order(
                     spec,
                     fx_rates,
                     profile,
+                    product_rules=rules,
                 )
                 if inc_gross > projected_gross:
                     projected_gross = inc_gross

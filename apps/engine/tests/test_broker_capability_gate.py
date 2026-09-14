@@ -215,11 +215,14 @@ def test_live_sim_eth_short_capability_denied_no_pending():
     store = MagicMock()
     account = {
         "id": "acc-1",
+        "slug": LIVE_SIM_10K_ACCOUNT_SLUG,
         "equity": "10000",
         "cash": "10000",
+        "spot_crypto_cash": "10000",
         "starting_cash": "10000",
         "is_active": True,
         "pending_owner_reset": False,
+        "execution_model": "legacy_spot_limited",
         "risk_settings": {
             "risk_per_trade_pct": 1.0,
             "max_total_open_sl_risk_pct": 3.0,
@@ -269,11 +272,17 @@ def test_live_sim_eth_short_capability_denied_no_pending():
 
     def _account_or_model(*args, **kwargs):
         sql = str(getattr(args[0], "text", "") or args[0])
-        row = (
-            {"execution_model": "legacy_spot_limited"}
-            if "execution_model" in sql
-            else account
-        )
+        if "equal_asset_allocation_enabled" in sql:
+            row = {
+                "equal_asset_allocation_enabled": False,
+                "multi_broker_mode_enabled": False,
+            }
+        elif "FROM broker_accounts" in sql or "from broker_accounts" in sql.lower():
+            row = {**account, "slug": LIVE_SIM_10K_ACCOUNT_SLUG, "execution_model": "legacy_spot_limited"}
+        elif "execution_model" in sql and "broker_accounts" not in sql.lower():
+            row = {"execution_model": "legacy_spot_limited"}
+        else:
+            row = {**account, "slug": LIVE_SIM_10K_ACCOUNT_SLUG, "execution_model": "legacy_spot_limited"}
         mock = MagicMock()
         mock.mappings.return_value.first.return_value = row
         return mock
