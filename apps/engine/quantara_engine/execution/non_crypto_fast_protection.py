@@ -40,7 +40,8 @@ from quantara_engine.execution.fx_protection_sources import (
     STORED_1M_FRESHNESS,
     any_position_near_stop,
     latest_mark_from_candles,
-    mark_provider_fetched,
+    mark_provider_attempted,
+    mark_provider_success,
     plan_fx_protection_fetch,
     record_protection_source,
 )
@@ -272,6 +273,10 @@ def _stored_1m_fresh(
         since=since,
         limit=MAX_CANDLES_PER_POSITION_PER_RUN,
     )
+    return _stored_still_usable(stored, now), stored
+
+
+def _stored_still_usable(stored: list, now: datetime) -> bool:
     from quantara_engine.market_data.polling import is_bar_complete
 
     completed = [
@@ -280,10 +285,10 @@ def _stored_1m_fresh(
         if c.is_complete or is_bar_complete(c.timestamp, c.timeframe, now)
     ]
     if not completed:
-        return False, stored
+        return False
     completed.sort(key=lambda c: c.timestamp)
     age = now - completed[-1].timestamp
-    return age <= STORED_1M_FRESHNESS, stored
+    return age <= STORED_1M_FRESHNESS
 
 
 def _fx_positions_for_symbol(
@@ -372,39 +377,48 @@ def _fetch_fx_protection_candles(
         )
 
         fetched: list = []
+        used_provider: str | None = None
         if plan.fetch_provider == "tiingo":
             fetched = _fetch_tiingo_1m(store, db_sym, since=since)
             fetches += 1
             tiingo_calls += 1
+            # Always advance attempt cadence — empty/429 must not retry every minute.
+            mark_provider_attempted(store, db_sym, "tiingo", now=now)
             if fetched:
-                mark_provider_fetched(store, db_sym, "tiingo", now=now)
+                mark_provider_success(store, db_sym, "tiingo", now=now)
                 tiingo_ok = True
+                used_provider = "tiingo"
             else:
-                # Fall through to TD if eligible this same cycle.
                 tiingo_ok = False
-                mode = quota_mode(store, tiingo_primary_ok=False)
-                plan = plan_fx_protection_fetch(
-                    store,
-                    db_sym,
-                    quota_mode=mode,
-                    tiingo_eligible=False,
-                    td_eligible=td_ok,
-                    near_sl=near,
-                    has_fresh_stored_1m=fresh,
-                    now=now,
-                )
-                if plan.fetch_provider == "twelvedata":
-                    fetched = _fetch_twelve_data_1m(store, db_sym, since=since)
-                    fetches += 1
-                    td_calls += 1
-                    if fetched:
-                        mark_provider_fetched(store, db_sym, "twelvedata", now=now)
+                # Fresh stored 1m: NEVER same-cycle TD. Protect from stored until next Tiingo window.
+                if not fresh:
+                    mode = quota_mode(store, tiingo_primary_ok=False)
+                    plan = plan_fx_protection_fetch(
+                        store,
+                        db_sym,
+                        quota_mode=mode,
+                        tiingo_eligible=False,
+                        td_eligible=td_ok,
+                        near_sl=near,
+                        has_fresh_stored_1m=False,
+                        now=now,
+                    )
+                    if plan.fetch_provider == "twelvedata":
+                        fetched = _fetch_twelve_data_1m(store, db_sym, since=since)
+                        fetches += 1
+                        td_calls += 1
+                        mark_provider_attempted(store, db_sym, "twelvedata", now=now)
+                        if fetched:
+                            mark_provider_success(store, db_sym, "twelvedata", now=now)
+                            used_provider = "twelvedata"
         elif plan.fetch_provider == "twelvedata":
             fetched = _fetch_twelve_data_1m(store, db_sym, since=since)
             fetches += 1
             td_calls += 1
+            mark_provider_attempted(store, db_sym, "twelvedata", now=now)
             if fetched:
-                mark_provider_fetched(store, db_sym, "twelvedata", now=now)
+                mark_provider_success(store, db_sym, "twelvedata", now=now)
+                used_provider = "twelvedata"
 
         stored_after = store.list_candles(
             instrument.id,
@@ -414,16 +428,17 @@ def _fetch_fx_protection_candles(
         )
         candles_by_instrument[instrument.id] = stored_after or fetched or stored
 
-        source = plan.source
-        if fetched and plan.fetch_provider == "tiingo":
+        if used_provider == "tiingo":
             source = "tiingo_1m"
-        elif fetched and plan.fetch_provider == "twelvedata":
+        elif used_provider == "twelvedata":
             source = "twelve_data_1m"
-        elif candles_by_instrument[instrument.id]:
-            source = "stored_1m" if fresh or stored_after else plan.source
+        elif fresh or (stored_after and _stored_still_usable(stored_after, now)):
+            source = "stored_1m"
+        else:
+            source = plan.source if plan.source != "twelve_data_1m" else "5m_fallback"
         record_protection_source(store, db_sym, source, reason=plan.reason)
         fx_sources[db_sym] = source
-        if plan.fetch_provider:
+        if used_provider:
             fx_fetched.append(db_sym)
         elif source == "5m_fallback":
             fx_skipped_credit.append(f"{db_sym}:{plan.reason}")

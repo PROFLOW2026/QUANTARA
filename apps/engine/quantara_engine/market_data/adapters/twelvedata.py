@@ -16,7 +16,6 @@ from quantara_engine.domain.types import Candle
 from quantara_engine.market_data.credits import (
     FetchPriority,
     can_fetch,
-    credits_for_endpoint,
     record_usage,
     sync_provider_usage,
 )
@@ -125,6 +124,8 @@ class TwelveDataMarketDataProvider:
                 "Authorization": f"apikey {self.api_key}",
             },
         )
+        symbol = str(params.get("symbol") or self.provider_symbol)
+        interval = str(params.get("interval")) if params.get("interval") else None
         try:
             with urllib.request.urlopen(req, timeout=self._http_timeout) as resp:
                 payload = json.loads(resp.read().decode())
@@ -139,11 +140,36 @@ class TwelveDataMarketDataProvider:
                 from quantara_engine.market_data.credits import mark_blocked
 
                 mark_blocked(self._store, f"HTTP 429: {message}")
+            # Provider was reached — attribute billable cost (conservative).
+            record_usage(
+                self._store,
+                endpoint=endpoint,
+                symbol=symbol,
+                interval=interval,
+                caller=self._caller,
+                success=False,
+                reason=f"HTTP {exc.code}",
+                priority=self._priority.name,
+                http_status=exc.code,
+                charge=True,
+            )
             raise TwelveDataError(
                 f"HTTP {exc.code}: {message}",
                 code=exc.code,
             ) from exc
         except urllib.error.URLError as exc:
+            # Network failure — request likely never billed; attribute without charge.
+            record_usage(
+                self._store,
+                endpoint=endpoint,
+                symbol=symbol,
+                interval=interval,
+                caller=self._caller,
+                success=False,
+                reason=f"network:{exc.reason}",
+                priority=self._priority.name,
+                charge=False,
+            )
             raise TwelveDataError(f"Network error: {exc.reason}") from exc
 
         if payload.get("status") == "error":
@@ -153,18 +179,31 @@ class TwelveDataMarketDataProvider:
                 from quantara_engine.market_data.credits import mark_blocked
 
                 mark_blocked(self._store, str(message))
-            raise TwelveDataError(message, code=code)
-
-        credits = credits_for_endpoint(endpoint)
-        if credits:
             record_usage(
                 self._store,
                 endpoint=endpoint,
-                symbol=str(params.get("symbol") or self.provider_symbol),
-                interval=str(params.get("interval")) if params.get("interval") else None,
+                symbol=symbol,
+                interval=interval,
                 caller=self._caller,
-                credits=credits,
+                success=False,
+                reason=str(message)[:200],
+                priority=self._priority.name,
+                http_status=int(code) if isinstance(code, int) else None,
+                charge=True,
             )
+            raise TwelveDataError(message, code=code)
+
+        record_usage(
+            self._store,
+            endpoint=endpoint,
+            symbol=symbol,
+            interval=interval,
+            caller=self._caller,
+            success=True,
+            reason="ok",
+            priority=self._priority.name,
+            charge=True,
+        )
         if endpoint == "api_usage":
             sync_provider_usage(self._store, payload)
 
@@ -204,14 +243,19 @@ class TwelveDataMarketDataProvider:
         if end_date is not None:
             params["end_date"] = end_date.strftime("%Y-%m-%d %H:%M:%S")
 
-        if start_date is not None and end_date is not None and start_date >= end_date:
-            logger.debug(
-                "Skipping Twelve Data time_series — invalid range start=%s end=%s symbol=%s",
-                params.get("start_date"),
-                params.get("end_date"),
-                self.provider_symbol,
-            )
-            return []
+        if start_date is not None and end_date is not None:
+            if start_date.tzinfo is None:
+                start_date = start_date.replace(tzinfo=timezone.utc)
+            if end_date.tzinfo is None:
+                end_date = end_date.replace(tzinfo=timezone.utc)
+            if start_date >= end_date:
+                logger.debug(
+                    "Skipping Twelve Data time_series — invalid range start=%s end=%s symbol=%s",
+                    params.get("start_date"),
+                    params.get("end_date"),
+                    self.provider_symbol,
+                )
+                return []
 
         data = self._request("time_series", params)
         return list(data.get("values") or [])
@@ -311,6 +355,14 @@ class TwelveDataMarketDataProvider:
             start = start.replace(tzinfo=timezone.utc)
         if end.tzinfo is None:
             end = end.replace(tzinfo=timezone.utc)
+        if start >= end:
+            logger.debug(
+                "Skipping Twelve Data fetch_range — invalid range start=%s end=%s symbol=%s",
+                start,
+                end,
+                self.provider_symbol,
+            )
+            return []
 
         rows = self._time_series(timeframe, start_date=start, end_date=end)
         return self._rows_to_candles(rows, instrument_id, timeframe, closed_only=True)

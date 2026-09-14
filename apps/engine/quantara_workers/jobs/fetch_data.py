@@ -369,7 +369,7 @@ def _fetch_asset_live(
     *,
     plan: TiingoFallbackPlan | None = None,
     skip_fetch: bool = False,
-) -> tuple[int, int, str | None]:
+) -> tuple[int, int, str | None, str | None]:
     provider_key = asset.primary_provider.value
     t0 = time.perf_counter()
 
@@ -390,10 +390,10 @@ def _fetch_asset_live(
     )
     if not should_poll:
         timings[provider_key] = timings.get(provider_key, 0.0) + (time.perf_counter() - t0) * 1000
-        return 0, 0, defer_reason
+        return 0, 0, defer_reason, None
 
     if skip_fetch:
-        return 0, 0, None
+        return 0, 0, None, None
 
     new_timestamps: list[datetime] = []
     count = 0
@@ -478,7 +478,7 @@ def _fetch_asset_live(
                 )
             timings["derive_ms"] = timings.get("derive_ms", 0.0) + (time.perf_counter() - persist_t0) * 1000
             timings["persist_5m_ms"] = timings.get("persist_5m_ms", 0.0) + (time.perf_counter() - persist_t0) * 1000
-            return count, derived, error
+            return count, derived, error, used_provider.value if used_provider else None
     else:
         for candle in validated:
             store.upsert_candle(candle)
@@ -503,7 +503,7 @@ def _fetch_asset_live(
     if asset.db_symbol == "XAUUSD" and count:
         update_spot_from_latest_5m(store, instrument.id)
 
-    return count, derived, error
+    return count, derived, error, used_provider.value if used_provider else None
 
 
 def _record_budget_best_effort(
@@ -953,9 +953,10 @@ def _fetch_live_asset_isolated(
         if batch_result is not None:
             count, derived = batch_result
             error = None
+            actual_provider = ProviderName.TIINGO.value
         else:
             skip = bool(plan and plan.crypto_batch and asset.db_symbol in plan.crypto_batch)
-            count, derived, error = _fetch_asset_live(
+            count, derived, error, actual_provider = _fetch_asset_live(
                 store,
                 instrument,
                 asset,
@@ -973,21 +974,44 @@ def _fetch_live_asset_isolated(
         error = bootstrap_error
 
     use_alpaca_live = _uses_alpaca_live_equity(asset, now)
-    live_provider = ProviderName.ALPACA.value if use_alpaca_live else asset.primary_provider.value
+    configured_primary = (
+        ProviderName.ALPACA.value if use_alpaca_live else asset.primary_provider.value
+    )
+    # Prefer actual successful source this cycle; fall back to latest candle source.
+    live_provider = actual_provider or configured_primary
+    if not actual_provider and latest is not None:
+        try:
+            with session_scope() as src_session:
+                src_store = TradingStore(src_session)
+                recent = src_store.list_recent_candles(instrument.id, PROVIDER_TIMEFRAME, limit=1)
+                if recent and getattr(recent[0], "source", None):
+                    live_provider = str(recent[0].source)
+        except Exception:
+            pass
 
     if error and str(error).startswith("deferred"):
         status = {
             "status": "deferred",
             "provider": live_provider,
+            "configured_primary": configured_primary,
+            "actual_source": live_provider,
             "last_candle": latest.isoformat() if latest else None,
             "note": error,
         }
     elif error:
-        status = {"status": "error", "provider": live_provider, "error": error}
+        status = {
+            "status": "error",
+            "provider": live_provider,
+            "configured_primary": configured_primary,
+            "actual_source": live_provider,
+            "error": error,
+        }
     elif stored < STRATEGY_MIN_CANDLES:
         status = {
             "status": "bootstrapping",
             "provider": live_provider,
+            "configured_primary": configured_primary,
+            "actual_source": live_provider,
             "last_candle": latest.isoformat() if latest else None,
             "stored_5m": stored,
             "note": f"bootstrap in progress ({stored}/{STRATEGY_MIN_CANDLES} 5m bars)",
@@ -1000,6 +1024,8 @@ def _fetch_live_asset_isolated(
         status = {
             "status": "deferred",
             "provider": live_provider,
+            "configured_primary": configured_primary,
+            "actual_source": live_provider,
             "last_candle": latest.isoformat() if latest else None,
             "note": "market closed — last session data retained",
         }
@@ -1007,6 +1033,8 @@ def _fetch_live_asset_isolated(
         status = {
             "status": "healthy" if latest and is_market_data_fresh(latest, PROVIDER_TIMEFRAME, now) else "stale",
             "provider": live_provider,
+            "configured_primary": configured_primary,
+            "actual_source": live_provider,
             "last_candle": latest.isoformat() if latest else None,
             "candles_upserted": count,
         }
@@ -1043,7 +1071,7 @@ def fetch_live_job(store: TradingStore | None = None) -> None:
                     asset_status[asset.db_symbol] = {"status": "error", "error": "missing instrument"}
                     continue
                 batch_result = batch_results.get(asset.db_symbol)
-                count, derived, error = _fetch_asset_live(
+                count, derived, error, actual_provider = _fetch_asset_live(
                     store,
                     instrument,
                     asset,
@@ -1054,15 +1082,23 @@ def fetch_live_job(store: TradingStore | None = None) -> None:
                 )
                 if batch_result is not None:
                     count, derived = batch_result
+                    actual_provider = ProviderName.TIINGO.value
                 latest = store.latest_candle_timestamp(instrument.id, PROVIDER_TIMEFRAME)
                 stored = store.count_candles(instrument.id, PROVIDER_TIMEFRAME)
                 use_alpaca_live = _uses_alpaca_live_equity(asset, now)
-                live_provider = (
+                configured_primary = (
                     ProviderName.ALPACA.value if use_alpaca_live else asset.primary_provider.value
                 )
+                live_provider = actual_provider or configured_primary
+                if not actual_provider and latest is not None:
+                    recent = store.list_recent_candles(instrument.id, PROVIDER_TIMEFRAME, limit=1)
+                    if recent and getattr(recent[0], "source", None):
+                        live_provider = str(recent[0].source)
                 status = {
                     "status": "healthy" if latest else "stale",
                     "provider": live_provider,
+                    "configured_primary": configured_primary,
+                    "actual_source": live_provider,
                     "last_candle": latest.isoformat() if latest else None,
                     "candles_upserted": count,
                 }

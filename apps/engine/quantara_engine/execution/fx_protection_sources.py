@@ -3,7 +3,7 @@
 Design (no FX websocket available in QUANTARA):
 1. Tiingo FX 1m REST (throttled) — primary, low TD burn
 2. Already-stored local 1m candles — reuse without provider call
-3. Twelve Data 1m REST — fallback only (Tiingo failure / near-SL)
+3. Twelve Data 1m REST — emergency fallback only when stored is NOT fresh
 4. Canonical 5m PM — fail-safe when fast path unavailable
 
 Near-SL rule (defensible from existing trade risk):
@@ -12,6 +12,9 @@ Near-SL rule (defensible from existing trade risk):
   near_sl ⇔ distance_to_sl <= 0.5 * R
 
 Many open Research legs share ONE per-symbol fetch.
+
+Cadence uses last_attempt_at (not only last success) so empty/failed
+provider responses still suppress retries.
 """
 
 from __future__ import annotations
@@ -44,7 +47,7 @@ PROTECTION_STATUS_KEY = "fx_protection:last_source"
 # One Tiingo 1m request returns a lookback of completed minutes, so we do not
 # need a per-minute heartbeat. 5m cadence → ~24 Tiingo req/hour for 2 symbols.
 TIINGO_1M_MIN_INTERVAL = timedelta(minutes=5)
-# Twelve Data REST fallback only (Tiingo failure / near-SL conservation).
+# Twelve Data REST emergency only (stale stored + Tiingo unavailable).
 TD_FAR_MIN_INTERVAL = timedelta(minutes=5)
 TD_NEAR_MIN_INTERVAL = timedelta(minutes=2)
 # Stored 1m is "fresh" if latest completed bar started within this window.
@@ -112,19 +115,31 @@ def _save_fetch_state(store: TradingStore, state: dict[str, Any]) -> None:
     store.update_settings(
         LAST_FETCH_SETTINGS_KEY,
         state,
-        description="FX protection last provider fetch timestamps",
+        description="FX protection last provider attempt/success timestamps",
         flush=False,
     )
 
 
-def last_provider_fetch_at(
-    store: TradingStore,
-    symbol: str,
-    provider: str,
-) -> datetime | None:
-    state = _load_fetch_state(store)
-    key = f"{normalize_db_symbol(symbol)}:{provider}"
-    raw = state.get(key)
+def _entry_key(symbol: str, provider: str) -> str:
+    return f"{normalize_db_symbol(symbol)}:{provider}"
+
+
+def _parse_entry(raw: Any) -> dict[str, str | None]:
+    """Normalize legacy string timestamps and new attempt/success dicts."""
+    if raw is None:
+        return {"last_attempt_at": None, "last_success_at": None}
+    if isinstance(raw, str):
+        # Legacy: only success was recorded — treat as both for throttle safety.
+        return {"last_attempt_at": raw, "last_success_at": raw}
+    if isinstance(raw, dict):
+        return {
+            "last_attempt_at": raw.get("last_attempt_at") or raw.get("at"),
+            "last_success_at": raw.get("last_success_at") or raw.get("at"),
+        }
+    return {"last_attempt_at": None, "last_success_at": None}
+
+
+def _parse_ts(raw: str | None) -> datetime | None:
     if not raw:
         return None
     try:
@@ -134,6 +149,69 @@ def last_provider_fetch_at(
         return None
 
 
+def last_provider_attempt_at(
+    store: TradingStore,
+    symbol: str,
+    provider: str,
+) -> datetime | None:
+    entry = _parse_entry(_load_fetch_state(store).get(_entry_key(symbol, provider)))
+    return _parse_ts(entry.get("last_attempt_at") if isinstance(entry.get("last_attempt_at"), str) else None)
+
+
+def last_provider_success_at(
+    store: TradingStore,
+    symbol: str,
+    provider: str,
+) -> datetime | None:
+    entry = _parse_entry(_load_fetch_state(store).get(_entry_key(symbol, provider)))
+    return _parse_ts(entry.get("last_success_at") if isinstance(entry.get("last_success_at"), str) else None)
+
+
+def last_provider_fetch_at(
+    store: TradingStore,
+    symbol: str,
+    provider: str,
+) -> datetime | None:
+    """Backward-compatible alias: cadence uses last attempt."""
+    return last_provider_attempt_at(store, symbol, provider)
+
+
+def mark_provider_attempted(
+    store: TradingStore,
+    symbol: str,
+    provider: str,
+    *,
+    now: datetime | None = None,
+) -> None:
+    """Record that an HTTP provider request was made (success or failure)."""
+    now = _as_utc(now or datetime.now(timezone.utc))
+    state = _load_fetch_state(store)
+    key = _entry_key(symbol, provider)
+    entry = _parse_entry(state.get(key))
+    entry["last_attempt_at"] = now.isoformat()
+    state[key] = entry
+    _save_fetch_state(store, state)
+
+
+def mark_provider_success(
+    store: TradingStore,
+    symbol: str,
+    provider: str,
+    *,
+    now: datetime | None = None,
+) -> None:
+    """Record a successful candle response (also refreshes attempt timestamp)."""
+    now = _as_utc(now or datetime.now(timezone.utc))
+    state = _load_fetch_state(store)
+    key = _entry_key(symbol, provider)
+    entry = _parse_entry(state.get(key))
+    iso = now.isoformat()
+    entry["last_attempt_at"] = iso
+    entry["last_success_at"] = iso
+    state[key] = entry
+    _save_fetch_state(store, state)
+
+
 def mark_provider_fetched(
     store: TradingStore,
     symbol: str,
@@ -141,10 +219,8 @@ def mark_provider_fetched(
     *,
     now: datetime | None = None,
 ) -> None:
-    now = _as_utc(now or datetime.now(timezone.utc))
-    state = _load_fetch_state(store)
-    state[f"{normalize_db_symbol(symbol)}:{provider}"] = now.isoformat()
-    _save_fetch_state(store, state)
+    """Backward-compatible success marker."""
+    mark_provider_success(store, symbol, provider, now=now)
 
 
 def _interval_elapsed(
@@ -154,7 +230,7 @@ def _interval_elapsed(
     minimum: timedelta,
     now: datetime,
 ) -> bool:
-    last = last_provider_fetch_at(store, symbol, provider)
+    last = last_provider_attempt_at(store, symbol, provider)
     if last is None:
         return True
     return (now - last) >= minimum
@@ -184,10 +260,15 @@ def record_protection_source(
     """Persist last protection source per symbol for health UI (no provider credits)."""
     raw = store.get_settings_dict().get(PROTECTION_STATUS_KEY) or {}
     state = dict(raw) if isinstance(raw, dict) else {}
-    state[normalize_db_symbol(symbol)] = {
+    sym = normalize_db_symbol(symbol)
+    tiingo_success = last_provider_success_at(store, sym, "tiingo")
+    td_attempt = last_provider_attempt_at(store, sym, "twelvedata")
+    state[sym] = {
         "source": source,
         "reason": reason,
         "at": datetime.now(timezone.utc).isoformat(),
+        "last_tiingo_success_at": tiingo_success.isoformat() if tiingo_success else None,
+        "last_td_attempt_at": td_attempt.isoformat() if td_attempt else None,
     }
     store.update_settings(
         PROTECTION_STATUS_KEY,
@@ -213,12 +294,26 @@ def plan_fx_protection_fetch(
     has_fresh_stored_1m: bool,
     now: datetime | None = None,
 ) -> ProtectionFetchPlan:
-    """Decide provider call for one FX symbol this cycle (per-symbol, not per-position)."""
+    """Decide provider call for one FX symbol this cycle (per-symbol, not per-position).
+
+    Fresh stored 1m never triggers Twelve Data — even after a Tiingo miss —
+    unless the stored series is no longer fresh (emergency path).
+    """
     now = _as_utc(now or datetime.now(timezone.utc))
     sym = normalize_db_symbol(symbol)
 
-    if has_fresh_stored_1m and not near_sl:
-        # Reuse local completed 1m; still allow periodic Tiingo refresh on schedule.
+    if quota_mode == "EXHAUSTED":
+        return ProtectionFetchPlan(
+            symbol=sym,
+            source="stored_1m" if has_fresh_stored_1m else "5m_fallback",
+            fetch_provider=None,
+            reason="td_exhausted_use_stored_or_5m",
+            near_sl=near_sl,
+        )
+
+    # Fresh completed 1m is sufficient for protection (FAR and NEAR).
+    # Allow scheduled Tiingo refresh only; never TD while fresh.
+    if has_fresh_stored_1m:
         if tiingo_eligible and _interval_elapsed(
             store, sym, "tiingo", TIINGO_1M_MIN_INTERVAL, now
         ):
@@ -226,7 +321,7 @@ def plan_fx_protection_fetch(
                 symbol=sym,
                 source="tiingo_1m",
                 fetch_provider="tiingo",
-                reason="scheduled_tiingo_refresh",
+                reason="scheduled_tiingo_refresh" if not near_sl else "near_sl_tiingo_refresh",
                 near_sl=near_sl,
             )
         return ProtectionFetchPlan(
@@ -237,19 +332,7 @@ def plan_fx_protection_fetch(
             near_sl=near_sl,
         )
 
-    if has_fresh_stored_1m and near_sl:
-        # Near SL: prefer fresh provider data if interval allows; else stored.
-        pass
-
-    if quota_mode == "EXHAUSTED":
-        return ProtectionFetchPlan(
-            symbol=sym,
-            source="5m_fallback",
-            fetch_provider=None,
-            reason="td_exhausted_use_5m",
-            near_sl=near_sl,
-        )
-
+    # Stored is stale — prefer Tiingo.
     if tiingo_eligible and _interval_elapsed(
         store, sym, "tiingo", TIINGO_1M_MIN_INTERVAL, now
     ):
@@ -261,20 +344,21 @@ def plan_fx_protection_fetch(
             near_sl=near_sl,
         )
 
-    if tiingo_eligible and has_fresh_stored_1m:
+    if tiingo_eligible:
+        # Tiingo eligible but throttled — wait; do not pay TD yet.
         return ProtectionFetchPlan(
             symbol=sym,
-            source="stored_1m",
+            source="5m_fallback",
             fetch_provider=None,
-            reason="tiingo_throttle_reuse_stored",
+            reason="tiingo_throttle_use_5m",
             near_sl=near_sl,
         )
 
-    # Tiingo unavailable — Twelve Data fallback with quota-aware cadence.
+    # Tiingo unavailable — Twelve Data emergency only when data is stale.
     if not td_eligible:
         return ProtectionFetchPlan(
             symbol=sym,
-            source="5m_fallback" if not has_fresh_stored_1m else "stored_1m",
+            source="5m_fallback",
             fetch_provider=None,
             reason="no_td_budget",
             near_sl=near_sl,
@@ -283,7 +367,7 @@ def plan_fx_protection_fetch(
     if quota_mode == "CONSERVATION" and not near_sl:
         return ProtectionFetchPlan(
             symbol=sym,
-            source="5m_fallback" if not has_fresh_stored_1m else "stored_1m",
+            source="5m_fallback",
             fetch_provider=None,
             reason="conservation_far_from_sl",
             near_sl=near_sl,
@@ -295,7 +379,7 @@ def plan_fx_protection_fetch(
     if not _interval_elapsed(store, sym, "twelvedata", td_interval, now):
         return ProtectionFetchPlan(
             symbol=sym,
-            source="stored_1m" if has_fresh_stored_1m else "5m_fallback",
+            source="5m_fallback",
             fetch_provider=None,
             reason="td_throttled",
             near_sl=near_sl,
@@ -305,6 +389,6 @@ def plan_fx_protection_fetch(
         symbol=sym,
         source="twelve_data_1m",
         fetch_provider="twelvedata",
-        reason="td_fallback",
+        reason="td_emergency_stale",
         near_sl=near_sl,
     )

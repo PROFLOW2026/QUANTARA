@@ -24,7 +24,7 @@ HEALTH_SETTINGS_KEY = "provider_health:twelvedata"
 DAILY_HARD_LIMIT = 800
 INTERNAL_GUARD_LIMIT = 720
 MAX_LOG_ENTRIES = 500
-HEALTH_SYNC_INTERVAL_SECONDS = 3600
+HEALTH_SYNC_INTERVAL_SECONDS = 14400  # 4h — api_usage itself costs credits
 HEALTH_LOCK_TIMEOUT = "3s"
 HEALTH_STATEMENT_TIMEOUT = "5s"
 HEALTH_HTTP_TIMEOUT_SECONDS = 10
@@ -36,7 +36,8 @@ ENDPOINT_CREDITS: dict[str, int] = {
     "time_series": 1,
     "quote": 1,
     "price": 1,
-    "api_usage": 0,
+    # Basic plan: api_usage GET consumes ~1 daily credit (observed 2026-09-14).
+    "api_usage": 1,
     "symbol_search": 1,
 }
 
@@ -58,6 +59,10 @@ class CreditEvent:
     caller: str
     credits: int
     timestamp: str
+    success: bool = True
+    reason: str | None = None
+    priority: str | None = None
+    http_status: int | None = None
 
 
 def _today_key() -> str:
@@ -259,19 +264,40 @@ def record_usage(
     interval: str | None,
     caller: str,
     credits: int | None = None,
+    success: bool = True,
+    reason: str | None = None,
+    priority: str | None = None,
+    http_status: int | None = None,
+    charge: bool | None = None,
 ) -> CreditEvent:
-    """Append a credit event exactly once (atomic). Works even when store is None."""
-    consumed = credits if credits is not None else credits_for_endpoint(endpoint)
+    """Append a credit event exactly once (atomic). Works even when store is None.
+
+    Never stores API tokens/secrets. Provider daily_usage remains external authority;
+    local events attribute QUANTARA-initiated calls for audit.
+    """
+    nominal = credits if credits is not None else credits_for_endpoint(endpoint)
+    should_charge = bool(nominal > 0) if charge is None else bool(charge and nominal > 0)
+    billed = nominal if should_charge else 0
+    safe_reason = (reason or "")[:200]
+    lower = safe_reason.lower()
+    if "apikey" in lower or "token=" in lower:
+        safe_reason = "redacted"
     event = CreditEvent(
         provider="twelvedata",
         endpoint=endpoint,
         symbol=symbol,
         interval=interval,
         caller=caller,
-        credits=consumed,
+        credits=billed,
         timestamp=datetime.now(timezone.utc).isoformat(),
+        success=success,
+        reason=safe_reason or None,
+        priority=priority,
+        http_status=http_status,
     )
-    if consumed <= 0:
+
+    # Persist attribution whenever we have a billable amount OR an explicit failure marker.
+    if billed <= 0 and success and not reason:
         return event
 
     used_after: int | None = None
@@ -283,10 +309,9 @@ def record_usage(
                 symbol=symbol,
                 interval=interval,
                 caller=caller,
-                consumed=consumed,
+                consumed=billed,
                 event=event,
             )
-            # Keep caller's settings cache coherent if present.
             try:
                 cache = getattr(store, "_settings_cache", None)
                 if isinstance(cache, dict):
@@ -301,7 +326,7 @@ def record_usage(
                     symbol=symbol,
                     interval=interval,
                     caller=caller,
-                    consumed=consumed,
+                    consumed=billed,
                     event=event,
                 )
     except Exception as exc:
@@ -313,13 +338,15 @@ def record_usage(
         )
         return event
 
-    logger.info(
-        "Twelve Data credit +%s endpoint=%s caller=%s used_today=%s",
-        consumed,
-        endpoint,
-        caller,
-        used_after,
-    )
+    if billed > 0:
+        logger.info(
+            "Twelve Data credit +%s endpoint=%s caller=%s success=%s used_today=%s",
+            billed,
+            endpoint,
+            caller,
+            success,
+            used_after,
+        )
     return event
 
 

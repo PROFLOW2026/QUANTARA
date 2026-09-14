@@ -244,6 +244,19 @@ def all_provider_status(store: TradingStore | None) -> dict[str, dict[str, Any]]
                 sym: (entry.get("source") if isinstance(entry, dict) else entry)
                 for sym, entry in fx_prot.items()
             }
+            td["fx_protection_detail"] = {
+                sym: {
+                    "source": entry.get("source") if isinstance(entry, dict) else entry,
+                    "reason": entry.get("reason") if isinstance(entry, dict) else None,
+                    "last_tiingo_success_at": (
+                        entry.get("last_tiingo_success_at") if isinstance(entry, dict) else None
+                    ),
+                    "last_td_attempt_at": (
+                        entry.get("last_td_attempt_at") if isinstance(entry, dict) else None
+                    ),
+                }
+                for sym, entry in fx_prot.items()
+            }
     alpaca = status_payload(store, "alpaca")
     tiingo = status_payload(store, "tiingo")
     tiingo_snap = tiingo_budget_snapshot(store)

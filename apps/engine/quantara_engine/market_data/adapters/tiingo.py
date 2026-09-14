@@ -138,13 +138,24 @@ class TiingoMarketDataProvider:
                 success=False,
                 error=f"HTTP {exc.code}: {body}",
             )
-            if exc.code in (401, 403) and self._store is not None:
+            if exc.code in (401, 403, 429) and self._store is not None:
                 from quantara_engine.market_data.provider_cooldown import mark_cooldown
+                from datetime import timedelta
 
+                # 429: respect hourly budget pressure; do not retry every minute.
+                duration = timedelta(minutes=15)
+                if exc.code == 429:
+                    retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                    try:
+                        if retry_after is not None:
+                            duration = timedelta(seconds=max(60, int(retry_after)))
+                    except (TypeError, ValueError):
+                        duration = timedelta(minutes=15)
                 mark_cooldown(
                     self._store,
                     self.source,
-                    reason=f"HTTP {exc.code}: auth rejected",
+                    reason=f"HTTP {exc.code}: {body[:120]}",
+                    duration=duration,
                 )
             raise TiingoError(f"HTTP {exc.code}: {body}") from exc
         except urllib.error.URLError as exc:
