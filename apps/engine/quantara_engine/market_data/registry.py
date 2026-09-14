@@ -94,8 +94,8 @@ TARGET_ASSETS: tuple[AssetDefinition, ...] = (
         db_symbol="XAUUSD",
         display_symbol="XAU/USD",
         asset_class=AssetClass.COMMODITY,
-        primary_provider=ProviderName.TWELVE_DATA,
-        secondary_provider=ProviderName.TIINGO,
+        primary_provider=ProviderName.TIINGO,
+        secondary_provider=ProviderName.TWELVE_DATA,
         provider_symbols={
             ProviderName.TWELVE_DATA.value: "XAU/USD",
             ProviderName.TIINGO.value: "xauusd",
@@ -112,8 +112,8 @@ TARGET_ASSETS: tuple[AssetDefinition, ...] = (
         db_symbol="GBPJPY",
         display_symbol="GBP/JPY",
         asset_class=AssetClass.FOREX,
-        primary_provider=ProviderName.TWELVE_DATA,
-        secondary_provider=ProviderName.TIINGO,
+        primary_provider=ProviderName.TIINGO,
+        secondary_provider=ProviderName.TWELVE_DATA,
         provider_symbols={
             ProviderName.TWELVE_DATA.value: "GBP/JPY",
             ProviderName.TIINGO.value: "gbpjpy",

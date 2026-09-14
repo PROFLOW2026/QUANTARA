@@ -670,6 +670,10 @@ def run_non_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[s
     open_symbols, _, open_fx_symbols = _symbols_with_open_positions(
         research_work, live_sim_rows
     )
+    # Canonical FX 1m must refresh even without open positions (Tiingo-primary architecture).
+    if is_forex_session(now):
+        open_fx_symbols = set(open_fx_symbols) | set(FAST_FX_DB_SYMBOLS)
+        open_symbols = set(open_symbols) | set(FAST_FX_DB_SYMBOLS)
     mark_equity_symbols = (
         set(FAST_EQUITY_DB_SYMBOLS) if is_us_equity_rth(now) else set()
     )

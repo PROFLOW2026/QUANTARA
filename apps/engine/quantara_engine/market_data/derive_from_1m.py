@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from quantara_engine.market_data.aggregation import (
+    affected_5m_buckets_from_1m,
     incremental_1m_source_limit,
     incremental_derive_from_1m,
     incremental_derive_from_5m,
     incremental_source_limit,
 )
-from quantara_engine.market_data.polling import FAST_PROTECTION_TIMEFRAME, PROVIDER_TIMEFRAME
+from quantara_engine.market_data.polling import (
+    FAST_PROTECTION_TIMEFRAME,
+    PROVIDER_TIMEFRAME,
+    timeframe_minutes,
+)
 from quantara_engine.market_data.validation import validate_candle
 from quantara_engine.persistence.store import TradingStore
 
@@ -28,22 +33,42 @@ def derive_higher_from_1m(
     """
     Aggregate completed 1m → canonical 5m, then 5m → 15m/1h.
 
-    When new_1m_timestamps is None, uses a short recent 1m window (catch-up).
+    When new_1m_timestamps is None, catch up all completable buckets since the
+    latest stored canonical 5m (not a fixed short tail window).
     Returns (upserted_5m_count, upserted_higher_count).
     """
     if new_1m_timestamps:
-        lookback = incremental_1m_source_limit(len(new_1m_timestamps))
+        buckets = affected_5m_buckets_from_1m(
+            new_1m_timestamps,
+            session_mode=session_mode,
+        )
+        since = min(buckets) if buckets else min(new_1m_timestamps)
+        base_1m = store.list_candles(
+            instrument_id,
+            FAST_PROTECTION_TIMEFRAME,
+            since=since,
+        )
         touch = list(new_1m_timestamps)
     else:
-        lookback = incremental_1m_source_limit(5)
-        touch = None
+        last_5m = store.latest_candle_timestamp(instrument_id, PROVIDER_TIMEFRAME)
+        if last_5m is not None:
+            since = last_5m - timedelta(minutes=timeframe_minutes("5m"))
+            base_1m = store.list_candles(
+                instrument_id,
+                FAST_PROTECTION_TIMEFRAME,
+                since=since,
+            )
+        else:
+            lookback = incremental_1m_source_limit(5)
+            base_1m = store.list_recent_candles(
+                instrument_id,
+                FAST_PROTECTION_TIMEFRAME,
+                limit=lookback,
+            )
+        touch = [c.timestamp for c in base_1m]
 
-    base_1m = store.list_recent_candles(instrument_id, FAST_PROTECTION_TIMEFRAME, limit=lookback)
     if not base_1m:
         return 0, 0
-
-    if touch is None:
-        touch = [c.timestamp for c in base_1m]
 
     derived_5m = incremental_derive_from_1m(
         base_1m,

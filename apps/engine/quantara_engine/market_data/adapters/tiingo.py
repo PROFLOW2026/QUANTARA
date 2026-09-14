@@ -381,8 +381,11 @@ class TiingoMarketDataProvider:
         start = (since or datetime.now(timezone.utc) - timedelta(days=5)).replace(tzinfo=timezone.utc)
         if since:
             start = since - timedelta(days=1)
-        # Protection 1m lookback stays small to keep payloads light.
+        # Canonical 5m polls stay small; incremental 1m must gap-fill all bars
+        # since last_1m (tail truncation drops minutes and blocks 5m aggregation).
         limit = 120 if timeframe == PROVIDER_TIMEFRAME else 30
+        if since is not None and timeframe == "1m":
+            limit = 5000
         # FX/commodity 1m protection uses the FX reserve, not scheduled candle budget.
         purpose = "candles"
         if (

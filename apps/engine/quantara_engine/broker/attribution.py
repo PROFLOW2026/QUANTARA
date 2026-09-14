@@ -188,28 +188,32 @@ def allocate_fill_to_strategy_legs(
             ),
             {"rem": new_rem, "id": lot.id},
         )
-        store.session.execute(
-            text(
-                """
-                INSERT INTO broker_attribution_ledger (
-                  broker_fill_id, strategy_position_id, strategy_portfolio_id,
-                  opportunity_key, quantity, entry_price, exit_price,
-                  realized_pnl, direction
-                ) VALUES (:fid, :spid, :pid, :opp, :qty, :entry, :exit, :pnl, :dir)
-                """
-            ),
-            {
-                "fid": broker_fill_id,
-                "spid": lot.strategy_position_id,
-                "pid": lot.portfolio_id,
-                "opp": lot.opportunity_key or opportunity_key,
-                "qty": take,
-                "entry": lot.entry_price,
-                "exit": fill_price,
-                "pnl": lot_pnl,
-                "dir": lot.direction,
-            },
-        )
+        try:
+            store.session.execute(
+                text(
+                    """
+                    INSERT INTO broker_attribution_ledger (
+                      broker_fill_id, strategy_position_id, strategy_portfolio_id,
+                      opportunity_key, quantity, entry_price, exit_price,
+                      realized_pnl, direction
+                    ) VALUES (:fid, :spid, :pid, :opp, :qty, :entry, :exit, :pnl, :dir)
+                    """
+                ),
+                {
+                    "fid": broker_fill_id,
+                    "spid": lot.strategy_position_id,
+                    "pid": lot.portfolio_id,
+                    "opp": lot.opportunity_key or opportunity_key,
+                    "qty": take,
+                    "entry": lot.entry_price,
+                    "exit": fill_price,
+                    "pnl": lot_pnl,
+                    "dir": lot.direction,
+                },
+            )
+        except IntegrityError:
+            # Idempotent retry — one financial posting per fill/lot slice.
+            pass
         remaining -= take
 
     if opened_qty > 0:

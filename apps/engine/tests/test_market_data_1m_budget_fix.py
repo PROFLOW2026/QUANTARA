@@ -221,6 +221,70 @@ def test_i_classify_400_no_cooldown():
     assert should is False
 
 
+def test_tiingo_1m_incremental_fetch_does_not_truncate_gap_fill_window():
+    from quantara_engine.market_data.adapters.tiingo import TiingoMarketDataProvider
+    from quantara_engine.market_data.registry import get_asset
+
+    asset = get_asset("XAUUSD")
+    assert asset is not None
+    provider = TiingoMarketDataProvider(
+        asset=asset,
+        allow_non_canonical_timeframes=True,
+    )
+    since = datetime(2026, 9, 10, 12, 0, tzinfo=timezone.utc)
+    rows = []
+    for i in range(60):
+        ts = since + timedelta(minutes=i + 1)
+        rows.append(
+            {
+                "date": ts.isoformat().replace("+00:00", "Z"),
+                "open": 100 + i,
+                "high": 101 + i,
+                "low": 99 + i,
+                "close": 100.5 + i,
+            }
+        )
+
+    provider._fetch_rows = MagicMock(return_value=rows)  # type: ignore[method-assign]
+    candles = provider.fetch_latest("inst-xau", "1m", since=since)
+    assert len(candles) == 60
+    assert candles[0].timestamp == since + timedelta(minutes=1)
+    assert candles[-1].timestamp == since + timedelta(minutes=60)
+    assert len(candles) > 30
+    provider._fetch_rows.assert_called_once()
+    assert provider._fetch_rows.call_args.kwargs["limit"] == 5000
+
+
+def test_derive_catchup_scans_since_last_canonical_5m():
+    from quantara_engine.market_data.derive_from_1m import derive_higher_from_1m
+
+    store = MagicMock()
+    last_5m = datetime(2026, 9, 14, 20, 55, tzinfo=timezone.utc)
+    store.latest_candle_timestamp.return_value = last_5m
+    bars = []
+    start = datetime(2026, 9, 14, 21, 0, tzinfo=timezone.utc)
+    for i in range(10):
+        ts = start + timedelta(minutes=i)
+        bars.append(
+            _1m(
+                ts.isoformat(),
+                str(100 + i),
+                str(101 + i),
+                str(99 + i),
+                str(100.5 + i),
+            )
+        )
+    store.list_candles.return_value = bars
+    store.list_recent_candles.return_value = bars[-3:]
+
+    count_5m, higher = derive_higher_from_1m(store, "inst-1", session_mode="utc")
+    assert count_5m == 2
+    assert higher >= 0
+    store.list_candles.assert_called_once()
+    since_arg = store.list_candles.call_args.kwargs["since"]
+    assert since_arg == last_5m - timedelta(minutes=5)
+
+
 def test_fx_excluded_from_tiingo_5m_fallback():
     from quantara_engine.market_data.registry import get_asset
     from quantara_engine.market_data.tiingo_fallback_scheduler import _needs_tiingo_fallback

@@ -230,7 +230,8 @@ def _should_poll_asset(
             return False, "deferred (Twelve Data credit guard; no fallback available)"
 
     if asset.primary_provider == ProviderName.TIINGO:
-        if not is_us_equity_rth(now):
+        # FX Tiingo 1m is 24x5 — must not inherit US equity RTH deferral.
+        if asset.db_symbol not in FAST_FX_DB_SYMBOLS and not is_us_equity_rth(now):
             if stored >= STRATEGY_MIN_CANDLES:
                 return False, "deferred (US market closed — last session data retained)"
         last_poll = _tiingo_last_fetch(store, asset.db_symbol)
@@ -502,14 +503,65 @@ def _fetch_asset_live(
                 timings["alpaca"] = timings.get("alpaca", 0.0) + (time.perf_counter() - t0) * 1000
                 return local_5m, local_higher, None, ProviderName.ALPACA.value
 
-    # FX: never spend scheduled Tiingo/TD 5m when 1m protection stream is the authority.
+    # FX: Tiingo 1m is canonical; derive 5m/15m/1h locally (Twelve Data emergency only).
     if asset.db_symbol in FAST_FX_DB_SYMBOLS and not force_bootstrap:
+        from quantara_engine.market_data.adapters.tiingo import TiingoMarketDataProvider
+        from quantara_engine.market_data.polling import FAST_PROTECTION_TIMEFRAME
+        from quantara_engine.market_data.provider_budgets import FetchPriority as TiingoFetchPriority
+        from quantara_engine.market_data.sessions import is_forex_session
+
         last_ts = store.latest_candle_timestamp(instrument.id, timeframe)
-        if last_ts is not None and is_market_data_fresh(last_ts, timeframe, now):
+        last_1m = store.latest_candle_timestamp(instrument.id, FAST_PROTECTION_TIMEFRAME)
+        fresh_5m = last_ts is not None and is_market_data_fresh(last_ts, timeframe, now)
+        fresh_1m = last_1m is not None and is_market_data_fresh(last_1m, FAST_PROTECTION_TIMEFRAME, now)
+        if fresh_5m and fresh_1m:
             timings["local_1m_agg"] = timings.get("local_1m_agg", 0.0) + (time.perf_counter() - t0) * 1000
             return local_5m, local_higher, None, "aggregated"
-        # Stale 5m but still skip separate FX 5m provider fetch — protection 1m owns the stream.
-        # Only gap-fill via provider when history is critically thin (bootstrap handled above).
+        if is_forex_session(now) and (not fresh_1m or not fresh_5m):
+            # When canonical 5m is stale but 1m looks fresh, still fetch from the
+            # last 5m boundary so Tiingo can gap-fill missing minutes for aggregation.
+            fetch_since = last_1m
+            if not fresh_5m and last_ts is not None:
+                fetch_since = min(ts for ts in (last_1m, last_ts) if ts is not None)
+            provider = TiingoMarketDataProvider(
+                store=store,
+                caller="fetch_live_job:fx_1m",
+                priority=TiingoFetchPriority.SCHEDULED,
+                asset=asset,
+                allow_non_canonical_timeframes=True,
+            )
+            try:
+                candles_1m = provider.fetch_latest(
+                    instrument.id,
+                    FAST_PROTECTION_TIMEFRAME,
+                    since=fetch_since,
+                )
+            except TiingoError as exc:
+                logger.warning("Tiingo FX 1m fetch failed for %s: %s", asset.db_symbol, exc)
+                candles_1m = []
+            new_ts: list[datetime] = []
+            for candle in dedupe_complete_candles(candles_1m):
+                try:
+                    validate_candle(candle)
+                except Exception as exc:
+                    logger.warning("Invalid FX 1m skipped (%s): %s", asset.db_symbol, exc)
+                    continue
+                store.upsert_candle(candle)
+                new_ts.append(candle.timestamp)
+            if new_ts:
+                d5, dh = derive_higher_from_1m(
+                    store,
+                    instrument.id,
+                    new_ts,
+                    session_mode=_aggregation_mode(asset),
+                )
+                local_5m += d5
+                local_higher += dh
+                _mark_tiingo_fetch(store, asset.db_symbol, now)
+                if asset.db_symbol == "XAUUSD":
+                    update_spot_from_latest_5m(store, instrument.id)
+                timings["tiingo"] = timings.get("tiingo", 0.0) + (time.perf_counter() - t0) * 1000
+                return local_5m, local_higher, None, ProviderName.TIINGO.value
         if stored >= STRATEGY_MIN_CANDLES:
             timings["local_1m_agg"] = timings.get("local_1m_agg", 0.0) + (time.perf_counter() - t0) * 1000
             return local_5m, local_higher, None, "aggregated"

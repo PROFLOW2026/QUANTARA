@@ -1031,6 +1031,17 @@ class BrokerExecutionService:
         row = self.get_account_row()
         snapshot = self.load_account_snapshot(account_id)
         self._persist_account_metrics(account_id, snapshot, row=row)
+        try:
+            from quantara_engine.live_sim.risk_policy import update_high_water_mark
+
+            if row:
+                update_high_water_mark(
+                    self.store,
+                    account_id,
+                    Decimal(str(row.get("equity") or row.get("starting_cash") or 0)),
+                )
+        except Exception:
+            pass
 
     def mark_to_market(self, marks: dict[str, Decimal], *, at: datetime | None = None) -> None:
         """Update broker position marks and account metrics without a fill."""

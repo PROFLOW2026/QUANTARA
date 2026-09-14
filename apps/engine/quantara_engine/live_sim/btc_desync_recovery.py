@@ -422,18 +422,16 @@ def recover_live_sim_btc_shadow_broker_desync(
         opportunity_key=row.get("opportunity_key"),
     )
     if live_sim_physical_close_succeeded(broker_res) and remaining_after <= 0 and not closed_shadow:
-        # Ensure shadow row closed even if status race left it open/closed inconsistently.
-        store.session.execute(
-            text(
-                """
-                UPDATE live_sim_positions
-                SET status = 'closed', closed_at = COALESCE(closed_at, :ts), updated_at = NOW()
-                WHERE id = :id
-                """
-            ),
-            {"id": position_id, "ts": candle.timestamp},
+        closed_shadow = finalize_live_sim_position_close(
+            store,
+            position_id=position_id,
+            closed_at=candle.timestamp,
+            account_slug=account_slug,
+            instrument_symbol=instrument.symbol,
+            mark_price=candle.close,
+            broker_res=broker_res,
+            requested_quantity=qty,
         )
-        closed_shadow = True
 
     ok = (
         live_sim_physical_close_succeeded(broker_res)

@@ -263,6 +263,8 @@ def _execute_accepted_allocation(
     )
     _, fill = broker_adapter.execute_entry(intent, exec_candle)
     idem = live_sim_execution_idempotency_key(account_slug, canonical_key)
+    # Pre-assign strategy position id so attribution lots bind before any exit path runs.
+    pos_id = str(uuid.uuid4())
     broker_res = execute_through_broker(
         store,
         portfolio_id=LIVE_SIM_VIRTUAL_PORTFOLIO_ID,
@@ -277,11 +279,17 @@ def _execute_accepted_allocation(
         order_purpose="entry",
         skip_if_not_competition=False,
         account_slug=account_slug,
+        strategy_position_id=pos_id,
         stop_loss=sl if sl and sl > 0 else None,
         take_profit=take_profit,
     )
 
-    if broker_res is None or not broker_res.accepted:
+    from quantara_engine.live_sim.entry_authority import (
+        create_live_sim_position_after_physical_entry,
+        live_sim_physical_entry_succeeded,
+    )
+
+    if not live_sim_physical_entry_succeeded(broker_res):
         from quantara_engine.broker.display import broker_reason_he
 
         reason_code = (
@@ -303,41 +311,25 @@ def _execute_accepted_allocation(
             "broker_reason": reason_code,
         }
 
-    pos_id = str(uuid.uuid4())
-    store.session.execute(
-        text(
-            """
-            INSERT INTO live_sim_positions (
-              id, broker_account_id, instrument_id, strategy_slug, strategy_version,
-              robot_label, timeframe, direction, quantity, entry_price, stop_loss,
-              take_profit, current_price, planned_sl_risk_usd, opportunity_key,
-              canonical_opportunity_key, status, opened_at, allocation_log_id
-            ) VALUES (
-              :id, :aid, :iid, :slug, :ver, :robot, :tf, CAST(:dir AS direction),
-              :qty, :entry, :sl, :tp, :mark, :risk, :opp, :canonical, 'open', :opened, :log_id
-            )
-            """
-        ),
-        {
-            "id": pos_id,
-            "aid": account_id,
-            "iid": instrument.id,
-            "slug": strategy_slug,
-            "ver": strategy_version,
-            "robot": robot_label,
-            "tf": instance.timeframe,
-            "dir": direction,
-            "qty": qty,
-            "entry": fill.fill_price,
-            "sl": sl,
-            "tp": take_profit,
-            "mark": fill.fill_price,
-            "risk": expected_risk,
-            "opp": opportunity_key,
-            "canonical": canonical_key,
-            "opened": exec_candle.timestamp,
-            "log_id": log_id,
-        },
+    create_live_sim_position_after_physical_entry(
+        store,
+        position_id=pos_id,
+        broker_account_id=account_id,
+        instrument_id=instrument.id,
+        strategy_slug=strategy_slug,
+        strategy_version=strategy_version,
+        robot_label=robot_label,
+        timeframe=instance.timeframe,
+        direction=direction,
+        quantity=qty,
+        entry_price=fill.fill_price,
+        stop_loss=sl,
+        take_profit=take_profit,
+        planned_sl_risk_usd=expected_risk,
+        opportunity_key=opportunity_key,
+        canonical_opportunity_key=canonical_key,
+        opened_at=exec_candle.timestamp,
+        allocation_log_id=log_id,
     )
     # Link attribution lots created before the shadow position id existed.
     if broker_res.broker_fill_id:
@@ -578,6 +570,8 @@ def _resume_pending_allocation(
             store, asset_row["id"], settings, equity, execution_now
         )
         update_asset_high_water_mark(store, asset_row["id"], equity)
+        broker_equity = Decimal(str(account.get("equity") or account.get("starting_cash")))
+        update_high_water_mark(store, account_id, broker_equity)
     else:
         settings = broker_limits
         settings = maybe_roll_daily_start(store, account_id, settings, equity, execution_now)
@@ -696,6 +690,20 @@ def resume_all_pending_live_sim_allocations(
     execution_now: datetime,
 ) -> dict:
     """Resume queued live-sim allocations independent of current signal evaluation."""
+    from quantara_engine.live_sim.integrity_containment import is_live_sim_entries_blocked
+
+    if is_live_sim_entries_blocked(store):
+        return {
+            "pending_found": 0,
+            "not_ready": 0,
+            "resumed": 0,
+            "expired": 0,
+            "broker_rejected": 0,
+            "filled": 0,
+            "blocked": True,
+            "reason": "live_sim_integrity_containment",
+        }
+
     report: dict = {
         "pending_found": 0,
         "not_ready": 0,
@@ -807,6 +815,11 @@ def maybe_allocate_live_sim(
     execution_now: datetime,
 ) -> dict:
     """Evaluate one canonical candidate for live-sim account (once per opportunity)."""
+    from quantara_engine.live_sim.integrity_containment import is_live_sim_entries_blocked
+
+    if is_live_sim_entries_blocked(store):
+        return {"status": "skipped", "reason": "live_sim_integrity_containment"}
+
     result = {"status": "skipped"}
     if signal is None or signal.action not in (SignalAction.BUY, SignalAction.SELL):
         return result
@@ -1025,6 +1038,8 @@ def maybe_allocate_live_sim(
             store, asset_row["id"], settings, equity, execution_now
         )
         update_asset_high_water_mark(store, asset_row["id"], equity)
+        broker_equity = Decimal(str(account.get("equity") or account.get("starting_cash")))
+        update_high_water_mark(store, account_id, broker_equity)
     else:
         settings = broker_limits
         settings = maybe_roll_daily_start(store, account_id, settings, equity, execution_now)

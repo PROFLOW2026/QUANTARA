@@ -15,6 +15,35 @@ logger = logging.getLogger(__name__)
 DEFAULT_TOLERANCE_PCT = Decimal("2")
 
 
+def _sl_risk_usd(
+    *,
+    entry_price: Decimal,
+    stop_loss: Decimal,
+    quantity: Decimal,
+    symbol: str | None,
+    fx_rates: dict[str, Decimal] | None,
+) -> Decimal | None:
+    """Convert stop-distance × quantity to USD (JPY quote pairs need FX)."""
+    diff = abs(entry_price - stop_loss)
+    if diff <= 0 or quantity <= 0:
+        return None
+    sym = (symbol or "").upper().replace("/", "")
+    if sym.endswith("JPY") or (fx_rates and "JPY" in fx_rates and sym.endswith("JPY")):
+        from quantara_engine.broker.instruments import get_instrument_spec
+
+        try:
+            spec = get_instrument_spec(sym)
+        except KeyError:
+            spec = None
+        if spec and (spec.quote_currency or "").upper() == "JPY":
+            jpy_per_usd = (fx_rates or {}).get("JPY")
+            if not jpy_per_usd or jpy_per_usd <= 0:
+                return None
+            quote_risk = quantity * diff
+            return quote_risk / jpy_per_usd
+    return diff * quantity
+
+
 def compute_risk_observation(
     *,
     direction: str,
@@ -31,6 +60,8 @@ def compute_risk_observation(
     slippage: Decimal | None = None,
     fees: Decimal | None = None,
     tolerance_pct: Decimal = DEFAULT_TOLERANCE_PCT,
+    symbol: str | None = None,
+    fx_rates: dict[str, Decimal] | None = None,
 ) -> dict[str, Any]:
     """Compute gap and post-fill risk-to-SL for LONG and SHORT."""
     gap = None
@@ -39,11 +70,23 @@ def compute_risk_observation(
 
     planned_risk = planned_risk_usd
     if planned_risk is None and planned_entry_ref is not None and planned_sl is not None:
-        planned_risk = abs(planned_entry_ref - planned_sl) * quantity
+        planned_risk = _sl_risk_usd(
+            entry_price=planned_entry_ref,
+            stop_loss=planned_sl,
+            quantity=quantity,
+            symbol=symbol,
+            fx_rates=fx_rates,
+        )
 
     actual_risk = None
     if planned_sl is not None:
-        actual_risk = abs(actual_fill_price - planned_sl) * quantity
+        actual_risk = _sl_risk_usd(
+            entry_price=actual_fill_price,
+            stop_loss=planned_sl,
+            quantity=quantity,
+            symbol=symbol,
+            fx_rates=fx_rates,
+        )
 
     planned_risk_pct = None
     actual_risk_pct = None
@@ -122,6 +165,15 @@ def record_planned_vs_actual(
     live_sim_position_id: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> str | None:
+    fx_map: dict[str, Decimal] | None = None
+    try:
+        instrument = store.get_instrument_by_symbol(symbol)
+        if instrument:
+            ctx = store.build_currency_context_for_instruments([instrument])
+            fx_map = {k: v for k, v in ctx.fx_rates.quote_per_usd.items()}
+    except Exception:
+        fx_map = None
+
     obs = compute_risk_observation(
         direction=direction,
         signal_candle_close=signal_candle_close,
@@ -136,6 +188,8 @@ def record_planned_vs_actual(
         spread=spread,
         slippage=slippage,
         fees=fees,
+        symbol=symbol,
+        fx_rates=fx_map,
     )
     row_id = str(uuid4())
     try:

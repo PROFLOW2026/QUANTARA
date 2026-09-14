@@ -195,7 +195,10 @@ def evaluate_drawdown_gate(
 ) -> GateResult:
     if high_water_mark <= 0:
         return GateResult(True)
-    dd_pct = (high_water_mark - equity) / high_water_mark * Decimal("100")
+    dd_pct = max(
+        Decimal("0"),
+        (high_water_mark - equity) / high_water_mark * Decimal("100"),
+    )
     if dd_pct >= max_drawdown_gate_pct:
         return GateResult(
             False,
