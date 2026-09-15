@@ -412,6 +412,7 @@
     "asset_status_data_error": "שגיאת נתונים",
     "asset_status_updating": "מעדכן",
     "asset_status_waiting_data": "ממתין לנתון",
+    "asset_status_rth_warmup": "ממתין לנר ראשון",
     "asset_status_blocked": "חסום",
     "asset_status_error": "שגיאה",
     "asset_status_deferred": "ממתין לעדכון הבא",

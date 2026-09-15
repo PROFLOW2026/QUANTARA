@@ -1219,6 +1219,7 @@ def strategy_freshness_summary(store: TradingStore, now: datetime | None = None)
     }
     inst_ids = [inst.id for inst in symbol_to_inst.values() if inst]
     latest_by_inst = batch_latest_candle_timestamps(store, inst_ids, "5m")
+    latest_1m_by_inst = batch_latest_candle_timestamps(store, inst_ids, "1m")
     market_ages: dict[str, float | None] = {}
     market_health: dict[str, dict] = {}
     for asset in target_assets:
@@ -1226,8 +1227,11 @@ def strategy_freshness_summary(store: TradingStore, now: datetime | None = None)
         if not inst:
             continue
         ts = latest_by_inst.get(inst.id)
+        last_1m = latest_1m_by_inst.get(inst.id)
         market_ages[asset.db_symbol] = round((now - ts).total_seconds() / 60, 1) if ts else None
-        market_health[asset.db_symbol] = classify_strategy_candle_health(asset, ts, now)
+        market_health[asset.db_symbol] = classify_strategy_candle_health(
+            asset, ts, now, last_1m=last_1m
+        )
 
     market_summary = aggregate_market_health(market_health)
 

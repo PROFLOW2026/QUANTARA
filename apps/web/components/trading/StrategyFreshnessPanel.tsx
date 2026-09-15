@@ -40,6 +40,7 @@ function healthLabel(classification?: string) {
   if (classification === "latency_ok") return t("home.strategy_asset_latency_ok");
   if (classification === "stale") return t("home.strategy_asset_stale");
   if (classification === "missing") return t("home.strategy_asset_missing");
+  if (classification === "rth_warmup") return t("home.asset_status_rth_warmup");
   return classification ?? "—";
 }
 

@@ -243,6 +243,7 @@ const DATA_STATUS_KEYS: Record<string, string> = {
   blocked: "home.asset_status_blocked",
   error: "home.asset_status_error",
   unknown: "home.asset_status_unknown",
+  rth_warmup: "home.asset_status_rth_warmup",
 };
 
 const PROVIDER_STATUS_KEYS: Record<string, string> = {
@@ -374,6 +375,13 @@ export function resolveAssetDataStatusPresentation(
   if (!hasLastCandle && normalized !== "error" && normalized !== "blocked") {
     return {
       label: t("home.asset_status_waiting_data"),
+      variant: "default",
+    };
+  }
+
+  if (normalized === "rth_warmup") {
+    return {
+      label: t("home.asset_status_rth_warmup"),
       variant: "default",
     };
   }

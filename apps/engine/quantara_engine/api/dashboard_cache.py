@@ -39,6 +39,7 @@ def dashboard_candle_bundle(
     bundle = {
         "counts": batch_candle_counts(store, instrument_ids),
         "last_candles": batch_latest_candle_timestamps(store, instrument_ids, "5m"),
+        "last_1m_candles": batch_latest_candle_timestamps(store, instrument_ids, "1m"),
         "latest_closes": batch_latest_candle_closes(store, instrument_ids, "5m"),
     }
     with _lock:

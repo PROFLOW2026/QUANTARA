@@ -26,12 +26,28 @@ def classify_strategy_candle_health(
     now: datetime,
     *,
     timeframe: str = "5m",
+    last_1m: datetime | None = None,
 ) -> dict[str, Any]:
     """
     Classify strategy candle freshness for dashboard health.
 
     Does not use 1m LIVE_MARK timestamps — only canonical strategy timeframe candles.
+    US equities delegate to RTH session-open semantics (feed vs strategy readiness).
     """
+    from quantara_engine.execution.crypto_mark_valuation import is_fast_protection_equity
+    from quantara_engine.market_data.equity_rth_health import (
+        classify_equity_strategy_timeframe_health,
+    )
+
+    if is_fast_protection_equity(asset.db_symbol):
+        return classify_equity_strategy_timeframe_health(
+            asset,
+            last_candle_ts,
+            now,
+            timeframe=timeframe,
+            last_1m=last_1m,
+        )
+
     now = _as_utc(now)
     session_open = session_allows_entries(asset.trading_sessions, now)
 
@@ -77,6 +93,14 @@ def is_strategy_candle_eligible(
     timeframe: str = "5m",
 ) -> tuple[bool, str]:
     """Session-aware replacement for raw is_market_data_fresh in strategy eligibility."""
+    from quantara_engine.execution.crypto_mark_valuation import is_fast_protection_equity
+    from quantara_engine.market_data.equity_rth_health import is_equity_strategy_candle_eligible
+
+    if is_fast_protection_equity(asset.db_symbol):
+        return is_equity_strategy_candle_eligible(
+            asset, last_candle_ts, now, timeframe=timeframe
+        )
+
     if not session_allows_entries(asset.trading_sessions, now):
         return False, "session_closed"
 

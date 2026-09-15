@@ -280,10 +280,8 @@ def candles_latest(
 def _build_market_data_status_payload(store: StoreDep):
     from quantara_engine.market_data.provider_budgets import all_provider_status
     from quantara_engine.market_data.registry import list_target_assets
-    from quantara_engine.market_data.sessions import (
-        is_data_stale_while_session_open,
-        session_allows_entries,
-    )
+    from quantara_engine.market_data.equity_rth_health import resolve_equity_session_stale
+    from quantara_engine.market_data.sessions import session_allows_entries
     from quantara_engine.api.dashboard_cache import dashboard_candle_bundle
 
     worker_raw = store.get_settings_dict().get("worker_status:data_fetcher") or {}
@@ -298,29 +296,36 @@ def _build_market_data_status_payload(store: StoreDep):
     candle_bundle = dashboard_candle_bundle(store, instrument_ids)
     candle_counts = candle_bundle["counts"]
     last_candles = candle_bundle["last_candles"]
+    last_1m_candles = candle_bundle.get("last_1m_candles") or {}
     latest_closes = candle_bundle["latest_closes"]
 
     for asset in assets:
         inst = instrument_by_symbol.get(asset.db_symbol)
         counts: dict[str, int] = {"5m": 0, "15m": 0, "1h": 0}
         last_candle = None
+        last_5m = None
         latest_price = None
         stale = True
         session_status = "unknown"
+        feed_status: str | None = None
         if inst:
             counts = candle_counts.get(inst.id, counts)
-            last_candle = last_candles.get(inst.id)
+            last_5m = last_candles.get(inst.id)
+            last_candle = last_5m
+            last_1m = last_1m_candles.get(inst.id)
             if inst.id in latest_closes:
                 latest_price = float(latest_closes[inst.id])
-            if last_candle:
-                session_status = (
-                    "open"
-                    if session_allows_entries(asset.trading_sessions, now)
-                    else "closed"
-                )
-                stale = is_data_stale_while_session_open(
-                    asset.trading_sessions, last_candle, now
-                )
+            session_status = (
+                "open"
+                if session_allows_entries(asset.trading_sessions, now)
+                else "closed"
+            )
+            stale, feed_status = resolve_equity_session_stale(
+                asset,
+                last_5m,
+                now,
+                last_1m=last_1m,
+            )
             from quantara_engine.api.display_price import resolve_asset_display_price
 
             latest_price, mark_at = resolve_asset_display_price(
@@ -332,7 +337,12 @@ def _build_market_data_status_payload(store: StoreDep):
             if mark_at is not None:
                 last_candle = mark_at
         asset_health = (worker_raw.get("assets") or {}).get(asset.db_symbol, {})
-        status = asset_health.get("status") or ("stale" if stale else "healthy")
+        status = (
+            feed_status
+            or asset_health.get("feed_status")
+            or asset_health.get("status")
+            or ("stale" if stale else "healthy")
+        )
         if session_status == "closed" and last_candle and status not in ("error", "blocked"):
             status = "deferred"
         if not last_candle and asset.primary_provider.value == "twelvedata":
@@ -403,10 +413,8 @@ def _build_analytics_assets_payload(store: StoreDep):
     """Per-asset market + competition P&L summary for the Home dashboard."""
     from quantara_engine.market_data.polling import STRATEGY_MIN_CANDLES
     from quantara_engine.market_data.registry import list_target_assets
-    from quantara_engine.market_data.sessions import (
-        is_data_stale_while_session_open,
-        session_allows_entries,
-    )
+    from quantara_engine.market_data.equity_rth_health import resolve_equity_session_stale
+    from quantara_engine.market_data.sessions import session_allows_entries
     from quantara_engine.api.dashboard_cache import dashboard_candle_bundle
 
     robot_a, robot_b, combined = store.list_all_competition_entries()
@@ -447,6 +455,7 @@ def _build_analytics_assets_payload(store: StoreDep):
     candle_bundle = dashboard_candle_bundle(store, instrument_ids)
     candle_counts = candle_bundle["counts"]
     last_candles = candle_bundle["last_candles"]
+    last_1m_candles = candle_bundle.get("last_1m_candles") or {}
     latest_closes = candle_bundle["latest_closes"]
 
     from quantara_engine.market_regime.snapshots import latest_regimes_for_assets
@@ -466,6 +475,7 @@ def _build_analytics_assets_payload(store: StoreDep):
         latest_price = None
         stale = True
         session_status = "unknown"
+        feed_status: str | None = None
         strategy_ready = {"5m": False, "15m": False, "1h": False}
 
         open_positions = 0
@@ -478,18 +488,22 @@ def _build_analytics_assets_payload(store: StoreDep):
             counts = candle_counts.get(inst.id, counts)
             for tf in ("5m", "15m", "1h"):
                 strategy_ready[tf] = counts.get(tf, 0) >= STRATEGY_MIN_CANDLES
-            last_candle = last_candles.get(inst.id)
+            last_5m = last_candles.get(inst.id)
+            last_candle = last_5m
+            last_1m = last_1m_candles.get(inst.id)
             if inst.id in latest_closes:
                 latest_price = float(latest_closes[inst.id])
-            if last_candle:
-                session_status = (
-                    "open"
-                    if session_allows_entries(asset.trading_sessions, now)
-                    else "closed"
-                )
-                stale = is_data_stale_while_session_open(
-                    asset.trading_sessions, last_candle, now
-                )
+            session_status = (
+                "open"
+                if session_allows_entries(asset.trading_sessions, now)
+                else "closed"
+            )
+            stale, feed_status = resolve_equity_session_stale(
+                asset,
+                last_5m,
+                now,
+                last_1m=last_1m,
+            )
 
             from quantara_engine.api.display_price import resolve_asset_display_price
             from quantara_engine.market_data.streaming.live_mark_read import hub_mark_price
@@ -577,7 +591,7 @@ def _build_analytics_assets_payload(store: StoreDep):
         global_risk_cap_pct = risk_metrics.global_risk_cap_pct if risk_metrics else 2.0
 
         asset_health = (worker_raw.get("assets") or {}).get(asset.db_symbol, {})
-        data_status = asset_health.get("status") or ("stale" if stale else "healthy")
+        data_status = feed_status or asset_health.get("status") or ("stale" if stale else "healthy")
         if session_status == "closed" and last_candle and data_status not in ("error", "blocked"):
             data_status = "deferred"
         if not last_candle and asset.primary_provider.value == "twelvedata":

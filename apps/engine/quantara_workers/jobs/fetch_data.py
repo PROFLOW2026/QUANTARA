@@ -99,6 +99,64 @@ def _uses_alpaca_live_equity(asset, now: datetime) -> bool:
     )
 
 
+def _asset_worker_feed_status(
+    store: TradingStore,
+    instrument,
+    asset,
+    now: datetime,
+    *,
+    latest_5m: datetime | None,
+    stored: int,
+    count: int,
+    live_provider: str,
+    configured_primary: str,
+    error: str | None = None,
+) -> dict:
+    """Per-symbol worker feed health — independent across assets."""
+    from quantara_engine.market_data.equity_rth_health import classify_equity_feed_health
+    from quantara_engine.market_data.polling import FAST_PROTECTION_TIMEFRAME
+
+    base = {
+        "provider": live_provider,
+        "configured_primary": configured_primary,
+        "actual_source": live_provider,
+        "last_candle": latest_5m.isoformat() if latest_5m else None,
+        "candles_upserted": count,
+    }
+    if error and str(error).startswith("deferred"):
+        return {**base, "status": "deferred", "note": error}
+    if error:
+        return {**base, "status": "error", "error": error}
+    if stored < STRATEGY_MIN_CANDLES:
+        return {
+            **base,
+            "status": "bootstrapping",
+            "stored_5m": stored,
+            "note": f"bootstrap in progress ({stored}/{STRATEGY_MIN_CANDLES} 5m bars)",
+        }
+    if (
+        latest_5m
+        and stored >= STRATEGY_MIN_CANDLES
+        and not session_allows_entries(asset.trading_sessions or {}, now)
+    ):
+        return {**base, "status": "deferred", "note": "market closed — last session data retained"}
+
+    if asset.db_symbol in FAST_EQUITY_DB_SYMBOLS:
+        last_1m = store.latest_candle_timestamp(instrument.id, FAST_PROTECTION_TIMEFRAME)
+        feed = classify_equity_feed_health(last_1m=last_1m, last_5m=latest_5m, now=now)
+        return {
+            **base,
+            "status": feed["dashboard_status"],
+            "feed_status": feed["feed_status"],
+            "last_1m": last_1m.isoformat() if last_1m else None,
+            "one_m_fresh": feed["one_m_fresh"],
+            "in_rth_warmup": feed["in_warmup"],
+        }
+
+    healthy = latest_5m is not None and is_market_data_fresh(latest_5m, PROVIDER_TIMEFRAME, now)
+    return {**base, "status": "healthy" if healthy else "stale"}
+
+
 def _aggregation_mode(asset) -> str:
     if asset.asset_class in (AssetClass.STOCK, AssetClass.INDEX):
         return "us_rth"
@@ -130,10 +188,20 @@ def _try_local_1m_canonical(
     )
     last_ts = store.latest_candle_timestamp(instrument.id, PROVIDER_TIMEFRAME)
     stored = store.count_candles(instrument.id, PROVIDER_TIMEFRAME)
+    if asset.db_symbol in FAST_EQUITY_DB_SYMBOLS:
+        from quantara_engine.market_data.equity_rth_health import (
+            is_equity_canonical_5m_current,
+        )
+
+        tf_fresh = is_equity_canonical_5m_current(last_ts, now)
+    else:
+        tf_fresh = last_ts is not None and is_market_data_fresh(
+            last_ts, PROVIDER_TIMEFRAME, now
+        )
     fresh = (
         last_ts is not None
         and stored >= STRATEGY_MIN_CANDLES
-        and is_market_data_fresh(last_ts, PROVIDER_TIMEFRAME, now)
+        and tf_fresh
         and not should_fetch_timeframe(PROVIDER_TIMEFRAME, last_ts, now)
     )
     return count_5m, higher, fresh
@@ -498,8 +566,20 @@ def _fetch_asset_live(
                 local_5m += d5
                 local_higher += dh
                 _mark_alpaca_live_fetch(store, asset.db_symbol, now)
+            else:
+                d5, dh = derive_higher_from_1m(
+                    store,
+                    instrument.id,
+                    session_mode=_aggregation_mode(asset),
+                )
+                local_5m += d5
+                local_higher += dh
             last_ts = store.latest_candle_timestamp(instrument.id, timeframe)
-            if last_ts is not None and is_market_data_fresh(last_ts, timeframe, now):
+            from quantara_engine.market_data.equity_rth_health import (
+                is_equity_canonical_5m_current,
+            )
+
+            if last_ts is not None and is_equity_canonical_5m_current(last_ts, now):
                 timings["alpaca"] = timings.get("alpaca", 0.0) + (time.perf_counter() - t0) * 1000
                 return local_5m, local_higher, None, ProviderName.ALPACA.value
 
@@ -1202,14 +1282,17 @@ def _fetch_live_asset_isolated(
             "note": "market closed — last session data retained",
         }
     else:
-        status = {
-            "status": "healthy" if latest and is_market_data_fresh(latest, PROVIDER_TIMEFRAME, now) else "stale",
-            "provider": live_provider,
-            "configured_primary": configured_primary,
-            "actual_source": live_provider,
-            "last_candle": latest.isoformat() if latest else None,
-            "candles_upserted": count,
-        }
+        status = _asset_worker_feed_status(
+            store,
+            instrument,
+            asset,
+            now,
+            latest_5m=latest,
+            stored=stored,
+            count=count,
+            live_provider=live_provider,
+            configured_primary=configured_primary,
+        )
     return count, derived, error, status
 
 
@@ -1266,14 +1349,18 @@ def fetch_live_job(store: TradingStore | None = None) -> None:
                     recent = store.list_recent_candles(instrument.id, PROVIDER_TIMEFRAME, limit=1)
                     if recent and getattr(recent[0], "source", None):
                         live_provider = str(recent[0].source)
-                status = {
-                    "status": "healthy" if latest and is_market_data_fresh(latest, PROVIDER_TIMEFRAME, now) else "stale",
-                    "provider": live_provider,
-                    "configured_primary": configured_primary,
-                    "actual_source": live_provider,
-                    "last_candle": latest.isoformat() if latest else None,
-                    "candles_upserted": count,
-                }
+                status = _asset_worker_feed_status(
+                    store,
+                    instrument,
+                    asset,
+                    now,
+                    latest_5m=latest,
+                    stored=stored,
+                    count=count,
+                    live_provider=live_provider,
+                    configured_primary=configured_primary,
+                    error=error,
+                )
             else:
                 count, derived, error, status = _fetch_live_asset_isolated(
                     asset,
