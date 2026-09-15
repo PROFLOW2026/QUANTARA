@@ -1,6 +1,6 @@
 """Tests for stale catch-up execution guard."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from quantara_engine.core.clock import BacktestClock
@@ -126,18 +126,22 @@ def test_stale_catchup_intent_rejected_not_executed():
 
 
 def test_live_intent_on_latest_candle_executes():
-    candle_ts = datetime(2026, 9, 8, 21, 5, tzinfo=timezone.utc)
+    signal_ts = datetime(2026, 9, 8, 21, 0, tzinfo=timezone.utc)
+    exec_ts = datetime(2026, 9, 8, 21, 5, tzinfo=timezone.utc)
     candle = Candle(
         instrument_id="btc",
         timeframe="5m",
-        timestamp=candle_ts,
+        timestamp=exec_ts,
         open=Decimal("78400"),
         high=Decimal("78500"),
         low=Decimal("78300"),
         close=Decimal("78450"),
         volume=Decimal("1"),
     )
-    proc = _processor(latest_completed=candle_ts, candle=candle)
+    proc = _processor(latest_completed=exec_ts, candle=candle)
+    proc.execution_now = exec_ts + timedelta(minutes=5)
+    proc.pending_intents[0].signal_candle_timestamp = signal_ts
+    proc.pending_intents[0].execution_candle_timestamp = exec_ts
     hold = Signal(action=SignalAction.HOLD, reason="test")
     proc.process_candle(0, shared_signal=hold)
     assert len(proc.state.open_positions()) == 1

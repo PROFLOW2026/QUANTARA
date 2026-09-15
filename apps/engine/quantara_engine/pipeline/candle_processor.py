@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from quantara_engine.persistence.store import TradingStore
 
 
-FRESHNESS_MAX_AGE_MINUTES = 30
+FRESHNESS_MAX_AGE_MINUTES = freshness_max_age_minutes("5m")
 
 
 def signal_age_minutes(signal_candle_timestamp: datetime, now: datetime) -> float:

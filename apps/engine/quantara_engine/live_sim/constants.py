@@ -25,6 +25,7 @@ REJECTION_HE: dict[str, str] = {
     "INVALID_STOP_LOSS": "מרחק stop loss לא תקין",
     "SESSION_CLOSED": "שוק סגור — אין כניסות חדשות",
     "STALE_SIGNAL": "אות ישן מדי לביצוע",
+    "EXECUTION_WINDOW": "חלון הביצוע הסתיים",
     "ACCOUNT_INACTIVE": "חשבון הסימולציה לא פעיל",
     "BROKER_REJECTED": "הברוקר דחה את ההזמנה",
     "BROKER_CAPABILITY_DENIED": "לא ניתן לביצוע בחשבון הנוכחי",

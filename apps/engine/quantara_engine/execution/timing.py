@@ -35,11 +35,21 @@ def stale_signal_max_age_minutes(timeframe: str) -> int:
 
 
 def freshness_max_age_minutes(timeframe: str) -> int:
-    """Maximum signal age for live intent creation at strategy evaluation."""
-    bar = timeframe_minutes(timeframe)
-    if bar <= 5:
-        return 30
-    return stale_signal_max_age_minutes(timeframe) + intent_creation_tolerance_minutes(timeframe)
+    """Maximum signal age for live intent creation — aligned with fill stale gate."""
+    return stale_signal_max_age_minutes(timeframe)
+
+
+def is_terminal_execution_rejection(reason: str | None) -> bool:
+    """Non-retryable execution rejections — pending rows must not remain accepted."""
+    if not reason:
+        return False
+    if "stale_signal_age" in reason:
+        return True
+    return reason in (
+        "execution_window_passed",
+        "execution_candle_mismatch",
+        "invalid_next_open_spacing",
+    )
 
 
 def _as_utc(dt: datetime) -> datetime:

@@ -16,7 +16,13 @@ from quantara_engine.competition.robot_registry import ROBOT_LABELS
 from quantara_engine.domain.types import Direction, IntentStatus, OrderIntent, SignalAction, new_id
 from quantara_engine.execution.cost_profile import execution_assumptions_for
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
-from quantara_engine.execution.timing import freshness_max_age_minutes
+from quantara_engine.execution.timing import (
+    freshness_max_age_minutes,
+    is_execution_candle_ready,
+    is_terminal_execution_rejection,
+    next_execution_timestamp,
+    resolve_execution_candle,
+)
 from quantara_engine.live_sim.candidate_log import (
     allocation_lifecycle_state,
     expire_stale_live_sim_allocations,
@@ -63,12 +69,6 @@ from quantara_engine.market_data.sessions import session_allows_entries
 from quantara_engine.persistence.store import TradingStore
 from quantara_engine.pipeline.candle_processor import signal_age_minutes
 from quantara_engine.risk.opportunity import opportunity_key_from_signal
-from quantara_engine.execution.timing import (
-    is_execution_candle_ready,
-    next_execution_timestamp,
-    resolve_execution_candle,
-)
-
 logger = logging.getLogger(__name__)
 
 
@@ -482,8 +482,14 @@ def _resume_pending_allocation(
     execution_now: datetime,
 ) -> dict:
     lifecycle = allocation_lifecycle_state(existing)
-    if lifecycle != "pending_execution":
+    if lifecycle not in ("pending_execution", "accepted_limbo"):
         return {"status": "skipped", "reason": lifecycle}
+    if lifecycle == "accepted_limbo":
+        update_allocation_metadata(
+            store,
+            existing["id"],
+            {"pending_execution": True, "lifecycle_state": "pending_execution"},
+        )
 
     signal_ts = existing["signal_candle_timestamp"]
     timeframe = str(existing["timeframe"])
@@ -513,6 +519,17 @@ def _resume_pending_allocation(
         if reject_reason and "execution_window_passed" in reject_reason:
             mark_allocation_expired(store, existing["id"], reason=reject_reason)
             return {"status": "expired", "log_id": existing["id"]}
+        if is_terminal_execution_rejection(reject_reason):
+            from quantara_engine.live_sim.candidate_log import mark_allocation_rejected
+
+            reason_code = "STALE_SIGNAL" if reject_reason and "stale_signal_age" in reject_reason else "EXECUTION_WINDOW"
+            mark_allocation_rejected(
+                store,
+                existing["id"],
+                rejection_reason=reason_code,
+                rejection_detail=reject_reason or REJECTION_HE.get(reason_code, reason_code),
+            )
+            return {"status": "rejected", "log_id": existing["id"], "reason": reason_code}
         return {"status": "queued", "log_id": existing["id"]}
 
     from quantara_engine.broker.capability import check_entry_capability_for_account
@@ -721,7 +738,10 @@ def resume_all_pending_live_sim_allocations(
     if not account_ids:
         return report
 
+    from quantara_engine.live_sim.candidate_log import reconcile_accepted_limbo_allocations
+
     report["expired"] = expire_stale_live_sim_allocations(store, execution_now)
+    report["limbo_reconciled"] = reconcile_accepted_limbo_allocations(store, execution_now)
     rows = store.session.execute(
         text(
             """
@@ -732,8 +752,11 @@ def resume_all_pending_live_sim_allocations(
               AND accepted = TRUE
               AND broker_order_id IS NULL
               AND live_sim_position_id IS NULL
-              AND COALESCE(metadata->>'pending_execution', 'false') = 'true'
               AND COALESCE(metadata->>'expired', 'false') = 'false'
+              AND (
+                COALESCE(metadata->>'pending_execution', 'false') = 'true'
+                OR COALESCE(metadata->>'lifecycle_state', '') IN ('executing', 'accepted')
+              )
             """
         ),
         {"aids": account_ids},
@@ -897,7 +920,7 @@ def maybe_allocate_live_sim(
     existing = find_allocation_by_canonical(store, account_id, canonical_key)
     if existing:
         lifecycle = allocation_lifecycle_state(existing)
-        if lifecycle == "pending_execution":
+        if lifecycle in ("pending_execution", "accepted_limbo"):
             return _resume_pending_allocation(
                 store,
                 existing=existing,
@@ -1303,6 +1326,16 @@ def maybe_allocate_live_sim(
         else (False, "execution_candle_missing")
     )
     if not allowed:
+        if is_terminal_execution_rejection(reject_reason):
+            reason_code = (
+                "STALE_SIGNAL"
+                if reject_reason and "stale_signal_age" in reject_reason
+                else "EXECUTION_WINDOW"
+            )
+            return _reject(
+                reason_code,
+                reject_reason or REJECTION_HE.get(reason_code, reason_code),
+            )
         log_id = log_allocation(
             store,
             account_id=account_id,

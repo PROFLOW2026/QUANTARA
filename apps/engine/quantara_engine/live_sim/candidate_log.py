@@ -180,9 +180,12 @@ def allocation_lifecycle_state(row: dict) -> str:
         return "expired"
     if not row.get("accepted"):
         return "rejected"
-    if meta.get("pending_execution"):
+    if meta.get("pending_execution") or meta.get("lifecycle_state") in (
+        "pending_execution",
+        "executing",
+    ):
         return "pending_execution"
-    return "accepted"
+    return "accepted_limbo"
 
 
 def update_allocation_metadata(
@@ -235,6 +238,75 @@ def mark_allocation_expired(store: TradingStore, log_id: str, *, reason: str) ->
         log_id,
         {"pending_execution": False, "expired": True, "expiry_reason": reason},
     )
+
+
+def reconcile_accepted_limbo_allocations(store: TradingStore, now: datetime) -> int:
+    """Terminalize accepted rows stuck without broker outcome (orphan limbo)."""
+    from quantara_engine.execution.timing import (
+        intent_past_execution_window,
+        is_terminal_execution_rejection,
+        live_fill_allowed,
+        next_execution_timestamp,
+    )
+
+    rows = store.session.execute(
+        text(
+            """
+            SELECT id::text, signal_candle_timestamp, timeframe, created_at, metadata,
+                   symbol, direction::text
+            FROM live_sim_allocation_log
+            WHERE accepted = TRUE
+              AND broker_order_id IS NULL
+              AND live_sim_position_id IS NULL
+              AND COALESCE(metadata->>'expired', 'false') = 'false'
+              AND (
+                COALESCE(metadata->>'pending_execution', 'false') = 'false'
+                OR COALESCE(metadata->>'lifecycle_state', '') IN ('executing', 'accepted')
+              )
+            """
+        )
+    ).mappings().all()
+    reconciled = 0
+    for row in rows:
+        tf = str(row["timeframe"])
+        signal_ts = row["signal_candle_timestamp"]
+        meta = row.get("metadata") or {}
+        stored_exec = meta.get("execution_candle_timestamp")
+        if stored_exec:
+            execution_ts = datetime.fromisoformat(str(stored_exec).replace("Z", "+00:00"))
+        else:
+            execution_ts = next_execution_timestamp(signal_ts, tf)
+
+        _, stale_reason = live_fill_allowed(
+            execution_candle_timestamp=execution_ts,
+            candle_timestamp=execution_ts,
+            signal_candle_timestamp=signal_ts,
+            now=now,
+            timeframe=tf,
+        )
+        if is_terminal_execution_rejection(stale_reason):
+            reason_code = (
+                "STALE_SIGNAL" if stale_reason and "stale_signal_age" in stale_reason else "EXECUTION_WINDOW"
+            )
+            mark_allocation_rejected(
+                store,
+                row["id"],
+                rejection_reason=reason_code,
+                rejection_detail=stale_reason or REJECTION_HE.get(reason_code, reason_code),
+            )
+            reconciled += 1
+            continue
+
+        if intent_past_execution_window(
+            signal_candle_timestamp=signal_ts,
+            execution_candle_timestamp=execution_ts,
+            intent_created_at=row["created_at"],
+            timeframe=tf,
+            now=now,
+        ):
+            mark_allocation_expired(store, row["id"], reason="execution_window_passed")
+            reconciled += 1
+    return reconciled
 
 
 def expire_stale_live_sim_allocations(store: TradingStore, now: datetime) -> int:
