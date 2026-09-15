@@ -686,37 +686,224 @@ def build_live_sim_summary(store: TradingStore) -> dict:
     }
 
 
-def build_comparison_summary(store: TradingStore) -> dict:
+def _aggregate_competition_trade_metrics(store: TradingStore) -> dict:
+    """Closed strategy trades across all competition research portfolios."""
+    from sqlalchemy import func, select
+
+    from quantara_engine.competition.paper_run import trade_scope_clause
+    from quantara_engine.models.trading import Trade as OrmTrade
+    from quantara_engine.persistence.batch_summary import _uuids
+
+    portfolio_ids = [str(e["portfolio"].id) for e in store.list_competition_entries()]
+    ids = _uuids(portfolio_ids)
+    if not ids:
+        return {
+            "closed_trades_count": 0,
+            "wins": 0,
+            "losses": 0,
+            "win_rate_pct": None,
+        }
+
+    wins_expr = func.count().filter(OrmTrade.realized_pnl > 0)
+    losses_expr = func.count().filter(OrmTrade.realized_pnl <= 0)
+    row = store.session.execute(
+        select(
+            func.count().label("closed"),
+            wins_expr.label("wins"),
+            losses_expr.label("losses"),
+        ).where(
+            OrmTrade.portfolio_id.in_(ids),
+            trade_scope_clause(store),
+        )
+    ).one()
+    closed = int(row.closed or 0)
+    wins = int(row.wins or 0)
+    losses = int(row.losses or 0)
+    win_rate = round(wins / closed * 100, 2) if closed > 0 else None
+    return {
+        "closed_trades_count": closed,
+        "wins": wins,
+        "losses": losses,
+        "win_rate_pct": win_rate,
+    }
+
+
+def _broker_exit_fill_stats(store: TradingStore, account_id: str) -> dict:
+    """Exit fills on a physical broker account (sl/tp/close)."""
+    if not account_id:
+        return {"closed_trades_count": 0, "wins": 0, "losses": 0, "win_rate_pct": None}
+    row = store.session.execute(
+        text(
+            """
+            SELECT COUNT(*) AS cnt,
+                   SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) AS wins,
+                   SUM(CASE WHEN realized_pnl <= 0 THEN 1 ELSE 0 END) AS losses
+            FROM (
+              SELECT f.realized_pnl AS realized_pnl
+              FROM broker_fills f
+              JOIN broker_orders o ON o.id = f.broker_order_id
+              WHERE o.broker_account_id = CAST(:aid AS uuid)
+                AND o.order_purpose IN ('sl', 'tp', 'close')
+            ) t
+            """
+        ),
+        {"aid": account_id},
+    ).mappings().first()
+    closed = int(row["cnt"] or 0) if row else 0
+    wins = int(row["wins"] or 0) if row else 0
+    losses = int(row["losses"] or 0) if row else 0
+    win_rate = round(wins / closed * 100, 2) if closed > 0 else None
+    return {
+        "closed_trades_count": closed,
+        "wins": wins,
+        "losses": losses,
+        "win_rate_pct": win_rate,
+    }
+
+
+def _account_drawdown_pct(account_row: dict, equity: Decimal, starting: Decimal) -> float:
+    settings = load_risk_settings(
+        {
+            "equity": equity,
+            "starting_cash": starting,
+            "risk_settings": account_row.get("risk_settings") or {},
+        }
+    )
+    hwm = max(settings.high_water_mark, starting, equity)
+    if hwm <= 0 or equity >= hwm:
+        return 0.0
+    return float((hwm - equity) / hwm * 100)
+
+
+def _research_strategy_trade_stats(store: TradingStore, broker_equity: Decimal) -> dict:
+    from quantara_engine.market_data.active_universe import ACTIVE_DB_SYMBOLS
+
+    portfolio_ids = [str(e["portfolio"].id) for e in store.list_competition_entries()]
+    trade_stats = _aggregate_competition_trade_metrics(store)
+    symbol_by_instrument_id = {
+        str(inst.id): inst.symbol
+        for sym in ACTIVE_DB_SYMBOLS
+        if (inst := store.get_instrument_by_symbol(sym)) is not None
+    }
+    exposure_summary, _ = store.batch_competition_exposure_risk_summary(
+        portfolio_ids,
+        symbol_by_instrument_id=symbol_by_instrument_id,
+    )
+    sl_usd = exposure_summary.total_remaining_sl_risk_usd
+    sl_pct = exposure_summary.open_risk_pct
+    if sl_usd is None or exposure_summary.risk_missing_count > 0:
+        sl_pct = None
+    elif broker_equity > 0 and sl_usd is not None:
+        sl_pct = float(sl_usd / broker_equity * 100)
+    return {
+        "open_positions": exposure_summary.open_position_count,
+        "closed_trades_count": trade_stats["closed_trades_count"],
+        "wins": trade_stats["wins"],
+        "losses": trade_stats["losses"],
+        "win_rate_pct": trade_stats["win_rate_pct"],
+        "open_sl_risk_pct": sl_pct,
+        "open_sl_risk_usd": float(sl_usd) if sl_usd is not None else None,
+        "open_sl_risk_unavailable_he": (
+            f"חסרים {exposure_summary.risk_missing_count} מחירי SL/סימון"
+            if exposure_summary.risk_missing_count > 0
+            else None
+        ),
+    }
+
+
+def _research_broker_position_stats(
+    store: TradingStore,
+    research,
+    *,
+    account_id: str,
+    broker_equity: Decimal,
+) -> dict:
     from quantara_engine.broker.physical_risk import compute_physical_broker_risk
+
+    broker_positions = [p for p in research.positions.values() if p.net_quantity != 0]
+    unique_symbols = len({p.symbol for p in broker_positions})
+    fill_stats = _broker_exit_fill_stats(store, account_id)
+    physical = compute_physical_broker_risk(store)
+    sl_usd = physical.get("physical_remaining_sl_risk_usd")
+    sl_pct: float | None
+    unavailable_he: str | None = None
+    if not physical.get("physical_risk_complete"):
+        sl_pct = None
+        missing = int(physical.get("physical_risk_missing_count") or 0)
+        lots = int(physical.get("attributed_lot_count") or 0)
+        if lots > 0 and missing > 0:
+            unavailable_he = f"נתוני SL פיזי לא שלמים ({missing} מתוך {lots} לוטים)"
+        elif lots == 0:
+            unavailable_he = "אין לוטים מיוחסים לברוקר"
+        else:
+            unavailable_he = "סיכון SL פיזי לא זמין"
+    elif sl_usd is not None and broker_equity > 0:
+        sl_pct = float(sl_usd / broker_equity * 100)
+    else:
+        sl_pct = 0.0
+    return {
+        "open_positions": len(broker_positions),
+        "unique_symbols_open": unique_symbols,
+        "closed_trades_count": fill_stats["closed_trades_count"],
+        "wins": fill_stats["wins"],
+        "losses": fill_stats["losses"],
+        "win_rate_pct": fill_stats["win_rate_pct"],
+        "open_sl_risk_pct": sl_pct,
+        "open_sl_risk_usd": float(sl_usd) if sl_usd is not None else None,
+        "open_sl_risk_unavailable_he": unavailable_he,
+    }
+
+
+def build_comparison_summary(store: TradingStore) -> dict:
+    from quantara_engine.broker.accounts import RESEARCH_PAPER_ACCOUNT
     from quantara_engine.broker.state_builder import build_competition_broker_account
 
     research = build_competition_broker_account(store)
-    research_row = BrokerExecutionService(store).get_account_row() or {}
-    research_start = Decimal("320000")
+    research_svc = BrokerExecutionService(store)
+    research_row = research_svc.get_account_row() or {}
+    research_account_id = str(research_row.get("id") or "")
+    research_start = RESEARCH_PAPER_ACCOUNT.starting_cash
     research_equity = research.equity or Decimal("0")
     research_return = float((research_equity - research_start) / research_start * 100)
+    research_dd = _account_drawdown_pct(research_row, research_equity, research_start)
 
     live = build_live_sim_summary(store)
     if not live.get("available"):
         return {"available": False}
 
-    research_risk = compute_physical_broker_risk(store)
-    research_sl_pct = (
-        float(research_risk["physical_remaining_sl_risk_usd"] / research_equity * 100)
-        if research_risk.get("physical_remaining_sl_risk_usd") and research_equity > 0
-        else 0.0
+    research_strategy = _research_strategy_trade_stats(store, research_equity)
+    research_broker = _research_broker_position_stats(
+        store,
+        research,
+        account_id=research_account_id,
+        broker_equity=research_equity,
     )
 
-    def _norm(side: dict, equity: float, starting: float) -> dict:
+    def _norm(
+        side: dict,
+        equity: float,
+        starting: float,
+        *,
+        trade_stats: dict,
+        financial_scope_he: str,
+        trade_stats_scope_he: str,
+    ) -> dict:
         gross = side.get("gross_exposure") or 0
+        closed = int(trade_stats.get("closed_trades_count") or 0)
+        win_rate = trade_stats.get("win_rate_pct")
+        if closed == 0:
+            win_rate = None
         return {
+            "financial_scope_he": financial_scope_he,
+            "trade_stats_scope_he": trade_stats_scope_he,
             "return_pct": side.get("total_return_pct", 0),
             "current_drawdown_pct": side.get("current_drawdown_pct", 0),
             "max_drawdown_pct": side.get("max_drawdown_pct", 0),
-            "win_rate_pct": side.get("win_rate_pct", 0),
-            "closed_trades": side.get("closed_trades_count", 0),
-            "open_positions": len(side.get("open_positions") or []),
-            "sl_risk_pct": side.get("open_sl_risk_pct", 0),
+            "win_rate_pct": win_rate,
+            "closed_trades": closed,
+            "open_positions": int(trade_stats.get("open_positions") or 0),
+            "sl_risk_pct": trade_stats.get("open_sl_risk_pct"),
+            "sl_risk_unavailable_he": trade_stats.get("open_sl_risk_unavailable_he"),
             "gross_exposure_pct": float(gross / equity * 100) if equity > 0 else 0,
             "realized_pnl": side.get("realized_pnl", 0),
             "unrealized_pnl": side.get("unrealized_pnl", 0),
@@ -725,31 +912,76 @@ def build_comparison_summary(store: TradingStore) -> dict:
             "starting_capital": starting,
         }
 
+    live_trade_stats = {
+        "open_positions": len(live.get("open_positions") or []),
+        "closed_trades_count": live.get("closed_trades_count", 0),
+        "win_rate_pct": live.get("win_rate_pct"),
+        "open_sl_risk_pct": live.get("open_sl_risk_pct"),
+        "open_sl_risk_unavailable_he": None,
+    }
+
     return {
         "available": True,
+        "scope_notes_he": {
+            "financial": "מדדים כספיים — אמת חשבון ברוקר (equity, PnL, חשיפה)",
+            "trade_stats": "סטטיסטיקות עסקאות — שכבת אסטרטגיות (עסקאות/פוזיציות שנסגרו)",
+        },
         "research": {
-            "label_he": "חשבון המחקר",
+            "label_he": "חשבון ברוקר מחקרי",
             **_norm(
                 {
                     "total_return_pct": research_return,
-                    "current_drawdown_pct": 0,
-                    "max_drawdown_pct": 0,
-                    "win_rate_pct": 0,
-                    "closed_trades_count": 0,
-                    "open_positions": list(research.positions.values()),
-                    "open_sl_risk_pct": research_sl_pct,
+                    "current_drawdown_pct": research_dd,
+                    "max_drawdown_pct": research_dd,
                     "gross_exposure": float(research.gross_exposure or 0),
-                    "realized_pnl": float(research.realized_pnl),
-                    "unrealized_pnl": float(research.unrealized_pnl),
+                    "realized_pnl": float(research.realized_pnl or 0),
+                    "unrealized_pnl": float(research.unrealized_pnl or 0),
                     "fees_paid": float(research_row.get("fees_paid") or 0),
                 },
                 float(research_equity),
                 float(research_start),
+                trade_stats=research_strategy,
+                financial_scope_he="חשבון ברוקר מחקרי",
+                trade_stats_scope_he="עסקאות אסטרטגיה מחקר",
             ),
+            "scopes": {
+                "strategy": {
+                    "label_he": "שכבת אסטרטגיות מחקר",
+                    **research_strategy,
+                },
+                "broker": {
+                    "label_he": "פוזיציות נטו בברוקר",
+                    **research_broker,
+                },
+            },
         },
         "live_sim": {
             "label_he": "סימולציית $10,000",
-            **_norm(live, live["equity"], live["starting_capital"]),
+            **_norm(
+                live,
+                live["equity"],
+                live["starting_capital"],
+                trade_stats=live_trade_stats,
+                financial_scope_he="חשבון Live Sim (ברוקר)",
+                trade_stats_scope_he="פוזיציות Live Sim",
+            ),
+            "scopes": {
+                "strategy": {
+                    "label_he": "פוזיציות Live Sim",
+                    "open_positions": live_trade_stats["open_positions"],
+                    "closed_trades_count": live_trade_stats["closed_trades_count"],
+                    "win_rate_pct": live_trade_stats["win_rate_pct"],
+                    "open_sl_risk_pct": live_trade_stats["open_sl_risk_pct"],
+                    "open_sl_risk_unavailable_he": None,
+                },
+                "broker": {
+                    "label_he": "חשבון ברוקר Live Sim",
+                    "open_positions": len(live.get("broker_positions") or []),
+                    "closed_trades_count": live_trade_stats["closed_trades_count"],
+                    "win_rate_pct": live_trade_stats["win_rate_pct"],
+                    "open_sl_risk_pct": live_trade_stats["open_sl_risk_pct"],
+                },
+            },
             "candidates_total": live["candidates"]["total"],
             "candidates_accepted": live["candidates"]["accepted"],
             "candidates_rejected": live["candidates"]["rejected"],

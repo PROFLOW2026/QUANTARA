@@ -1198,43 +1198,58 @@ export interface LiveSimAccountSummary {
   };
 }
 
+export interface CompareTradeScope {
+  label_he: string;
+  open_positions?: number;
+  unique_symbols_open?: number;
+  closed_trades_count?: number;
+  wins?: number;
+  losses?: number;
+  win_rate_pct?: number | null;
+  open_sl_risk_pct?: number | null;
+  open_sl_risk_usd?: number | null;
+  open_sl_risk_unavailable_he?: string | null;
+}
+
+export interface LiveSimCompareSide {
+  label_he: string;
+  financial_scope_he?: string;
+  trade_stats_scope_he?: string;
+  return_pct: number;
+  current_drawdown_pct: number;
+  max_drawdown_pct: number;
+  win_rate_pct: number | null;
+  closed_trades: number;
+  open_positions: number;
+  sl_risk_pct: number | null;
+  sl_risk_unavailable_he?: string | null;
+  gross_exposure_pct: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  fees_paid: number;
+  equity: number;
+  starting_capital: number;
+  scopes?: {
+    strategy?: CompareTradeScope;
+    broker?: CompareTradeScope;
+  };
+}
+
 export interface LiveSimCompareSummary {
   available: boolean;
-  research?: {
-    label_he: string;
-    return_pct: number;
-    current_drawdown_pct: number;
-    max_drawdown_pct: number;
-    win_rate_pct: number;
-    closed_trades: number;
-    open_positions: number;
-    sl_risk_pct: number;
-    gross_exposure_pct: number;
-    realized_pnl: number;
-    unrealized_pnl: number;
-    fees_paid: number;
-    equity: number;
-    starting_capital: number;
+  scope_notes_he?: {
+    financial?: string;
+    trade_stats?: string;
   };
-  live_sim?: {
-    label_he: string;
-    return_pct: number;
-    current_drawdown_pct: number;
-    max_drawdown_pct: number;
-    win_rate_pct: number;
-    closed_trades: number;
-    open_positions: number;
-    sl_risk_pct: number;
-    gross_exposure_pct: number;
-    realized_pnl: number;
-    unrealized_pnl: number;
-    fees_paid: number;
-    equity: number;
-    starting_capital: number;
+  research?: LiveSimCompareSide;
+  live_sim?: LiveSimCompareSide & {
     candidates_total?: number;
     candidates_accepted?: number;
     candidates_rejected?: number;
     acceptance_rate_pct?: number;
+    orders_sent?: number;
+    fills?: number;
+    positions_opened?: number;
   };
 }
 
