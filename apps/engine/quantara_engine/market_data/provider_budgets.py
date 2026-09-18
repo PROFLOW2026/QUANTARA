@@ -157,6 +157,30 @@ def can_request(
     return True
 
 
+def record_provider_error(
+    store: TradingStore | None,
+    provider: str,
+    error: str,
+    *,
+    symbol: str = "",
+    caller: str = "provider_error",
+) -> None:
+    """Record a failed provider request and optional cooldown (Coinbase adapter path)."""
+    from quantara_engine.market_data.provider_cooldown import mark_cooldown
+
+    record_request(
+        store,
+        provider,
+        symbol=symbol or provider,
+        caller=caller,
+        count=1,
+        success=False,
+        error=error,
+    )
+    if store is not None and provider == "coinbase":
+        mark_cooldown(store, provider, reason=error[:500])
+
+
 def record_request(
     store: TradingStore | None,
     provider: str,

@@ -241,7 +241,7 @@ def recover_missed_research_crypto_exits(
                         "position_management": True,
                         "recovered_missed_protection": True,
                         "source_timeframe": source,
-                        "recovery_reason": "crypto_fast_protection_failure",
+                        "recovery_reason": "protection_outage_recovery",
                     },
                 )
                 exit_snapshot = state.create_snapshot(candle.timestamp)

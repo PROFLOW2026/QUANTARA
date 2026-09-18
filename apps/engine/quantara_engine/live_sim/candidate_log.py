@@ -240,6 +240,30 @@ def mark_allocation_expired(store: TradingStore, log_id: str, *, reason: str) ->
     )
 
 
+def finalize_expired_accepted_limbo(store: TradingStore) -> int:
+    """Flip accepted=FALSE on rows already marked expired but still accepted=TRUE."""
+    rows = store.session.execute(
+        text(
+            """
+            SELECT id::text, COALESCE(metadata->>'expiry_reason', 'execution_window_passed') AS reason
+            FROM live_sim_allocation_log
+            WHERE accepted = TRUE
+              AND broker_order_id IS NULL
+              AND live_sim_position_id IS NULL
+              AND COALESCE(metadata->>'expired', 'false') = 'true'
+            """
+        )
+    ).mappings().all()
+    for row in rows:
+        mark_allocation_rejected(
+            store,
+            row["id"],
+            rejection_reason="EXECUTION_WINDOW",
+            rejection_detail=str(row["reason"]),
+        )
+    return len(rows)
+
+
 def reconcile_accepted_limbo_allocations(store: TradingStore, now: datetime) -> int:
     """Terminalize accepted rows stuck without broker outcome (orphan limbo)."""
     from quantara_engine.execution.timing import (

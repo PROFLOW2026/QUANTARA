@@ -263,6 +263,26 @@ def repair(*, dry_run: bool = False) -> dict:
                 {"id": row["lot_id"]},
             )
 
+    # Zero orphan attribution lots with no open Live Sim leg
+    orphan_zero = session.execute(
+        text(
+            """
+            UPDATE broker_attribution_lots l
+            SET remaining_qty = 0
+            WHERE remaining_qty > 0
+              AND strategy_position_id IS NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM live_sim_positions p
+                WHERE p.status = 'open'
+                  AND p.broker_account_id = l.broker_account_id
+                  AND p.opportunity_key = l.opportunity_key
+              )
+            """
+        )
+    ).rowcount
+    if orphan_zero:
+        report["actions"].append(f"zeroed_orphan_lots:{orphan_zero}")
+
     # Remove duplicate close ledger rows (keep earliest)
     dupes = session.execute(
         text(

@@ -1228,10 +1228,13 @@ def strategy_freshness_summary(store: TradingStore, now: datetime | None = None)
             continue
         ts = latest_by_inst.get(inst.id)
         last_1m = latest_1m_by_inst.get(inst.id)
-        market_ages[asset.db_symbol] = round((now - ts).total_seconds() / 60, 1) if ts else None
-        market_health[asset.db_symbol] = classify_strategy_candle_health(
-            asset, ts, now, last_1m=last_1m
-        )
+        health = classify_strategy_candle_health(asset, ts, now, last_1m=last_1m)
+        market_health[asset.db_symbol] = health
+        if health.get("protection_1m_authority"):
+            prot = health["protection_1m_authority"]
+            market_ages[asset.db_symbol] = prot.get("age_minutes")
+        else:
+            market_ages[asset.db_symbol] = round((now - ts).total_seconds() / 60, 1) if ts else None
 
     market_summary = aggregate_market_health(market_health)
 

@@ -193,6 +193,7 @@ def _fetch_and_store_1m(
     *,
     since: datetime,
 ) -> list:
+    """Fetch and persist 1m bars; chunk requests to respect Coinbase 300-candle limit."""
     asset = get_asset(normalize_db_symbol(instrument.symbol))
     if not asset:
         return []
@@ -202,15 +203,44 @@ def _fetch_and_store_1m(
         priority=FetchPriority.OPEN_POSITION,
         asset=asset,
     )
-    try:
-        candles = provider.fetch_latest(instrument.id, FAST_PROTECTION_TIMEFRAME, since=since)
-    except CoinbaseError as exc:
-        logger.warning("1m fetch failed for %s: %s", instrument.symbol, exc)
-        return []
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=timezone.utc)
+    else:
+        since = since.astimezone(timezone.utc)
+    now = datetime.now(timezone.utc)
+    chunk_end = now
+    all_candles: list = []
+    max_chunks = 24  # up to ~120h catch-up per cycle
+    coinbase_chunk_minutes = 299
 
-    for candle in candles:
-        store.upsert_candle(candle)
-    return candles
+    for _ in range(max_chunks):
+        if chunk_end <= since:
+            break
+        chunk_start = max(since, chunk_end - timedelta(minutes=coinbase_chunk_minutes))
+        try:
+            batch = provider.fetch_candles(
+                instrument.id,
+                FAST_PROTECTION_TIMEFRAME,
+                start=chunk_start,
+                end=chunk_end,
+                limit=coinbase_chunk_minutes + 1,
+            )
+        except CoinbaseError as exc:
+            logger.warning("1m fetch failed for %s: %s", instrument.symbol, exc)
+            break
+        if not batch:
+            break
+        for candle in batch:
+            store.upsert_candle(candle)
+        all_candles.extend(batch)
+        oldest = min(c.timestamp for c in batch)
+        if oldest.tzinfo is None:
+            oldest = oldest.replace(tzinfo=timezone.utc)
+        if oldest <= since or len(batch) < coinbase_chunk_minutes:
+            break
+        chunk_end = oldest - timedelta(minutes=1)
+
+    return all_candles
 
 
 def _commit_market_data(store: TradingStore) -> None:
