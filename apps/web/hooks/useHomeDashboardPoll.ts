@@ -17,8 +17,8 @@ import {
 import { loadCompetitionView } from "@/lib/competition-client";
 import { t } from "@/lib/i18n";
 
-/** Tiered REST cadence when SSE live marks are connected (prices no longer need 30s poll). */
-const FAST_INTERVAL_MS = 60_000;
+/** Tiered REST cadence when SSE live marks are connected (marks via direct SSE). */
+const FAST_INTERVAL_MS = 120_000;
 const MEDIUM_INTERVAL_MS = 120_000;
 const SLOW_INTERVAL_MS = 300_000;
 /** Fallback when SSE is disconnected — restore prior safe REST cadence for prices. */

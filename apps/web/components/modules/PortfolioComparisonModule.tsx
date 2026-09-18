@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ModuleProps } from "@/lib/modal-workspace/types";
 import { PortfolioHierarchyAccordion } from "@/components/trading/PortfolioHierarchyAccordion";
 import {
@@ -158,8 +158,14 @@ export default function PortfolioComparisonModule({ embedded }: ModuleProps) {
   const [loading, setLoading] = useState(true);
   const [enrichmentLoading, setEnrichmentLoading] = useState(false);
   const [enrichmentFailed, setEnrichmentFailed] = useState(false);
+  const inFlightRef = useRef(false);
 
   const fetchData = useCallback(async (showLoading = false) => {
+    if (inFlightRef.current) {
+      return;
+    }
+    inFlightRef.current = true;
+
     if (showLoading) setLoading(true);
 
     try {
@@ -252,6 +258,7 @@ export default function PortfolioComparisonModule({ embedded }: ModuleProps) {
       setEnrichmentFailed(false);
       setEnrichmentLoading(false);
     } finally {
+      inFlightRef.current = false;
       if (showLoading) setLoading(false);
     }
   }, []);
