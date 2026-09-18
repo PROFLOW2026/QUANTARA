@@ -3,10 +3,5 @@
   "buildCommand": "npm run build --workspace=@quantara/web",
   "devCommand": "npm run dev --workspace=@quantara/web",
   "installCommand": "npm install",
-  "framework": "nextjs",
-  "functions": {
-    "app/api/engine/[...path]/route.ts": {
-      "memory": 1024
-    }
-  }
+  "framework": "nextjs"
 }
