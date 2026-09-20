@@ -12,18 +12,110 @@ from quantara_engine.persistence.store import TradingStore
 
 
 def live_sim_physical_entry_succeeded(result: BrokerExecutionResult | None) -> bool:
-    """True only when a non-shadow physical entry fill is confirmed."""
+    """True only when a non-shadow physical entry fill opened broker exposure."""
     if result is None or not result.accepted:
         return False
     if result.shadow_only:
         return False
     if not result.broker_fill_id or not result.broker_order_id:
         return False
-    fill_qty = Decimal(str(result.fill_quantity or 0))
     opened_qty = Decimal(str(result.physical_opened_qty or 0))
-    if fill_qty <= 0 and opened_qty <= 0:
+    if opened_qty <= 0:
         return False
     return True
+
+
+def physical_opened_qty_for_fill(
+    store: TradingStore,
+    *,
+    broker_fill_id: str,
+    strategy_position_id: str | None = None,
+) -> Decimal:
+    """Opened quantity attributed to a broker entry fill (not close slices)."""
+    row = store.session.execute(
+        text(
+            """
+            SELECT COALESCE(SUM(l.remaining_qty), 0) AS rem,
+                   COALESCE(SUM(
+                     CASE WHEN bl.quantity IS NOT NULL THEN bl.quantity ELSE 0 END
+                   ), 0) AS opened
+            FROM broker_attribution_lots l
+            LEFT JOIN broker_attribution_ledger bl
+              ON bl.broker_fill_id = l.broker_fill_id
+             AND bl.strategy_position_id IS NOT DISTINCT FROM l.strategy_position_id
+            WHERE l.broker_fill_id = CAST(:fid AS uuid)
+              AND (
+                :spid IS NULL
+                OR l.strategy_position_id = CAST(:spid AS uuid)
+              )
+            """
+        ),
+        {"fid": broker_fill_id, "spid": strategy_position_id},
+    ).mappings().first()
+    if not row:
+        return Decimal("0")
+    rem = Decimal(str(row["rem"] or 0))
+    opened = Decimal(str(row["opened"] or 0))
+    return rem if rem > 0 else opened
+
+
+def broker_signed_net_quantity(
+    store: TradingStore,
+    *,
+    broker_account_id: str,
+    symbol: str,
+) -> Decimal:
+    row = store.session.execute(
+        text(
+            """
+            SELECT bp.net_quantity
+            FROM broker_positions bp
+            JOIN instruments i ON i.id = bp.instrument_id
+            WHERE bp.broker_account_id = CAST(:aid AS uuid)
+              AND i.symbol = :sym
+            """
+        ),
+        {"aid": broker_account_id, "sym": symbol.upper()},
+    ).scalar()
+    return Decimal(str(row or 0))
+
+
+def live_sim_entry_broker_exposure_ok(
+    store: TradingStore,
+    *,
+    broker_account_id: str,
+    symbol: str,
+    direction: str,
+    minimum_qty: Decimal,
+) -> bool:
+    """Broker book must still carry exposure in the entry direction at create time."""
+    net = broker_signed_net_quantity(
+        store, broker_account_id=broker_account_id, symbol=symbol
+    )
+    min_q = max(Decimal("0"), minimum_qty)
+    if direction.lower() == "long":
+        return net >= min_q
+    return net <= -min_q
+
+
+def resolve_live_sim_entry_quantity(
+    store: TradingStore,
+    *,
+    broker_res: BrokerExecutionResult,
+    strategy_position_id: str,
+    requested_qty: Decimal,
+) -> Decimal:
+    """Prefer physically opened quantity over requested sizing."""
+    opened = Decimal(str(broker_res.physical_opened_qty or 0))
+    if opened <= 0 and broker_res.broker_fill_id:
+        opened = physical_opened_qty_for_fill(
+            store,
+            broker_fill_id=broker_res.broker_fill_id,
+            strategy_position_id=strategy_position_id,
+        )
+    if opened > 0:
+        return opened
+    return requested_qty
 
 
 def create_live_sim_position_after_physical_entry(

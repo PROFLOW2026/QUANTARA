@@ -286,7 +286,9 @@ def _execute_accepted_allocation(
 
     from quantara_engine.live_sim.entry_authority import (
         create_live_sim_position_after_physical_entry,
+        live_sim_entry_broker_exposure_ok,
         live_sim_physical_entry_succeeded,
+        resolve_live_sim_entry_quantity,
     )
 
     if not live_sim_physical_entry_succeeded(broker_res):
@@ -311,26 +313,56 @@ def _execute_accepted_allocation(
             "broker_reason": reason_code,
         }
 
-    create_live_sim_position_after_physical_entry(
+    position_qty = resolve_live_sim_entry_quantity(
         store,
-        position_id=pos_id,
-        broker_account_id=account_id,
-        instrument_id=instrument.id,
-        strategy_slug=strategy_slug,
-        strategy_version=strategy_version,
-        robot_label=robot_label,
-        timeframe=instance.timeframe,
-        direction=direction,
-        quantity=qty,
-        entry_price=fill.fill_price,
-        stop_loss=sl,
-        take_profit=take_profit,
-        planned_sl_risk_usd=expected_risk,
-        opportunity_key=opportunity_key,
-        canonical_opportunity_key=canonical_key,
-        opened_at=exec_candle.timestamp,
-        allocation_log_id=log_id,
+        broker_res=broker_res,
+        strategy_position_id=pos_id,
+        requested_qty=qty,
     )
+    if not live_sim_entry_broker_exposure_ok(
+        store,
+        broker_account_id=account_id,
+        symbol=sym,
+        direction=direction,
+        minimum_qty=position_qty,
+    ):
+        mark_allocation_rejected(
+            store,
+            log_id,
+            rejection_reason="BROKER_REJECTED",
+            rejection_detail="Broker flat — cannot open Live Sim shadow without physical exposure",
+        )
+        return {
+            "status": "rejected",
+            "reason": "BROKER_REJECTED",
+            "detail": "broker_flat_after_fill",
+        }
+
+    existing_row = store.session.execute(
+        text("SELECT id::text, status FROM live_sim_positions WHERE id = CAST(:pid AS uuid)"),
+        {"pid": pos_id},
+    ).mappings().first()
+    if not existing_row:
+        create_live_sim_position_after_physical_entry(
+            store,
+            position_id=pos_id,
+            broker_account_id=account_id,
+            instrument_id=instrument.id,
+            strategy_slug=strategy_slug,
+            strategy_version=strategy_version,
+            robot_label=robot_label,
+            timeframe=instance.timeframe,
+            direction=direction,
+            quantity=position_qty,
+            entry_price=fill.fill_price,
+            stop_loss=sl,
+            take_profit=take_profit,
+            planned_sl_risk_usd=expected_risk,
+            opportunity_key=opportunity_key,
+            canonical_opportunity_key=canonical_key,
+            opened_at=exec_candle.timestamp,
+            allocation_log_id=log_id,
+        )
     # Link attribution lots created before the shadow position id existed.
     if broker_res.broker_fill_id:
         from quantara_engine.broker.attribution import link_strategy_position_to_fill

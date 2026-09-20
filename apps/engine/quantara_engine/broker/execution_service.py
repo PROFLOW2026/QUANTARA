@@ -338,6 +338,16 @@ class BrokerExecutionService:
             return None
         if row["status"] in ("filled", "partially_filled") and row["fill_id"]:
             qty = row.get("filled_quantity") or row["fill_quantity"]
+            opened = self.store.session.execute(
+                text(
+                    """
+                    SELECT COALESCE(SUM(l.remaining_qty), 0)
+                    FROM broker_attribution_lots l
+                    WHERE l.broker_fill_id = CAST(:fid AS uuid)
+                    """
+                ),
+                {"fid": row["fill_id"]},
+            ).scalar()
             return BrokerExecutionResult(
                 accepted=True,
                 broker_order_id=row["order_id"],
@@ -348,6 +358,7 @@ class BrokerExecutionService:
                 fees=Decimal(str(row["fees"])),
                 spread_cost=Decimal(str(row["spread_cost"] or 0)),
                 slippage=Decimal(str(row["slippage"] or 0)),
+                physical_opened_qty=Decimal(str(opened or 0)),
                 from_existing_fill=True,
             )
         if row["status"] == "rejected":
@@ -810,6 +821,16 @@ class BrokerExecutionService:
             },
         ).mappings().first()
         if existing_identical:
+            opened = self.store.session.execute(
+                text(
+                    """
+                    SELECT COALESCE(SUM(l.remaining_qty), 0)
+                    FROM broker_attribution_lots l
+                    WHERE l.broker_fill_id = CAST(:fid AS uuid)
+                    """
+                ),
+                {"fid": existing_identical["fill_id"]},
+            ).scalar()
             net_pnl = Decimal(str(existing_identical["realized_pnl"])) - Decimal(
                 str(existing_identical["fees"] or 0)
             )
@@ -825,6 +846,7 @@ class BrokerExecutionService:
                 fees=Decimal(str(existing_identical["fees"] or 0)),
                 spread_cost=Decimal(str(existing_identical["spread_cost"] or 0)),
                 slippage=Decimal(str(existing_identical["slippage"] or 0)),
+                physical_opened_qty=Decimal(str(opened or 0)),
                 from_existing_fill=True,
             )
 
