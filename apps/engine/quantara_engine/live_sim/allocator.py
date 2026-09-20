@@ -739,19 +739,11 @@ def resume_all_pending_live_sim_allocations(
     execution_now: datetime,
 ) -> dict:
     """Resume queued live-sim allocations independent of current signal evaluation."""
+    from quantara_engine.live_sim.candidate_log import (
+        finalize_expired_accepted_limbo,
+        reconcile_accepted_limbo_allocations,
+    )
     from quantara_engine.live_sim.integrity_containment import is_live_sim_entries_blocked
-
-    if is_live_sim_entries_blocked(store):
-        return {
-            "pending_found": 0,
-            "not_ready": 0,
-            "resumed": 0,
-            "expired": 0,
-            "broker_rejected": 0,
-            "filled": 0,
-            "blocked": True,
-            "reason": "live_sim_integrity_containment",
-        }
 
     report: dict = {
         "pending_found": 0,
@@ -761,6 +753,19 @@ def resume_all_pending_live_sim_allocations(
         "broker_rejected": 0,
         "filled": 0,
     }
+
+    # Entry containment blocks new broker execution only — expiry/cleanup must still run.
+    report["expired"] = expire_stale_live_sim_allocations(store, execution_now)
+    report["limbo_reconciled"] = reconcile_accepted_limbo_allocations(store, execution_now)
+    report["finalized_expired"] = finalize_expired_accepted_limbo(store)
+
+    if is_live_sim_entries_blocked(store):
+        return {
+            **report,
+            "blocked": True,
+            "reason": "live_sim_integrity_containment",
+        }
+
     from quantara_engine.live_sim.execution_routing import (
         broker_account_row_by_id,
         list_active_live_sim_broker_account_ids,
@@ -769,11 +774,6 @@ def resume_all_pending_live_sim_allocations(
     account_ids = list_active_live_sim_broker_account_ids(store)
     if not account_ids:
         return report
-
-    from quantara_engine.live_sim.candidate_log import reconcile_accepted_limbo_allocations
-
-    report["expired"] = expire_stale_live_sim_allocations(store, execution_now)
-    report["limbo_reconciled"] = reconcile_accepted_limbo_allocations(store, execution_now)
     rows = store.session.execute(
         text(
             """
