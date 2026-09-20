@@ -273,6 +273,42 @@ def link_strategy_position_to_fill(
     )
 
 
+def link_orphan_lots_via_intent_chain(store: TradingStore) -> list[dict[str, str]]:
+    """Link active orphan lots using broker order intent → strategy fill evidence."""
+    rows = store.session.execute(
+        text(
+            """
+            SELECT DISTINCT ON (l.id)
+                   l.id::text AS lot_id,
+                   l.broker_fill_id::text AS fill_id,
+                   ff.position_id::text AS strategy_position_id
+            FROM broker_attribution_lots l
+            JOIN broker_fills f ON f.id = l.broker_fill_id
+            JOIN broker_orders o ON o.id = f.broker_order_id
+            JOIN order_intents oi
+              ON oi.id = CAST(replace(o.idempotency_key, 'intent:', '') AS uuid)
+            JOIN orders ord ON ord.intent_id = oi.id
+            JOIN fills ff ON ff.order_id = ord.id
+              AND ff.position_id IS NOT NULL
+              AND ff.fill_price = f.fill_price
+            WHERE l.remaining_qty > 0
+              AND l.strategy_position_id IS NULL
+              AND o.idempotency_key LIKE 'intent:%'
+            ORDER BY l.id, ff.created_at ASC
+            """
+        )
+    ).mappings().all()
+    linked: list[dict[str, str]] = []
+    for row in rows:
+        link_strategy_position_to_fill(
+            store,
+            broker_fill_id=row["fill_id"],
+            strategy_position_id=row["strategy_position_id"],
+        )
+        linked.append(dict(row))
+    return linked
+
+
 def attributed_remaining_quantity(
     store: TradingStore,
     *,

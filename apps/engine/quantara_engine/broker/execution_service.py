@@ -789,6 +789,45 @@ class BrokerExecutionService:
         rules = product_rules or self.profile.rules_for(spec.asset_class)
         fees = self._execution_fees(fill)
 
+        existing_identical = self.store.session.execute(
+            text(
+                """
+                SELECT id::text AS fill_id, realized_pnl, fees, spread_cost, slippage
+                FROM broker_fills
+                WHERE broker_order_id = :oid
+                  AND fill_quantity = :qty
+                  AND fill_price = :price
+                  AND filled_at = :at
+                ORDER BY fill_sequence ASC
+                LIMIT 1
+                """
+            ),
+            {
+                "oid": order_id,
+                "qty": quantity,
+                "price": fill.fill_price,
+                "at": execution_at,
+            },
+        ).mappings().first()
+        if existing_identical:
+            net_pnl = Decimal(str(existing_identical["realized_pnl"])) - Decimal(
+                str(existing_identical["fees"] or 0)
+            )
+            return BrokerExecutionResult(
+                accepted=True,
+                broker_order_id=order_id,
+                broker_fill_id=existing_identical["fill_id"],
+                fill_price=fill.fill_price,
+                fill_quantity=quantity,
+                realized_pnl=net_pnl,
+                gross_realized_pnl=Decimal(str(existing_identical["realized_pnl"])),
+                net_realized_pnl=net_pnl,
+                fees=Decimal(str(existing_identical["fees"] or 0)),
+                spread_cost=Decimal(str(existing_identical["spread_cost"] or 0)),
+                slippage=Decimal(str(existing_identical["slippage"] or 0)),
+                from_existing_fill=True,
+            )
+
         pos_row = self.store.session.execute(
             text(
                 """
