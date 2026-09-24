@@ -834,6 +834,22 @@ class BrokerExecutionService:
             net_pnl = Decimal(str(existing_identical["realized_pnl"])) - Decimal(
                 str(existing_identical["fees"] or 0)
             )
+            if strategy_position_id and order_purpose in ("sl", "tp", "close", "flatten", "manual_close"):
+                from quantara_engine.live_sim.shadow_exit_sync import (
+                    maybe_close_live_sim_shadow_on_attribution_exhausted,
+                )
+
+                maybe_close_live_sim_shadow_on_attribution_exhausted(
+                    self.store,
+                    strategy_position_id=strategy_position_id,
+                    broker_account_id=account_id,
+                    symbol=instrument.symbol,
+                    exit_fill_id=str(existing_identical["fill_id"]),
+                    closed_at=execution_at,
+                    portfolio_id=portfolio_id,
+                    opportunity_key=opportunity_key,
+                    reason="idempotent_exit_fill_attribution_exhausted",
+                )
             return BrokerExecutionResult(
                 accepted=True,
                 broker_order_id=order_id,
@@ -1054,6 +1070,22 @@ class BrokerExecutionService:
             opportunity_key=opportunity_key,
             order_purpose=order_purpose,
         )
+
+        if strategy_position_id and order_purpose in ("sl", "tp", "close", "flatten", "manual_close"):
+            from quantara_engine.live_sim.shadow_exit_sync import (
+                maybe_close_live_sim_shadow_on_attribution_exhausted,
+            )
+
+            maybe_close_live_sim_shadow_on_attribution_exhausted(
+                self.store,
+                strategy_position_id=strategy_position_id,
+                broker_account_id=account_id,
+                symbol=instrument.symbol,
+                exit_fill_id=fill_id,
+                closed_at=execution_at,
+                portfolio_id=portfolio_id,
+                opportunity_key=opportunity_key,
+            )
 
         self._persist_ledger_balances(
             account_id,

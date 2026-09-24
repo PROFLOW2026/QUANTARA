@@ -99,6 +99,20 @@ def execute_through_broker(
             except KeyError:
                 pass
         if physical_qty <= 0:
+            if strategy_position_id:
+                from quantara_engine.live_sim.shadow_exit_sync import (
+                    maybe_close_live_sim_shadow_on_attribution_exhausted,
+                )
+
+                maybe_close_live_sim_shadow_on_attribution_exhausted(
+                    store,
+                    strategy_position_id=strategy_position_id,
+                    broker_account_id=account_id,
+                    symbol=instrument.symbol,
+                    portfolio_id=portfolio_id,
+                    opportunity_key=opportunity_key,
+                    reason="exit_retry_attribution_already_exhausted",
+                )
             return BrokerExecutionResult(
                 accepted=True,
                 shadow_only=True,
