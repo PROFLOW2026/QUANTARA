@@ -1382,8 +1382,14 @@ def fetch_live_job(store: TradingStore | None = None) -> None:
 
         with session_scope() as broker_session:
             from quantara_engine.broker.integration import refresh_broker_marks_from_latest_closes
+            from quantara_engine.broker.integrity_maintenance import (
+                run_attribution_integrity_maintenance,
+            )
 
-            refresh_broker_marks_from_latest_closes(TradingStore(broker_session))
+            broker_store = TradingStore(broker_session)
+            refresh_broker_marks_from_latest_closes(broker_store)
+            integrity_report = run_attribution_integrity_maintenance(broker_store)
+            broker_session.commit()
 
         with session_scope() as status_session:
             status_store = TradingStore(status_session)
@@ -1410,6 +1416,14 @@ def fetch_live_job(store: TradingStore | None = None) -> None:
                     else None
                 ),
             )
+            if integrity_report.get("orphan_lots_linked"):
+                status_store.update_settings(
+                    "integrity:last_orphan_link",
+                    integrity_report,
+                    description="Last fetch_live orphan lot link pass",
+                    flush=False,
+                )
+                status_session.commit()
 
     _run_all()
 
