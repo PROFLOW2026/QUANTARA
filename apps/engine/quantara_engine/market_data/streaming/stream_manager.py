@@ -51,6 +51,16 @@ async def _on_tick(db_symbol: str, price: Decimal, at: datetime, source: str) ->
     get_mark_persister().maybe_persist(db_symbol, price, at, source=source)
 
 
+def _set_coinbase_status(status: str) -> None:
+    global _status
+    _status["coinbase"] = status
+
+
+def _set_alpaca_status(status: str) -> None:
+    global _status
+    _status["alpaca"] = status
+
+
 async def _run_streams() -> None:
     global _status
     hub = get_live_mark_hub()
@@ -60,7 +70,11 @@ async def _run_streams() -> None:
 
     await asyncio.gather(
         run_coinbase_ticker_stream(_on_tick, should_run=lambda: _running),
-        run_alpaca_iex_trade_stream(_on_tick, should_run=lambda: _running),
+        run_alpaca_iex_trade_stream(
+            _on_tick,
+            should_run=lambda: _running,
+            on_status=_set_alpaca_status,
+        ),
     )
 
 
