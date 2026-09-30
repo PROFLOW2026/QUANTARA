@@ -19,6 +19,7 @@ from quantara_engine.execution.exit_triggers import detect_exit_trigger
 from quantara_engine.execution.fx_fast_credit_guard import quota_mode
 from quantara_engine.execution.fx_protection_sources import (
     is_near_stop,
+    mark_provider_attempted,
     plan_fx_protection_fetch,
 )
 from quantara_engine.execution.non_crypto_fast_protection import run_non_crypto_fast_protection
@@ -114,6 +115,28 @@ def test_near_sl_rule_uses_half_r():
     pos = _pos(pid="1", iid="xau", entry="2000", sl="1990")
     assert is_near_stop(pos, Decimal("1994")) is True
     assert is_near_stop(pos, Decimal("1996")) is False
+
+
+def test_tiingo_throttle_escalates_when_canonical_5m_stale():
+    store = MagicMock()
+    settings: dict = {}
+    store.get_settings_dict.return_value = settings
+    store.update_settings.side_effect = lambda k, v, **kw: settings.__setitem__(k, v)
+    now = datetime(2026, 9, 14, 12, 5, tzinfo=TZ)
+    mark_provider_attempted(store, "GBPJPY", "tiingo", now=now)
+    plan = plan_fx_protection_fetch(
+        store,
+        "GBPJPY",
+        quota_mode="NORMAL",
+        tiingo_eligible=True,
+        td_eligible=True,
+        near_sl=False,
+        has_fresh_stored_1m=False,
+        canonical_5m_stale=True,
+        now=now + timedelta(minutes=1),
+    )
+    assert plan.fetch_provider == "twelvedata"
+    assert plan.reason == "td_emergency_stale"
 
 
 def test_plan_prefers_stored_or_tiingo_over_td():

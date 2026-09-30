@@ -52,6 +52,8 @@ TD_FAR_MIN_INTERVAL = timedelta(minutes=5)
 TD_NEAR_MIN_INTERVAL = timedelta(minutes=2)
 # Stored 1m is "fresh" if latest completed bar started within this window.
 STORED_1M_FRESHNESS = timedelta(minutes=3)
+# Completed canonical 5m must be within ~2 bars + buffer or 1m→5m derive cannot keep health green.
+CANONICAL_5M_FRESHNESS = timedelta(minutes=12)
 NEAR_SL_R_FRACTION = Decimal("0.5")
 
 
@@ -104,6 +106,19 @@ def any_position_near_stop(
     if mark is None or not positions:
         return False
     return any(is_near_stop(p, mark) for p in positions)
+
+
+def is_canonical_5m_stale(
+    latest_completed_5m_start: datetime | None,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """True when canonical 5m series is too old to serve as a live protection feed."""
+    if latest_completed_5m_start is None:
+        return True
+    now = _as_utc(now or datetime.now(timezone.utc))
+    age = now - _as_utc(latest_completed_5m_start)
+    return age > CANONICAL_5M_FRESHNESS
 
 
 def _load_fetch_state(store: TradingStore) -> dict[str, Any]:
@@ -292,6 +307,7 @@ def plan_fx_protection_fetch(
     td_eligible: bool,
     near_sl: bool,
     has_fresh_stored_1m: bool,
+    canonical_5m_stale: bool = False,
     now: datetime | None = None,
 ) -> ProtectionFetchPlan:
     """Decide provider call for one FX symbol this cycle (per-symbol, not per-position).
@@ -344,8 +360,8 @@ def plan_fx_protection_fetch(
             near_sl=near_sl,
         )
 
-    if tiingo_eligible:
-        # Tiingo eligible but throttled — wait; do not pay TD yet.
+    if tiingo_eligible and not canonical_5m_stale:
+        # Tiingo eligible but throttled — wait on 5m only while canonical 5m still fresh.
         return ProtectionFetchPlan(
             symbol=sym,
             source="5m_fallback",

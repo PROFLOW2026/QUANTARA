@@ -39,12 +39,14 @@ from quantara_engine.execution.fx_fast_credit_guard import (
 from quantara_engine.execution.fx_protection_sources import (
     STORED_1M_FRESHNESS,
     any_position_near_stop,
+    is_canonical_5m_stale,
     latest_mark_from_candles,
     mark_provider_attempted,
     mark_provider_success,
     plan_fx_protection_fetch,
     record_protection_source,
 )
+from quantara_engine.market_data.polling import PROVIDER_TIMEFRAME
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
 from quantara_engine.execution.position_management import (
     MAX_CANDLES_PER_POSITION_PER_RUN,
@@ -387,6 +389,11 @@ def _fetch_fx_protection_candles(
         positions = _fx_positions_for_symbol(research_work, live_sim_rows, db_sym)
         mark = latest_mark_from_candles(stored, now) if stored else None
         near = any_position_near_stop(positions, mark)
+        latest_5m = store.list_recent_candles(instrument.id, PROVIDER_TIMEFRAME, limit=1)
+        stale_5m = is_canonical_5m_stale(
+            latest_5m[0].timestamp if latest_5m else None,
+            now=now,
+        )
 
         plan = plan_fx_protection_fetch(
             store,
@@ -396,6 +403,7 @@ def _fetch_fx_protection_candles(
             td_eligible=td_ok,
             near_sl=near,
             has_fresh_stored_1m=fresh,
+            canonical_5m_stale=stale_5m,
             now=now,
         )
 
@@ -424,6 +432,7 @@ def _fetch_fx_protection_candles(
                         td_eligible=td_ok,
                         near_sl=near,
                         has_fresh_stored_1m=False,
+                        canonical_5m_stale=stale_5m,
                         now=now,
                     )
                     if plan.fetch_provider == "twelvedata":

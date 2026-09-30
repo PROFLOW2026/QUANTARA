@@ -81,6 +81,26 @@ def _apply_all_migrations_via_node(url: str) -> None:
         )
 
 
+def _apply_all_migrations_via_psycopg(url: str) -> None:
+    """Fallback when npm/db:migrate is unavailable (matches scripts/migrate.mjs ordering)."""
+    if not MIGRATIONS_DIR.is_dir():
+        raise RuntimeError(f"migrations dir missing: {MIGRATIONS_DIR}")
+    conn = psycopg2.connect(url)
+    conn.autocommit = True
+    cur = conn.cursor()
+    for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
+        sql = path.read_text(encoding="utf-8")
+        try:
+            cur.execute(sql)
+        except Exception as exc:
+            msg = str(exc).lower()
+            if "already exists" in msg:
+                continue
+            conn.close()
+            raise RuntimeError(f"SQL migration failed: {path.name}: {exc}") from exc
+    conn.close()
+
+
 def _broker_tables_exist(url: str) -> bool:
     try:
         engine = create_engine(url, pool_pre_ping=True)
@@ -92,7 +112,15 @@ def _broker_tables_exist(url: str) -> bool:
 
 
 def _apply_all_migrations(url: str) -> None:
-    _apply_all_migrations_via_node(url)
+    try:
+        _apply_all_migrations_via_node(url)
+    except RuntimeError as node_err:
+        try:
+            _apply_all_migrations_via_psycopg(url)
+        except Exception as sql_err:
+            raise RuntimeError(
+                f"node migrate failed: {node_err}; psycopg fallback failed: {sql_err}"
+            ) from sql_err
 
 
 def _seed_disposable_competition_data(url: str) -> None:
