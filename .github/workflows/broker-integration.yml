@@ -95,16 +95,7 @@ jobs:
           BROKER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
           BROKER_TEST_DB_NAME: quantara_broker_test
           BROKER_TEST_ALLOW_MIGRATE_URL: "1"
-        run: |
-          python -c "
-          import traceback
-          try:
-              from tests.broker_integration_support import bootstrap_broker_test_schema_for_ci as boot
-              print('bootstrap ok', boot())
-          except Exception:
-              traceback.print_exc()
-              raise
-          "
+        run: python tests/ci_bootstrap_broker.py
 
       - name: Run broker integration tests
         working-directory: apps/engine
