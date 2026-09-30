@@ -32,7 +32,12 @@ def main() -> None:
     if os.environ.get("V3_CATALOG_ONLY") == "1":
         print(json.dumps({"frozen_catalog": export_frozen_catalog()}, indent=2))
         return
-    report = run_v3_discovery(store)
+    import sys
+
+    def _progress(msg: str) -> None:
+        print(msg, file=sys.stderr, flush=True)
+
+    report = run_v3_discovery(store, progress=_progress)
     session.close()
     out_path = ROOT / "scripts" / "research" / "v3_discovery_report.json"
     out_path.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")

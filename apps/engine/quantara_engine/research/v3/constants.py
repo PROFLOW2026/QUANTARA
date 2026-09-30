@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+V3_RESEARCH_START = datetime(2026, 3, 17, 0, 0, 0, tzinfo=timezone.utc)
+
 V3_RESEARCH_ASSETS: tuple[str, ...] = (
     "BTCUSD",
     "ETHUSD",

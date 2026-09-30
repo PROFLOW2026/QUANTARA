@@ -84,13 +84,15 @@ jobs:
             "GRANT ALL PRIVILEGES ON DATABASE quantara_broker_test TO quantara;"
 
       - name: Bootstrap broker test schema
+        working-directory: apps/engine
         env:
           DATABASE_URL: postgresql://quantara:quantara@127.0.0.1:5433/quantara_broker_test
           DIRECT_URL: postgresql://quantara:quantara@127.0.0.1:5433/quantara_broker_test
           BROKER_TEST_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5433/postgres
           BROKER_TEST_DATABASE_URL: postgresql://quantara:quantara@127.0.0.1:5433/quantara_broker_test
+          BROKER_TEST_DB_NAME: quantara_broker_test
         run: |
-          python -c "from tests.broker_integration_support import _provision_local_database as boot; boot()"
+          python -c "from tests.broker_integration_support import _provision_local_database as boot; url=boot(); assert url, 'broker bootstrap failed'"
 
       - name: Run broker integration tests
         working-directory: apps/engine

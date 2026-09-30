@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 
 from quantara_engine.persistence.store import TradingStore
 from quantara_engine.research.v3.backtest_lab import (
@@ -14,14 +14,27 @@ from quantara_engine.research.v3.backtest_lab import (
     trades_to_r_pnls,
 )
 from quantara_engine.research.v3.candidates import V3Candidate, frozen_v3_candidates
+from quantara_engine.research.v3.constants import V3_RESEARCH_START
 from quantara_engine.research.v3.data_quality_gate import build_data_quality_matrix
 from quantara_engine.research.v3.metrics import profit_factor, trade_metrics
 from quantara_engine.research.v3.walkforward import rolling_walk_forward_folds, summarize_fold_pnls
 from quantara_engine.strategies.registry import get_latest
 
+_US_EQUITIES = frozenset({"NVDA", "TSLA", "AMD", "COIN"})
+
+
+def _skip_backtest(candidate: V3Candidate, symbol: str, timeframe: str) -> bool:
+    """ORB uses US 5m; other families skip equity 5m (too slow, MIN_QTY-heavy)."""
+    slug = candidate.strategy_slug
+    if slug == "opening-range-breakout":
+        return timeframe != "5m" or symbol not in _US_EQUITIES
+    if symbol in _US_EQUITIES and timeframe == "5m":
+        return True
+    return False
+
 
 def _test_pairs(quality: dict[str, Any]) -> list[tuple[str, str]]:
-    allowed = set()
+    allowed: set[tuple[str, str]] = set()
     for row in quality.get("matrix", []):
         if row["classification"] == "REJECT":
             continue
@@ -29,15 +42,22 @@ def _test_pairs(quality: dict[str, Any]) -> list[tuple[str, str]]:
             allowed.add((row["symbol"], row["timeframe"]))
     preferred = [
         ("BTCUSD", "15m"),
+        ("BTCUSD", "5m"),
         ("ETHUSD", "15m"),
+        ("ETHUSD", "5m"),
         ("TSLA", "5m"),
         ("NVDA", "15m"),
+        ("NVDA", "5m"),
         ("XAUUSD", "1h"),
+        ("XAUUSD", "15m"),
         ("GBPJPY", "15m"),
+        ("GBPJPY", "1h"),
         ("AMD", "15m"),
+        ("AMD", "5m"),
         ("COIN", "15m"),
+        ("COIN", "5m"),
     ]
-    return [p for p in preferred if p in allowed or not allowed]
+    return [p for p in preferred if p in allowed]
 
 
 def _chronological_folds(start: datetime, end: datetime, n: int = 4) -> list[tuple[datetime, datetime]]:
@@ -105,21 +125,36 @@ def _monte_carlo(pnls: list[float], *, iterations: int = 500) -> dict[str, float
     }
 
 
-def run_v3_discovery(store: TradingStore) -> dict[str, Any]:
+def run_v3_discovery(
+    store: TradingStore,
+    *,
+    progress: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
     quality = build_data_quality_matrix(store)
     pairs = _test_pairs(quality)
     candidates = frozen_v3_candidates()
     results: list[dict[str, Any]] = []
+    candle_cache: dict[tuple[str, str], list] = {}
 
+    tested = 0
     for candidate in candidates:
         cls = get_latest(candidate.strategy_slug)
         for symbol, timeframe in pairs:
+            if _skip_backtest(candidate, symbol, timeframe):
+                continue
             if timeframe not in cls.supported_timeframes():
                 continue
             instrument = store.get_instrument_by_symbol(symbol)
             if not instrument:
                 continue
-            candles = store.list_candles(instrument.id, timeframe)
+            cache_key = (str(instrument.id), timeframe)
+            if cache_key not in candle_cache:
+                candle_cache[cache_key] = [
+                    c
+                    for c in store.list_candles(instrument.id, timeframe)
+                    if c.timestamp >= V3_RESEARCH_START
+                ]
+            candles = candle_cache[cache_key]
             if not candles:
                 continue
             start, end = candles[0].timestamp, candles[-1].timestamp
@@ -155,6 +190,9 @@ def run_v3_discovery(store: TradingStore) -> dict[str, Any]:
                 oos_trades=oos_m["trades"],
             )
             dirs = direction_metrics(trades)
+            tested += 1
+            if progress and tested % 5 == 0:
+                progress(f"v3_discovery progress={tested} results={len(results)}")
             results.append(
                 {
                     "candidate_id": candidate.candidate_id,
@@ -185,13 +223,13 @@ def run_v3_discovery(store: TradingStore) -> dict[str, Any]:
         reverse=True,
     )[:10]
 
-    mc = _monte_carlo(
-        [float(t.realized_pnl) for r in top10[:1] for t in []]
-    )
-    if top10 and passing:
-        best = passing[0]
-        # Re-run monte on full trade pnls omitted for brevity — use oos pnls proxy
-        mc = _monte_carlo([])
+    portfolio_oos_r: list[float] = []
+    for r in (passing[:6] if passing else top10[:6]):
+        exp = r["oos"].get("expectancy_r")
+        n = int(r["oos"].get("trades") or 0)
+        if exp is not None and n > 0:
+            portfolio_oos_r.extend([float(exp)] * n)
+    mc = _monte_carlo(portfolio_oos_r)
 
     return {
         "quality": quality,
