@@ -82,13 +82,16 @@ jobs:
             "CREATE DATABASE quantara_broker_test OWNER quantara;"
           psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 -c \
             "GRANT ALL PRIVILEGES ON DATABASE quantara_broker_test TO quantara;"
+          psql -h 127.0.0.1 -p 5433 -U postgres -d quantara_broker_test -v ON_ERROR_STOP=1 -c \
+            "GRANT ALL ON SCHEMA public TO quantara; GRANT CREATE ON SCHEMA public TO quantara;"
 
       - name: Bootstrap broker test schema
         working-directory: apps/engine
         env:
-          DATABASE_URL: postgresql://quantara:quantara@127.0.0.1:5433/quantara_broker_test
-          DIRECT_URL: postgresql://quantara:quantara@127.0.0.1:5433/quantara_broker_test
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
+          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
           BROKER_TEST_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5433/postgres
+          BROKER_TEST_MIGRATE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
           BROKER_TEST_DATABASE_URL: postgresql://quantara:quantara@127.0.0.1:5433/quantara_broker_test
           BROKER_TEST_DB_NAME: quantara_broker_test
         run: |
