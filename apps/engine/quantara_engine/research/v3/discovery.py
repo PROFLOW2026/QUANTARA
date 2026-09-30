@@ -4,7 +4,15 @@ from __future__ import annotations
 
 import random
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Callable
+
+from quantara_engine.research.v3.checkpoint import (
+    append_result,
+    load_completed,
+    result_key,
+    write_state,
+)
 
 from quantara_engine.persistence.store import TradingStore
 from quantara_engine.research.v3.backtest_lab import (
@@ -129,14 +137,29 @@ def run_v3_discovery(
     store: TradingStore,
     *,
     progress: Callable[[str], None] | None = None,
+    checkpoint_path: Path | None = None,
+    state_path: Path | None = None,
 ) -> dict[str, Any]:
     quality = build_data_quality_matrix(store)
     pairs = _test_pairs(quality)
     candidates = frozen_v3_candidates()
-    results: list[dict[str, Any]] = []
+    completed = load_completed(checkpoint_path) if checkpoint_path else {}
+    results: list[dict[str, Any]] = list(completed.values())
     candle_cache: dict[tuple[str, str], list] = {}
 
-    tested = 0
+    planned = 0
+    for candidate in candidates:
+        cls = get_latest(candidate.strategy_slug)
+        for symbol, timeframe in pairs:
+            if _skip_backtest(candidate, symbol, timeframe):
+                continue
+            if timeframe not in cls.supported_timeframes():
+                continue
+            planned += 1
+
+    tested = len(completed)
+    skipped = 0
+    failed = 0
     for candidate in candidates:
         cls = get_latest(candidate.strategy_slug)
         for symbol, timeframe in pairs:
@@ -157,7 +180,16 @@ def run_v3_discovery(
             candles = candle_cache[cache_key]
             if not candles:
                 continue
+            key = result_key(candidate.candidate_id, symbol, timeframe)
+            if key in completed:
+                skipped += 1
+                continue
             start, end = candles[0].timestamp, candles[-1].timestamp
+            if progress:
+                progress(
+                    f"v3_discovery active={candidate.candidate_id} {symbol} {timeframe} "
+                    f"done={tested}/{planned}"
+                )
             bt = run_candidate_backtest(
                 candidate=candidate,
                 instrument=instrument,
@@ -165,6 +197,8 @@ def run_v3_discovery(
                 candles=candles,
             )
             if bt.get("error"):
+                failed += 1
+                tested += 1
                 continue
             trades = bt["trades"]
             folds = _chronological_folds(start, end, n=4)
@@ -191,23 +225,37 @@ def run_v3_discovery(
             )
             dirs = direction_metrics(trades)
             tested += 1
+            row = {
+                "candidate_id": candidate.candidate_id,
+                "family": candidate.family,
+                "asset": symbol,
+                "timeframe": timeframe,
+                "parameters": candidate.parameters,
+                "walk_forward": wf,
+                "oos": {**oos_m, "expectancy_r": oos_exp_r, "pf": oos_pf},
+                "long": dirs.get("long"),
+                "short": dirs.get("short"),
+                "robustness": robust,
+                "total_trades": len(trades),
+            }
+            results.append(row)
+            if checkpoint_path:
+                append_result(checkpoint_path, row)
+                completed[key] = row
+            if state_path:
+                write_state(
+                    state_path,
+                    {
+                        "backtests_completed": tested,
+                        "backtests_total": planned,
+                        "last_key": key,
+                        "last_candidate_id": candidate.candidate_id,
+                        "last_asset": symbol,
+                        "last_timeframe": timeframe,
+                    },
+                )
             if progress and tested % 5 == 0:
-                progress(f"v3_discovery progress={tested} results={len(results)}")
-            results.append(
-                {
-                    "candidate_id": candidate.candidate_id,
-                    "family": candidate.family,
-                    "asset": symbol,
-                    "timeframe": timeframe,
-                    "parameters": candidate.parameters,
-                    "walk_forward": wf,
-                    "oos": {**oos_m, "expectancy_r": oos_exp_r, "pf": oos_pf},
-                    "long": dirs.get("long"),
-                    "short": dirs.get("short"),
-                    "robustness": robust,
-                    "total_trades": len(trades),
-                }
-            )
+                progress(f"v3_discovery progress={tested}/{planned} results={len(results)}")
 
     passing = [r for r in results if r["robustness"] in ("ROBUST", "PROMISING")]
     passing.sort(
@@ -231,14 +279,26 @@ def run_v3_discovery(
             portfolio_oos_r.extend([float(exp)] * n)
     mc = _monte_carlo(portfolio_oos_r)
 
+    robust_n = len([r for r in results if r["robustness"] == "ROBUST"])
     return {
         "quality": quality,
         "candidates_defined": len(candidates),
         "candidates_tested": len(results),
-        "candidates_passing_robustness": len([r for r in results if r["robustness"] == "ROBUST"]),
+        "backtests_planned": planned,
+        "backtests_completed": tested,
+        "backtests_skipped_resume": skipped,
+        "backtests_failed": failed,
+        "robustness_counts": {
+            "ROBUST": robust_n,
+            "PROMISING": len([r for r in results if r["robustness"] == "PROMISING"]),
+            "MIXED": len([r for r in results if r["robustness"] == "MIXED"]),
+            "FAIL": len([r for r in results if r["robustness"] == "FAIL"]),
+        },
+        "candidates_passing_robustness": robust_n,
         "candidates_passing_promising": len(passing),
         "top10": top10,
         "production_finalists": [r for r in passing if r["robustness"] == "ROBUST"][:6],
         "monte_carlo_best": mc,
-        "gate": "FAIL" if not [r for r in results if r["robustness"] == "ROBUST"] else "PASS",
+        "gate": "FAIL" if not robust_n else "PASS",
+        "discovery_complete": tested >= planned,
     }

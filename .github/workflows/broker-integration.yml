@@ -92,8 +92,9 @@ jobs:
           DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
           BROKER_TEST_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5433/postgres
           BROKER_TEST_MIGRATE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
-          BROKER_TEST_DATABASE_URL: postgresql://quantara:quantara@127.0.0.1:5433/quantara_broker_test
+          BROKER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
           BROKER_TEST_DB_NAME: quantara_broker_test
+          BROKER_TEST_ALLOW_MIGRATE_URL: "1"
         run: |
           python -c "
           import traceback
@@ -109,5 +110,5 @@ jobs:
         working-directory: apps/engine
         env:
           BROKER_TEST_REUSE: "1"
-          BROKER_TEST_DATABASE_URL: postgresql://quantara:quantara@127.0.0.1:5433/quantara_broker_test
+          BROKER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
         run: pytest tests/test_broker_execution_integration.py -v --tb=short

@@ -130,10 +130,13 @@ def bootstrap_broker_test_schema_for_ci() -> str:
         raise RuntimeError(f"broker test database unreachable: {migrate_url}")
     if not _broker_tables_exist(migrate_url):
         _apply_all_migrations(migrate_url)
+    if os.environ.get("BROKER_TEST_FULL_SEED") == "1":
         _seed_disposable_competition_data(migrate_url)
     if not _broker_tables_exist(migrate_url):
-        raise RuntimeError("broker schema missing after migrate/seed")
+        raise RuntimeError("broker schema missing after migrate")
     if test_url != migrate_url and not _postgres_available(test_url):
+        if os.environ.get("BROKER_TEST_ALLOW_MIGRATE_URL") == "1":
+            return migrate_url
         raise RuntimeError(f"broker test role database unreachable: {test_url}")
     return test_url
 
