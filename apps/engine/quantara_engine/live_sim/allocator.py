@@ -72,30 +72,94 @@ from quantara_engine.risk.opportunity import opportunity_key_from_signal
 logger = logging.getLogger(__name__)
 
 
-def _equal_asset_sizing_context(
+def _sizing_metadata_patch(
+    sizing,
+    *,
+    settings,
+    risk_equity: Decimal,
+) -> dict:
+    target_pct = float(settings.risk_per_trade_pct)
+    return {
+        "target_risk_pct": target_pct,
+        "target_risk_usd": float(sizing.target_risk_usd),
+        "raw_qty_by_stop": float(sizing.raw_qty_by_stop or 0),
+        "final_qty": float(sizing.quantity or 0),
+        "planned_sl_risk_usd": float(sizing.expected_risk_usd or 0),
+        "planned_sl_risk_pct": sizing.planned_sl_risk_pct,
+        "binding_constraint": sizing.binding_constraint or sizing.sizing_reason or "NONE",
+        "risk_equity_usd": float(risk_equity),
+        "v2_sizing": True,
+    }
+
+
+def _resolve_live_sim_entry_economics(
     store: TradingStore,
     *,
     symbol: str,
     account: dict,
-) -> tuple[Decimal, Decimal, str, dict] | None:
-    """When equal-asset multi-broker is active, size from isolated asset envelope."""
-    from quantara_engine.owner_portfolio.asset_allocation import (
-        asset_equity,
-        get_asset_allocation_row,
-        is_equal_asset_mode_active,
-    )
-    from quantara_engine.owner_portfolio.asset_ledger import asset_available_cash
-    from quantara_engine.owner_portfolio.service import LIVE_SIM_OWNER_SLUG
+    account_id: str,
+    account_slug: str,
+    instrument,
+    execution_now: datetime,
+) -> dict:
+    """V2: owner risk budget, global SL gates, broker buying power."""
+    from quantara_engine.live_sim.v2_sizing import resolve_live_sim_v2_sizing_context
+    from quantara_engine.owner_portfolio.asset_allocation import asset_equity
 
-    if not is_equal_asset_mode_active(store, LIVE_SIM_OWNER_SLUG):
-        return None
-    row = get_asset_allocation_row(store, owner_slug=LIVE_SIM_OWNER_SLUG, canonical_symbol=symbol)
-    if not row or not row.get("enabled"):
-        return None
-    equity = asset_equity(row)
-    cash = asset_available_cash(store, owner_slug=LIVE_SIM_OWNER_SLUG, canonical_symbol=symbol)
-    broker_id = row.get("broker_account_id") or account["id"]
-    return equity, cash, str(broker_id), row
+    v2 = resolve_live_sim_v2_sizing_context(
+        store, symbol=symbol, account=account, account_id=account_id
+    )
+    broker_limits = load_risk_settings(dict(account))
+    asset_row = v2.asset_row
+    if asset_row:
+        settings = load_asset_gate_settings(asset_row, broker_limits)
+        settings = maybe_roll_asset_daily_start(
+            store, asset_row["id"], settings, asset_equity(asset_row), execution_now
+        )
+        update_asset_high_water_mark(store, asset_row["id"], asset_equity(asset_row))
+        account_id = v2.broker_account_id
+        routed = broker_account_row_by_id(store, account_id)
+        if routed:
+            broker_limits = load_risk_settings(dict(routed))
+            account = dict(routed)
+            account_slug = str(routed["slug"])
+        broker_equity = Decimal(str(account.get("equity") or account.get("starting_cash")))
+        update_high_water_mark(store, account_id, broker_equity)
+    else:
+        settings = broker_limits
+        settings = maybe_roll_daily_start(
+            store, account_id, settings, v2.risk_equity, execution_now
+        )
+        update_high_water_mark(store, account_id, v2.risk_equity)
+
+    target_risk = target_risk_for_equity(v2.risk_equity, settings)
+    open_risk = v2.open_risk
+    hard_max_risk = _remaining_sl_gate_budget(
+        settings=settings,
+        equity=v2.gate_equity,
+        open_risk=open_risk,
+        symbol=symbol,
+    )
+    buying_power = _spot_crypto_buying_power(account, instrument)
+    if buying_power <= 0:
+        buying_power = v2.buying_power_cash
+
+    return {
+        "account": account,
+        "account_id": account_id,
+        "account_slug": account_slug,
+        "settings": settings,
+        "broker_limits": broker_limits,
+        "asset_row": asset_row,
+        "risk_equity": v2.risk_equity,
+        "leverage_equity": v2.leverage_equity,
+        "target_risk": target_risk,
+        "open_risk": open_risk,
+        "hard_max_risk": hard_max_risk,
+        "buying_power": buying_power,
+        "soft_shared_pool": v2.soft_allocation,
+        "broker_cash": v2.buying_power_cash,
+    }
 
 
 def _account_row(store: TradingStore, slug: str = LIVE_SIM_10K_ACCOUNT_SLUG) -> dict | None:
@@ -600,53 +664,36 @@ def _resume_pending_allocation(
         return {"status": "rejected", "reason": "BROKER_CAPABILITY_DENIED", "detail": detail}
 
     instance = entry["instance"]
-    equity = Decimal(str(account["equity"] or account["starting_cash"]))
-    asset_ctx = _equal_asset_sizing_context(store, symbol=instrument.symbol, account=account)
-    asset_cash_override: Decimal | None = None
-    asset_row: dict | None = None
-    broker_limits = load_risk_settings(dict(account))
-    if asset_ctx:
-        equity, asset_cash_override, routed_account_id, asset_row = asset_ctx
-        account_id = routed_account_id
-        routed = broker_account_row_by_id(store, routed_account_id)
-        if routed:
-            broker_limits = load_risk_settings(dict(routed))
-            account = dict(routed)
-            account_slug = str(routed["slug"])
-    if asset_row:
-        settings = load_asset_gate_settings(asset_row, broker_limits)
-        settings = maybe_roll_asset_daily_start(
-            store, asset_row["id"], settings, equity, execution_now
-        )
-        update_asset_high_water_mark(store, asset_row["id"], equity)
-        broker_equity = Decimal(str(account.get("equity") or account.get("starting_cash")))
-        update_high_water_mark(store, account_id, broker_equity)
-    else:
-        settings = broker_limits
-        settings = maybe_roll_daily_start(store, account_id, settings, equity, execution_now)
-        update_high_water_mark(store, account_id, equity)
-
-    open_risk = compute_open_sl_risk(store, account_id)
     dir_enum = Direction.LONG if existing["direction"] == "long" else Direction.SHORT
     direction = str(existing["direction"])
     sl = Decimal(str(existing["stop_loss"]))
     entry_ref = Decimal(str(existing["proposed_entry"]))
-    target_risk = target_risk_for_equity(equity, settings)
-    hard_max_risk = _remaining_sl_gate_budget(
-        settings=settings, equity=equity, open_risk=open_risk, symbol=instrument.symbol
+    econ = _resolve_live_sim_entry_economics(
+        store,
+        symbol=instrument.symbol,
+        account=account,
+        account_id=account_id,
+        account_slug=account_slug,
+        instrument=instrument,
+        execution_now=execution_now,
     )
+    account = econ["account"]
+    account_id = econ["account_id"]
+    account_slug = econ["account_slug"]
+    settings = econ["settings"]
+    risk_equity = econ["risk_equity"]
+    leverage_equity = econ["leverage_equity"]
+    target_risk = econ["target_risk"]
+    open_risk = econ["open_risk"]
+    hard_max_risk = econ["hard_max_risk"]
+    buying_power = econ["buying_power"]
     assumptions = execution_assumptions_for(instrument, exec_candle.close)
     from quantara_engine.broker.profile import profile_for_account_slug
 
     fx = store.build_currency_context_for_instruments([instrument]).fx_rates
-    buying_power = (
-        asset_cash_override
-        if asset_cash_override is not None
-        else _spot_crypto_buying_power(account, instrument)
-    )
     product_route = _live_sim_execution_route(store, account_slug, instrument.symbol, direction)
     sizing = size_live_sim_entry(
-        equity=equity,
+        equity=leverage_equity,
         cash=buying_power,
         target_risk=target_risk,
         entry_reference=entry_ref,
@@ -916,6 +963,39 @@ def maybe_allocate_live_sim(
         opportunity_key=opportunity_key,
     )
 
+    from quantara_engine.live_sim.funnel_categories import funnel_category
+    from quantara_engine.live_sim.v2_policy import evaluate_live_sim_v2_policy
+
+    policy = evaluate_live_sim_v2_policy(
+        strategy_slug=strategy_slug,
+        symbol=instrument.symbol,
+        timeframe=instance.timeframe,
+    )
+    if not policy.allowed:
+        log_allocation(
+            store,
+            account_id=account_id,
+            canonical_key=canonical_key,
+            opportunity_key=opportunity_key,
+            strategy_slug=strategy_slug,
+            strategy_version=strategy_version,
+            robot_label=robot_label,
+            symbol=instrument.symbol,
+            timeframe=instance.timeframe,
+            direction=direction,
+            signal_candle_timestamp=candle.timestamp,
+            proposed_entry=candle.close,
+            stop_loss=signal.suggested_sl,
+            take_profit=signal.suggested_tp,
+            calculated_risk_usd=None,
+            calculated_quantity=None,
+            accepted=False,
+            rejection_reason=policy.reason,
+            rejection_detail=REJECTION_HE.get(policy.reason or "", policy.reason or ""),
+            metadata={"funnel_category": funnel_category(policy.reason)},
+        )
+        return {"status": "rejected", "reason": policy.reason}
+
     from quantara_engine.trading.asset_trading_controls import (
         SCOPE_LIVE_SIM,
         allows_entries_for_symbol,
@@ -1074,38 +1154,33 @@ def maybe_allocate_live_sim(
         )
         return {"status": "rejected", "reason": "INVALID_STOP_LOSS"}
 
-    equity = Decimal(str(account["equity"] or account["starting_cash"]))
-    asset_ctx = _equal_asset_sizing_context(store, symbol=instrument.symbol, account=account)
-    asset_cash_override: Decimal | None = None
-    asset_row: dict | None = None
-    broker_limits = load_risk_settings(dict(account))
-    if asset_ctx:
-        equity, asset_cash_override, routed_account_id, asset_row = asset_ctx
-        account_id = routed_account_id
-        routed = broker_account_row_by_id(store, routed_account_id)
-        if routed:
-            broker_limits = load_risk_settings(dict(routed))
-            account = dict(routed)
-            account_slug = str(routed["slug"])
-    if asset_row:
-        settings = load_asset_gate_settings(asset_row, broker_limits)
-        settings = maybe_roll_asset_daily_start(
-            store, asset_row["id"], settings, equity, execution_now
-        )
-        update_asset_high_water_mark(store, asset_row["id"], equity)
-        broker_equity = Decimal(str(account.get("equity") or account.get("starting_cash")))
-        update_high_water_mark(store, account_id, broker_equity)
-    else:
-        settings = broker_limits
-        settings = maybe_roll_daily_start(store, account_id, settings, equity, execution_now)
-        update_high_water_mark(store, account_id, equity)
+    econ = _resolve_live_sim_entry_economics(
+        store,
+        symbol=instrument.symbol,
+        account=account,
+        account_id=account_id,
+        account_slug=account_slug,
+        instrument=instrument,
+        execution_now=execution_now,
+    )
+    account = econ["account"]
+    account_id = econ["account_id"]
+    account_slug = econ["account_slug"]
+    settings = econ["settings"]
+    broker_limits = econ["broker_limits"]
+    asset_row = econ["asset_row"]
+    risk_equity = econ["risk_equity"]
+    leverage_equity = econ["leverage_equity"]
+    target_risk = econ["target_risk"]
+    open_risk = econ["open_risk"]
+    hard_max_risk = econ["hard_max_risk"]
+    buying_power = econ["buying_power"]
 
     ctx = store.build_currency_context_for_instruments([instrument])
     assumptions = execution_assumptions_for(instrument, candle.close)
     entry_ref = candle.close
     sl = Decimal(str(signal.suggested_sl))
 
-    target_risk = target_risk_for_equity(equity, settings)
     sl_distance = abs(entry_ref - sl)
     if sl_distance <= 0:
         log_allocation(
@@ -1131,19 +1206,10 @@ def maybe_allocate_live_sim(
         )
         return {"status": "rejected", "reason": "INVALID_STOP_LOSS"}
 
-    buying_power = (
-        asset_cash_override
-        if asset_cash_override is not None
-        else _spot_crypto_buying_power(account, instrument)
-    )
     sym_db = instrument.symbol.upper().replace("/", "")
-    open_risk = compute_open_sl_risk(store, account_id)
-    hard_max_risk = _remaining_sl_gate_budget(
-        settings=settings, equity=equity, open_risk=open_risk, symbol=instrument.symbol
-    )
     product_route = _live_sim_execution_route(store, account_slug, instrument.symbol, direction)
     sizing = size_live_sim_entry(
-        equity=equity,
+        equity=leverage_equity,
         cash=buying_power,
         target_risk=target_risk,
         entry_reference=entry_ref,
@@ -1159,6 +1225,7 @@ def maybe_allocate_live_sim(
         product_rules=product_route.rules,
         hard_max_risk_usd=hard_max_risk,
     )
+    sizing_meta = _sizing_metadata_patch(sizing, settings=settings, risk_equity=risk_equity)
     qty = sizing.quantity
     expected_risk = sizing.expected_risk_usd
     deny = sizing.deny_reason
@@ -1170,17 +1237,17 @@ def maybe_allocate_live_sim(
         sym_pct = (
             float(
                 (open_risk.by_symbol.get(sym, Decimal("0")) + (expected_risk or Decimal("0")))
-                / equity
+                / risk_equity
                 * 100
             )
-        ) if equity > 0 else 0.0
+        ) if risk_equity > 0 else 0.0
         grp_pct = (
             float(
                 (open_risk.by_group.get(grp, Decimal("0")) + (expected_risk or Decimal("0")))
-                / equity
+                / risk_equity
                 * 100
             )
-        ) if equity > 0 and grp else None
+        ) if risk_equity > 0 and grp else None
         log_allocation(
             store,
             account_id=account_id,
@@ -1214,7 +1281,7 @@ def maybe_allocate_live_sim(
 
     gate = evaluate_entry_gates(
         settings=settings,
-        equity=equity,
+        equity=risk_equity,
         realized_pnl_today=Decimal("0"),
         open_risk=open_risk,
         proposed_risk_usd=expected_risk,
@@ -1280,6 +1347,8 @@ def maybe_allocate_live_sim(
         incremental_sl_risk_usd=expected_risk or Decimal("0"),
         incremental_notional_usd=incremental_notional_usd,
         required_cash_usd=required_cash_usd,
+        soft_shared_pool=econ["soft_shared_pool"],
+        broker_cash_usd=econ["broker_cash"],
     )
     if not asset_verdict.allowed:
         return _reject(
@@ -1290,7 +1359,7 @@ def maybe_allocate_live_sim(
     spot_raw = Decimal(str(account.get("spot_crypto_cash") or "0"))
     cash_raw = Decimal(str(account.get("cash") or account.get("equity") or account["starting_cash"]))
     broker_ok, broker_reason = validate_live_sim_broker_pre_trade(
-        equity=equity,
+        equity=leverage_equity,
         cash=cash_raw,
         spot_crypto_cash=spot_raw,
         quantity=qty,
@@ -1316,6 +1385,7 @@ def maybe_allocate_live_sim(
         "lifecycle_state": "pending_execution",
         "sizing_reason": sizing.sizing_reason,
         "execution_candle_timestamp": exec_ts.isoformat(),
+        **sizing_meta,
     }
     if candle_index + 1 >= len(candles):
         log_id = log_allocation(
@@ -1411,15 +1481,15 @@ def maybe_allocate_live_sim(
         accepted=True,
         resulting_open_sl_risk_usd=open_risk.total_sl_risk_usd + expected_risk,
         symbol_sl_risk_pct=float(
-            (open_risk.by_symbol.get(sym, Decimal("0")) + expected_risk) / equity * 100
+            (open_risk.by_symbol.get(sym, Decimal("0")) + expected_risk) / risk_equity * 100
         ),
         group_sl_risk_pct=(
-            float((open_risk.by_group.get(grp, Decimal("0")) + expected_risk) / equity * 100)
+            float((open_risk.by_group.get(grp, Decimal("0")) + expected_risk) / risk_equity * 100)
             if grp
             else None
         ),
         group_name=grp,
-        metadata={"lifecycle_state": "executing", "sizing_reason": sizing.sizing_reason},
+        metadata={"lifecycle_state": "executing", "sizing_reason": sizing.sizing_reason, **sizing_meta},
     )
     if not log_id:
         return {"status": "skipped", "reason": "duplicate"}
@@ -1448,7 +1518,7 @@ def maybe_allocate_live_sim(
         target_risk=target_risk,
         exec_candle=exec_candle,
         open_risk=open_risk,
-        equity=equity,
+        equity=risk_equity,
         sizing_reason=sizing.sizing_reason,
     )
     if exec_result.get("status") == "rejected":

@@ -161,6 +161,103 @@ def _list_closed_live_sim_trades(store: TradingStore, account_ids: list[str], *,
     return out
 
 
+def _clean_window_position_stats(
+    store: TradingStore, account_ids: list[str], audit_since
+) -> dict | None:
+    if not account_ids or audit_since is None:
+        return None
+    rows = store.session.execute(
+        text(
+            """
+            SELECT p.planned_sl_risk_usd,
+              (
+                SELECT COALESCE(SUM(l.realized_pnl), 0)
+                FROM broker_attribution_ledger l
+                WHERE l.strategy_position_id = p.id AND l.exit_price IS NOT NULL
+              ) AS realized_pnl
+            FROM live_sim_positions p
+            WHERE p.status = 'closed'
+              AND p.broker_account_id = ANY(CAST(:aids AS uuid[]))
+              AND p.closed_at >= :since
+            """
+        ),
+        {"aids": account_ids, "since": audit_since},
+    ).mappings().all()
+    if not rows:
+        return {
+            "closed_positions": 0,
+            "net_pnl": 0.0,
+            "wins": 0,
+            "losses": 0,
+            "profit_factor": None,
+            "expectancy_usd": None,
+        }
+    pnls = [float(r["realized_pnl"] or 0) for r in rows]
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p < 0]
+    gp, gl = sum(wins), sum(losses)
+    pf = round(gp / abs(gl), 3) if gl else None
+    return {
+        "closed_positions": len(pnls),
+        "net_pnl": round(sum(pnls), 2),
+        "wins": len(wins),
+        "losses": len(losses),
+        "profit_factor": pf,
+        "expectancy_usd": round(sum(pnls) / len(pnls), 2) if pnls else None,
+        "since": audit_since.isoformat() if hasattr(audit_since, "isoformat") else str(audit_since),
+    }
+
+
+def _risk_utilization_snapshot(
+    store: TradingStore,
+    account_ids: list[str],
+    *,
+    equity: Decimal,
+    audit_since,
+) -> dict:
+    target_pct = None
+    if equity > 0:
+        from quantara_engine.live_sim.risk_policy import load_risk_settings
+
+        target_pct = float(
+            load_risk_settings({"equity": equity, "starting_cash": equity, "risk_settings": {}}).risk_per_trade_pct
+        )
+    since_clause = "AND p.closed_at >= :since" if audit_since else ""
+    risks = store.session.execute(
+        text(
+            f"""
+            SELECT planned_sl_risk_usd FROM live_sim_positions p
+            WHERE p.status = 'closed'
+              AND p.broker_account_id = ANY(CAST(:aids AS uuid[]))
+              {since_clause}
+            """
+        ),
+        {"aids": account_ids, "since": audit_since},
+    ).scalars().all()
+    pcts = [float(Decimal(str(r or 0)) / equity * 100) for r in risks if equity > 0]
+    avg_planned = round(sum(pcts) / len(pcts), 4) if pcts else None
+    gross = store.session.execute(
+        text(
+            """
+            SELECT COALESCE(SUM(gross_exposure), 0)
+            FROM owner_portfolio_asset_allocations a
+            JOIN owner_trading_portfolios otp ON otp.id = a.owner_portfolio_id
+            WHERE otp.slug = :owner_slug AND a.enabled = TRUE
+            """
+        ),
+        {"owner_slug": LIVE_SIM_OWNER_SLUG},
+    ).scalar()
+    cap_util = float(Decimal(str(gross or 0)) / equity * 100) if equity > 0 else 0.0
+    idle = max(0.0, 100.0 - cap_util)
+    return {
+        "risk_target_pct": target_pct,
+        "avg_planned_risk_pct": avg_planned,
+        "capital_utilization_pct": round(cap_util, 2),
+        "idle_capital_pct": round(idle, 2),
+        "avg_gross_exposure_usd": float(gross or 0),
+    }
+
+
 def _funnel_counters(store: TradingStore, account_ids: list[str], audit_since) -> dict:
     if not account_ids:
         return {
@@ -361,9 +458,22 @@ def build_live_sim_summary(store: TradingStore) -> dict:
             ),
             {"aids": active_ids},
         ).mappings().first()
-        closed_count = int(closed["cnt"] or 0) if closed else 0
+        exit_fills_count = int(closed["cnt"] or 0) if closed else 0
+        closed_count = exit_fills_count  # backward-compatible alias
         wins = int(closed["wins"] or 0) if closed else 0
-        win_rate = float(wins / closed_count * 100) if closed_count > 0 else 0.0
+        win_rate = float(wins / exit_fills_count * 100) if exit_fills_count > 0 else 0.0
+
+        closed_positions_count = store.session.execute(
+            text(
+                """
+                SELECT COUNT(*) FROM live_sim_positions
+                WHERE status = 'closed'
+                  AND broker_account_id = ANY(CAST(:aids AS uuid[]))
+                """
+            ),
+            {"aids": active_ids},
+        ).scalar()
+        closed_positions_count = int(closed_positions_count or 0)
 
         audit_since = resolve_live_sim_audit_since(
             store,
@@ -378,6 +488,11 @@ def build_live_sim_summary(store: TradingStore) -> dict:
         recent = recent[:40]
 
         closed_trades = _list_closed_live_sim_trades(store, active_ids)
+
+        clean_window = _clean_window_position_stats(store, active_ids, audit_since)
+        risk_visibility = _risk_utilization_snapshot(
+            store, active_ids, equity=owner_snapshot.total_equity, audit_since=audit_since
+        )
 
         owner_payload = {
             "slug": owner_snapshot.slug,
@@ -508,6 +623,10 @@ def build_live_sim_summary(store: TradingStore) -> dict:
             ],
             "closed_trades": closed_trades,
             "closed_trades_count": closed_count,
+            "closed_positions_count": closed_positions_count,
+            "exit_fills_count": exit_fills_count,
+            "clean_window": clean_window,
+            "risk_visibility": risk_visibility,
             "win_rate_pct": win_rate,
             "candidates": funnel,
             "recent_decisions": recent,

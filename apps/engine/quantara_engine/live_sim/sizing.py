@@ -29,6 +29,9 @@ class LiveSimSizingResult:
     deny_reason: str | None
     sizing_reason: str | None = None
     headroom_notional_usd: Decimal | None = None
+    raw_qty_by_stop: Decimal | None = None
+    binding_constraint: str | None = None
+    planned_sl_risk_pct: float | None = None
 
 
 def entry_mark_price_for_sizing(
@@ -191,8 +194,10 @@ def size_live_sim_entry(
             deny_reason="INVALID_STOP_LOSS",
         )
 
-    desired = _desired_quantity_for_risk(target_risk, sl_distance, instrument, fx_rates)
-    sizing_reason: str | None = "risk_budget"
+    raw_qty = _desired_quantity_for_risk(target_risk, sl_distance, instrument, fx_rates)
+    desired = raw_qty
+    sizing_reason: str | None = "NONE"
+    binding: str | None = None
     headroom = Decimal("0")
     desired, bp_reason, headroom = _cap_desired_by_buying_power(
         desired,
@@ -208,7 +213,10 @@ def size_live_sim_entry(
         product_rules=product_rules,
     )
     if bp_reason:
+        binding = "BROKER_MARGIN"
         sizing_reason = bp_reason
+    elif desired < raw_qty and raw_qty > 0:
+        binding = "MAX_NOTIONAL"
 
     tol = (
         risk_rounding_tolerance_pct
@@ -228,6 +236,9 @@ def size_live_sim_entry(
         hard_max_risk_usd=hard_max_risk_usd,
     )
     if deny or qty <= 0:
+        deny_binding = "MIN_QTY"
+        if deny == "MIN_QUANTITY_EXCEEDS_RISK_BUDGET":
+            deny_binding = "STOP_DISTANCE"
         return LiveSimSizingResult(
             quantity=Decimal("0"),
             expected_risk_usd=expected_risk,
@@ -235,9 +246,16 @@ def size_live_sim_entry(
             deny_reason=deny or "MIN_QUANTITY",
             sizing_reason=sizing_reason,
             headroom_notional_usd=headroom,
+            raw_qty_by_stop=raw_qty,
+            binding_constraint=deny_binding,
+            planned_sl_risk_pct=_pct(expected_risk, equity),
         )
-    if qty < desired and sizing_reason == "risk_budget":
-        sizing_reason = "risk_budget_stepped"
+    if qty < desired and binding is None:
+        binding = "QTY_STEP"
+    if qty < raw_qty and binding is None:
+        binding = "OTHER"
+    if binding is None:
+        binding = "NONE"
     return LiveSimSizingResult(
         quantity=qty,
         expected_risk_usd=expected_risk,
@@ -245,7 +263,16 @@ def size_live_sim_entry(
         deny_reason=None,
         sizing_reason=sizing_reason,
         headroom_notional_usd=headroom,
+        raw_qty_by_stop=raw_qty,
+        binding_constraint=binding,
+        planned_sl_risk_pct=_pct(expected_risk, equity),
     )
+
+
+def _pct(risk_usd: Decimal, equity: Decimal) -> float | None:
+    if equity <= 0:
+        return None
+    return float(risk_usd / equity * 100)
 
 
 def validate_live_sim_broker_pre_trade(

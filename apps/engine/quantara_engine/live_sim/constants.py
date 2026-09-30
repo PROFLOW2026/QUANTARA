@@ -33,4 +33,7 @@ REJECTION_HE: dict[str, str] = {
     "MARKET_CLOSED": "שוק סגור",
     "EXECUTION_FAILED": "ביצוע נכשל",
     "ASSET_TRADING_PAUSED": "מסחר מושהה בנכס — אין כניסות חדשות",
+    "ROBOT_LIVE_PAUSED": "רובוט מושהה ב-Live Sim (Research נמשך)",
+    "ASSET_RESEARCH_ONLY": "נכס במצב Research בלבד ב-Live Sim",
+    "COMBINATION_BLOCKED": "שילוב רובוט×נכס×טיים-פריים חסום ב-Live Sim",
 }

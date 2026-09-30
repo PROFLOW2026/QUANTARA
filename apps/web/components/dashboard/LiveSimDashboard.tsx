@@ -58,7 +58,11 @@ export function LiveSimDashboard({ data, loading }: Props) {
     : t("home.live_sim_show_recent_decisions", { count: decisionCount });
 
   const openCount = data.open_positions?.length ?? 0;
-  const closedCount = data.closed_trades_count ?? data.closed_trades?.length ?? 0;
+  const closedPositions =
+    data.closed_positions_count ?? data.closed_trades?.length ?? data.closed_trades_count ?? 0;
+  const exitFills = data.exit_fills_count ?? data.closed_trades_count;
+  const riskVis = data.risk_visibility;
+  const cleanWin = data.clean_window;
   const totalPnl = data.total_pnl ?? (data.realized_pnl ?? 0) + (data.unrealized_pnl ?? 0);
 
   return (
@@ -81,8 +85,21 @@ export function LiveSimDashboard({ data, loading }: Props) {
           <HomeSummaryValue>{openCount}</HomeSummaryValue>
         </HomeSummaryCard>
         <HomeSummaryCard label={t("home.live_sim_closed_count")}>
-          <HomeSummaryValue>{closedCount}</HomeSummaryValue>
+          <HomeSummaryValue>{closedPositions}</HomeSummaryValue>
+          {exitFills != null && exitFills !== closedPositions ? (
+            <p className="text-xs text-muted mt-1">
+              {t("home.live_sim_exit_fills_count")}: {exitFills}
+            </p>
+          ) : null}
         </HomeSummaryCard>
+        {cleanWin && (cleanWin.closed_positions ?? 0) > 0 ? (
+          <HomeSummaryCard label={t("home.live_sim_clean_window_pnl")}>
+            <PnLDisplay value={cleanWin.net_pnl ?? 0} size="lg" />
+            <p className="text-xs text-muted mt-1">
+              {cleanWin.closed_positions} · PF {cleanWin.profit_factor ?? "—"}
+            </p>
+          </HomeSummaryCard>
+        ) : null}
         <HomeSummaryCard label={t("home.gross_exposure")}>
           <HomeSummaryValue>{formatCurrency(data.gross_exposure ?? 0)}</HomeSummaryValue>
         </HomeSummaryCard>
@@ -95,6 +112,23 @@ export function LiveSimDashboard({ data, loading }: Props) {
           <HomeSummaryValue>{formatPercent(data.current_drawdown_pct ?? 0)}</HomeSummaryValue>
         </HomeSummaryCard>
       </div>
+
+      {riskVis ? (
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <HomeSummaryCard label={t("home.live_sim_risk_target_pct")}>
+            <HomeSummaryValue>{formatPercent(riskVis.risk_target_pct ?? 0)}</HomeSummaryValue>
+          </HomeSummaryCard>
+          <HomeSummaryCard label={t("home.live_sim_avg_planned_risk_pct")}>
+            <HomeSummaryValue>{formatPercent(riskVis.avg_planned_risk_pct ?? 0)}</HomeSummaryValue>
+          </HomeSummaryCard>
+          <HomeSummaryCard label={t("home.live_sim_capital_utilization")}>
+            <HomeSummaryValue>{formatPercent(riskVis.capital_utilization_pct ?? 0)}</HomeSummaryValue>
+          </HomeSummaryCard>
+          <HomeSummaryCard label={t("home.live_sim_idle_capital")}>
+            <HomeSummaryValue>{formatPercent(riskVis.idle_capital_pct ?? 0)}</HomeSummaryValue>
+          </HomeSummaryCard>
+        </div>
+      ) : null}
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <HomeSummaryCard label={t("home.live_sim_starting_capital")}>

@@ -1134,6 +1134,24 @@ export interface LiveSimAccountSummary {
   started_at?: string | null;
   runtime_duration_he?: string | null;
   closed_trades_count?: number;
+  closed_positions_count?: number;
+  exit_fills_count?: number;
+  clean_window?: {
+    closed_positions?: number;
+    net_pnl?: number;
+    wins?: number;
+    losses?: number;
+    profit_factor?: number | null;
+    expectancy_usd?: number | null;
+    since?: string;
+  } | null;
+  risk_visibility?: {
+    risk_target_pct?: number | null;
+    avg_planned_risk_pct?: number | null;
+    capital_utilization_pct?: number;
+    idle_capital_pct?: number;
+    avg_gross_exposure_usd?: number;
+  } | null;
   win_rate_pct?: number;
   open_positions?: Array<{
     id: string;
