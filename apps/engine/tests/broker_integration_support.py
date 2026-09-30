@@ -65,13 +65,20 @@ def _apply_all_migrations_via_node(url: str) -> None:
     env = os.environ.copy()
     env["DATABASE_URL"] = url
     env["DIRECT_URL"] = url
-    subprocess.run(
+    proc = subprocess.run(
         ["npm", "run", "db:migrate"],
         cwd=str(root),
         env=env,
-        check=True,
+        capture_output=True,
+        text=True,
+        check=False,
         shell=sys.platform == "win32",
     )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "db:migrate failed\n"
+            f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        )
 
 
 def _broker_tables_exist(url: str) -> bool:
