@@ -21,7 +21,7 @@ from quantara_engine.research.v3.backtest_lab import (
     run_candidate_backtest,
     trades_to_r_pnls,
 )
-from quantara_engine.research.v3.candidates import V3Candidate, frozen_v3_candidates
+from quantara_engine.research.v3.candidates import V3Candidate, frozen_v3_candidates  # noqa: F401
 from quantara_engine.research.v3.constants import V3_RESEARCH_START
 from quantara_engine.research.v3.data_quality_gate import build_data_quality_matrix
 from quantara_engine.research.v3.metrics import profit_factor, trade_metrics
@@ -130,6 +130,67 @@ def _monte_carlo(pnls: list[float], *, iterations: int = 500) -> dict[str, float
         "median_dd": max_dds[len(max_dds) // 2],
         "p95_dd": max_dds[int(len(max_dds) * 0.95)],
         "p95_loss_streak": float(streaks[int(len(streaks) * 0.95)]),
+    }
+
+
+def run_v3_job(
+    store: TradingStore,
+    *,
+    candidate: V3Candidate,
+    symbol: str,
+    timeframe: str,
+    candles: list,
+) -> dict[str, Any] | None:
+    """Run one matrix cell; return result row or None on hard error."""
+    if len(candles) < 250:
+        return None
+    instrument = store.get_instrument_by_symbol(symbol)
+    if not instrument:
+        return None
+    start, end = candles[0].timestamp, candles[-1].timestamp
+    bt = run_candidate_backtest(
+        candidate=candidate,
+        instrument=instrument,
+        timeframe=timeframe,
+        candles=candles,
+    )
+    if bt.get("error"):
+        return None
+    trades = bt["trades"]
+    folds = _chronological_folds(start, end, n=4)
+    fold_pnls: list[list[float]] = []
+    for f_start, f_end in folds:
+        fold_trades = filter_trades_by_window(trades, f_start, f_end)
+        pnls, _ = trades_to_r_pnls(fold_trades)
+        fold_pnls.append(pnls)
+    wf = summarize_fold_pnls(fold_pnls, pf_fn=profit_factor)
+    oos_pnls, oos_risks = trades_to_r_pnls(
+        filter_trades_by_window(trades, folds[-1][0], folds[-1][1])
+    )
+    oos_rs = [p / r for p, r in zip(oos_pnls, oos_risks)] if oos_pnls else []
+    oos_m = trade_metrics(oos_pnls, risk_usd=oos_risks)
+    oos_exp_r = sum(oos_rs) / len(oos_rs) if oos_rs else None
+    oos_pf = profit_factor(oos_pnls)
+    robust = _robustness_class(
+        oos_exp_r=oos_exp_r,
+        oos_pf=oos_pf,
+        positive_folds=wf["positive_folds"],
+        total_folds=wf["folds"],
+        oos_trades=oos_m["trades"],
+    )
+    dirs = direction_metrics(trades)
+    return {
+        "candidate_id": candidate.candidate_id,
+        "family": candidate.family,
+        "asset": symbol,
+        "timeframe": timeframe,
+        "parameters": candidate.parameters,
+        "walk_forward": wf,
+        "oos": {**oos_m, "expectancy_r": oos_exp_r, "pf": oos_pf},
+        "long": dirs.get("long"),
+        "short": dirs.get("short"),
+        "robustness": robust,
+        "total_trades": len(trades),
     }
 
 
