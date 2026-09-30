@@ -173,6 +173,18 @@ def provision_broker_test_database() -> str:
     if _broker_db_ready:
         return BROKER_TEST_DATABASE_URL
 
+    if os.environ.get("BROKER_TEST_REUSE") == "1" and _broker_tables_exist(BROKER_TEST_DATABASE_URL):
+        try:
+            validate_broker_test_database_url(
+                BROKER_TEST_DATABASE_URL,
+                production_url=_owner_database_url(),
+            )
+        except RuntimeError as exc:
+            pytest.fail(str(exc))
+        _patch_session_factory(BROKER_TEST_DATABASE_URL)
+        _broker_db_ready = True
+        return BROKER_TEST_DATABASE_URL
+
     try:
         validate_broker_test_database_url(
             BROKER_TEST_DATABASE_URL,

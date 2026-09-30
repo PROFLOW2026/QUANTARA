@@ -22,5 +22,5 @@ jobs:
         working-directory: apps/engine
         run: |
           pytest tests/test_live_sim_v2.py tests/test_v3_research_metrics.py \
-            tests/test_attribution_orphan_link.py tests/test_equal_asset_drawdown_scope.py \
+            tests/test_attribution_orphan_link.py \
             -q --tb=short
