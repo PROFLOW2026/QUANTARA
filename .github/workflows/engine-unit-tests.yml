@@ -1,0 +1,26 @@
+name: Engine Unit Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  engine-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install engine dependencies
+        run: pip install -e "./apps/engine[dev]"
+
+      - name: Run engine unit tests
+        working-directory: apps/engine
+        run: |
+          pytest tests/test_live_sim_v2.py tests/test_v3_research_metrics.py \
+            tests/test_attribution_orphan_link.py tests/test_equal_asset_drawdown_scope.py \
+            -q --tb=short

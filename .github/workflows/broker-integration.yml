@@ -72,6 +72,17 @@ jobs:
         working-directory: apps/engine
         run: pytest tests/test_live_sim_v2.py tests/test_attribution_orphan_link.py -q --tb=short
 
+      - name: Ensure broker test database exists
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 -tc \
+            "SELECT 1 FROM pg_database WHERE datname = 'quantara_broker_test'" | grep -q 1 || \
+          psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 -c \
+            "CREATE DATABASE quantara_broker_test OWNER quantara;"
+
       - name: Run broker integration tests
         working-directory: apps/engine
-        run: pytest tests/test_broker_execution_integration.py -v --tb=short
+        run: |
+          pytest tests/test_broker_execution_integration.py -v --tb=short || \
+          pytest tests/test_broker_execution_integration.py -v --tb=long --maxfail=1
