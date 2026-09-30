@@ -59,6 +59,19 @@ jobs:
                   time.sleep(1)
           raise SystemExit('postgres never became ready')"
 
+      - name: Prepare broker test database role
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 -c \
+            "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'quantara') THEN CREATE ROLE quantara LOGIN PASSWORD 'quantara'; END IF; END \$\$;"
+          psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 -c \
+            "ALTER ROLE quantara CREATEDB;"
+
+      - name: Run engine unit tests (V2/V3 validation)
+        working-directory: apps/engine
+        run: pytest tests/test_live_sim_v2.py tests/test_attribution_orphan_link.py -q --tb=short
+
       - name: Run broker integration tests
         working-directory: apps/engine
         run: pytest tests/test_broker_execution_integration.py -v --tb=short

@@ -102,3 +102,35 @@ def test_funnel_category_maps_min_qty_and_containment():
     assert funnel_category("MIN_QUANTITY_EXCEEDS_RISK_BUDGET") == "MIN_QTY"
     assert funnel_category("live_sim_integrity_containment") == "CONTAINMENT"
     assert funnel_category("SYMBOL_SL_RISK_LIMIT") == "RISK_LIMIT"
+
+
+def test_hard_max_risk_clamps_quantity():
+    from decimal import Decimal
+
+    from quantara_engine.domain.types import Direction, Instrument
+    from quantara_engine.live_sim.sizing import size_live_sim_entry
+    from quantara_engine.portfolio.currency import FxRateTable
+
+    instrument = Instrument(
+        id="i",
+        symbol="BTCUSD",
+        name="BTC",
+        asset_class="crypto",
+        quote_currency="USD",
+        quantity_step=Decimal("0.00001"),
+        min_quantity=Decimal("0.00001"),
+    )
+    fx = FxRateTable.usd_only()
+    res = size_live_sim_entry(
+        equity=Decimal("10000"),
+        cash=Decimal("10000"),
+        target_risk=Decimal("100"),
+        entry_reference=Decimal("60000"),
+        stop_loss=Decimal("59000"),
+        direction=Direction.LONG,
+        instrument=instrument,
+        fx_rates=fx,
+        execution_assumptions=None,
+        hard_max_risk_usd=Decimal("5"),
+    )
+    assert (res.expected_risk_usd or 0) <= Decimal("5.01")
