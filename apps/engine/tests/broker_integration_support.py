@@ -115,6 +115,19 @@ def _seed_disposable_competition_data(url: str) -> None:
         )
 
 
+def bootstrap_broker_test_schema_for_ci() -> str:
+    """Apply migrations/seeds on an existing disposable DB (GitHub Actions services)."""
+    url = BROKER_TEST_DATABASE_URL.strip()
+    if not _postgres_available(url):
+        raise RuntimeError(f"broker test database unreachable: {url}")
+    if not _broker_tables_exist(url):
+        _apply_all_migrations(url)
+        _seed_disposable_competition_data(url)
+    if not _broker_tables_exist(url):
+        raise RuntimeError("broker schema missing after migrate/seed")
+    return url
+
+
 def _provision_local_database() -> str | None:
     if not _postgres_available(_admin_dsn()):
         return None

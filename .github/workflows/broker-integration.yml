@@ -92,7 +92,7 @@ jobs:
           BROKER_TEST_DATABASE_URL: postgresql://quantara:quantara@127.0.0.1:5433/quantara_broker_test
           BROKER_TEST_DB_NAME: quantara_broker_test
         run: |
-          python -c "from tests.broker_integration_support import _provision_local_database as boot; url=boot(); assert url, 'broker bootstrap failed'"
+          python -c "from tests.broker_integration_support import bootstrap_broker_test_schema_for_ci as boot; boot()"
 
       - name: Run broker integration tests
         working-directory: apps/engine
