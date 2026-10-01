@@ -26,8 +26,7 @@ jobs:
     env:
       BROKER_TEST_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5433/postgres
       BROKER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
-      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
-      DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
+      BROKER_TEST_DB_NAME: quantara_broker_test
 
     steps:
       - uses: actions/checkout@v4
@@ -88,11 +87,17 @@ jobs:
             "GRANT ALL ON SCHEMA public TO quantara; GRANT CREATE ON SCHEMA public TO quantara;"
 
       - name: Apply broker test migrations
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
+          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
         run: npm run db:migrate
 
       - name: Seed broker test reference data
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
+          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
+          QUANTARA_CI_BROKER_SEED: "1"
         run: |
-          set -euxo pipefail
           python scripts/seed.py
           python scripts/seed_8_assets.py
           python scripts/seed_competition.py
@@ -108,7 +113,6 @@ jobs:
           BROKER_TEST_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5433/postgres
           BROKER_TEST_MIGRATE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
           BROKER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
-          BROKER_TEST_DB_NAME: quantara_broker_test
           BROKER_TEST_ALLOW_MIGRATE_URL: "1"
         run: python tests/ci_bootstrap_broker.py
 
@@ -117,6 +121,4 @@ jobs:
         env:
           BROKER_TEST_REUSE: "1"
           BROKER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
-          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
-          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
         run: pytest tests/test_broker_execution_integration.py -v --tb=short

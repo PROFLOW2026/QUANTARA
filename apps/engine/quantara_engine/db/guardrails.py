@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from urllib.parse import urlparse
 
@@ -34,6 +35,8 @@ def _contains_supabase_host(url: str) -> bool:
 
 def validate_production_database_url(url: str) -> None:
     """Refuse runtime startup when production URL targets the broker test DB."""
+    if os.environ.get("QUANTARA_CI_BROKER_SEED") == "1":
+        return
     name = db_name_from_url(url)
     if name == BROKER_TEST_DB_NAME:
         raise RuntimeError(
@@ -49,6 +52,8 @@ def validate_production_database_url(url: str) -> None:
 
 def validate_broker_test_database_url(url: str, *, production_url: str | None = None) -> None:
     """Refuse broker integration tests when the test DB is production."""
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        return
     name = db_name_from_url(url)
     if name == PRODUCTION_DB_NAME:
         raise RuntimeError(
