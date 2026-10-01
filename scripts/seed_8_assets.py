@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import json
+import runpy
 import sys
 import uuid
 from decimal import Decimal
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+runpy.run_path(str(ROOT / "scripts" / "ci_db_env.py"), run_name="__ci_db_env__")
 ENGINE_PATH = ROOT / "apps" / "engine"
 sys.path.insert(0, str(ENGINE_PATH))
 

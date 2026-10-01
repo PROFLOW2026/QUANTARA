@@ -88,10 +88,16 @@ jobs:
             "GRANT ALL ON SCHEMA public TO quantara; GRANT CREATE ON SCHEMA public TO quantara;"
 
       - name: Apply broker test migrations
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
-          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
         run: npm run db:migrate
+
+      - name: Seed broker test reference data
+        run: |
+          set -euxo pipefail
+          python scripts/seed.py
+          python scripts/seed_8_assets.py
+          python scripts/seed_competition.py
+          python scripts/seed_orb_strategy.py
+          python scripts/seed_orb_competition.py
 
       - name: Bootstrap broker test schema
         working-directory: apps/engine
