@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "QUANTARA trading engine"
 requires-python = ">=3.11"
 dependencies = [
-  "sqlalchemy>=2.0.36",
+  "sqlalchemy>=2.0.36,<2.1",
   "psycopg2-binary>=2.9.10",
   "fastapi>=0.115.0",
   "uvicorn[standard]>=0.32.0",

@@ -18,6 +18,7 @@ from quantara_engine.db.guardrails import (
     PRODUCTION_DB_NAME,
     validate_broker_test_database_url,
 )
+from quantara_engine.db.sqlalchemy_url import normalize_sqlalchemy_postgres_url
 from quantara_engine.persistence.store import TradingStore
 
 TEST_ACCOUNT_SLUG = "__test_broker_integration__"
@@ -160,7 +161,7 @@ def _patch_session_factory(url: str) -> None:
     import quantara_engine.core.config as config_mod
     import quantara_engine.db.session as db_session
 
-    test_engine = create_engine(url, pool_pre_ping=True)
+    test_engine = create_engine(normalize_sqlalchemy_postgres_url(url), pool_pre_ping=True)
     db_session.engine = test_engine
     db_session.SessionLocal = sessionmaker(bind=test_engine, autocommit=False, autoflush=False)
     db_session.DATABASE_URL = url

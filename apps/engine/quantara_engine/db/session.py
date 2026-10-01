@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from quantara_engine.core.config import settings
 from quantara_engine.db.guardrails import validate_production_database_url
+from quantara_engine.db.sqlalchemy_url import normalize_sqlalchemy_postgres_url
 
 _UNCONFIGURED = "postgresql://localhost:5432/quantara_unconfigured"
 
@@ -17,7 +18,7 @@ def _database_url() -> str:
     return url if url else _UNCONFIGURED
 
 
-DATABASE_URL = _database_url()
+DATABASE_URL = normalize_sqlalchemy_postgres_url(_database_url())
 
 engine = create_engine(
     DATABASE_URL,
