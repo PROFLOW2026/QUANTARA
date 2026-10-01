@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from quantara_engine.market_data.active_universe import list_active_db_symbols
+from quantara_engine.market_data.active_universe import list_research_db_symbols
 from quantara_engine.persistence.store import TradingStore
 from quantara_engine.research.v3.constants import V3_RESEARCH_START
 from quantara_engine.research.v3.data_quality_gate import build_data_quality_matrix
@@ -16,7 +16,7 @@ from quantara_engine.research.v3.discovery import _test_pairs
 _EQUITIES = frozenset({"NVDA", "TSLA", "AMD", "COIN"})
 _CRYPTO = frozenset({"BTCUSD", "ETHUSD"})
 _FX = frozenset({"XAUUSD", "GBPJPY"})
-_ALL = frozenset(list_active_db_symbols())
+_ALL = frozenset(list_research_db_symbols())
 
 FAMILY_SPECS: list[dict[str, Any]] = [
     {"family": "donchian_breakout_v2", "assets": _ALL, "timeframes": ("15m", "1h"), "variants": [{"channel": 30}, {"channel": 55}]},

@@ -37,13 +37,14 @@ def test_robot_c_paused_in_live_policy():
     assert v.reason == "ROBOT_LIVE_PAUSED"
 
 
-def test_coin_live_blocked_under_v32_slug():
+def test_v32_slug_requires_qualified_params():
     from quantara_engine.live_sim.v2_policy import V32_LIVE_SIM_STRATEGY_SLUG
 
     v = evaluate_live_sim_v2_policy(
         strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG, symbol="COIN", timeframe="15m"
     )
     assert not v.allowed
+    assert v.reason == "V32_CANDIDATE_NOT_QUALIFIED"
 
 
 def test_robot_a_paused_even_on_blocked_combo_xau_1h():

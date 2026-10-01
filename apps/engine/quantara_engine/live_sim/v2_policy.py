@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from quantara_engine.competition.robot_registry import ROBOT_LABELS
+from quantara_engine.live_sim.v32_registry import (
+    V32_LIVE_SIM_STRATEGY_SLUG,
+    is_v32_qualified_candidate_key,
+    normalize_timeframe,
+    v32_candidate_key_from_params,
+)
 
 # Strategy slugs paused for Live Sim only (Research + Learning continue).
 LIVE_SIM_PAUSED_STRATEGY_SLUGS: frozenset[str] = frozenset(
@@ -17,47 +24,12 @@ LIVE_SIM_PAUSED_STRATEGY_SLUGS: frozenset[str] = frozenset(
     }
 )
 
-V32_LIVE_SIM_STRATEGY_SLUG = "v32-p2-live-sim"
-
-# V3.2 P2 virtual Live Sim (full broker Stage-B survivors).
-V32_LIVE_SIM_ALLOWED: frozenset[tuple[str, str, str]] = frozenset(
-    {
-        (V32_LIVE_SIM_STRATEGY_SLUG, "AMD", "15m"),  # rsi_divergence_mr v1 long
-        (V32_LIVE_SIM_STRATEGY_SLUG, "NVDA", "15m"),  # ema_pullback_continue v2 long
-    }
-)
-
-# Legacy V3.1 finalists — superseded by V3.2 P2; keep empty for policy checks.
+# Legacy V3.1 finalists — superseded by V3.2 registry.
 V31_LIVE_SIM_STRATEGY_SLUG = V32_LIVE_SIM_STRATEGY_SLUG
 V31_LIVE_SIM_ALLOWED: frozenset[tuple[str, str, str]] = frozenset()
 
-# Live Sim research-only assets (no new Live entries unless in V32 allowlist).
-LIVE_SIM_RESEARCH_ONLY_SYMBOLS: frozenset[str] = frozenset({"COIN", "TSLA"})
-
 # Blocked robot × asset × timeframe (normalized tf: 5m, 15m, 1h).
-LIVE_SIM_BLOCKED_COMBINATIONS: frozenset[tuple[str, str, str]] = frozenset(
-    {
-        ("gold-trend-pullback", "XAUUSD", "1h"),
-        ("gold-trend-pullback", "AMD", "5m"),
-        ("gold-trend-pullback", "AMD", "15m"),
-        ("gold-trend-pullback", "AMD", "1h"),
-        ("v32-p2-live-sim", "AMD", "5m"),  # AMD ORB 5m — RESEARCH_ONLY
-        ("v31-rule-replay", "AMD", "5m"),  # legacy slug — RESEARCH_ONLY
-    }
-)
-
-
-def normalize_timeframe(tf: str | None) -> str:
-    if not tf:
-        return "?"
-    t = str(tf).lower().replace("timeframe.", "")
-    if t in ("m5", "5m", "orb_5m"):
-        return "5m"
-    if t in ("m15", "15m", "cde_15m"):
-        return "15m"
-    if t in ("h1", "1h"):
-        return "1h"
-    return t
+LIVE_SIM_BLOCKED_COMBINATIONS: frozenset[tuple[str, str, str]] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -72,16 +44,16 @@ def evaluate_live_sim_v2_policy(
     strategy_slug: str,
     symbol: str,
     timeframe: str | None,
+    parameter_overrides: dict[str, Any] | None = None,
 ) -> LiveSimPolicyVerdict:
     sym = symbol.upper().replace("/", "")
     tf = normalize_timeframe(timeframe)
     if strategy_slug in (V32_LIVE_SIM_STRATEGY_SLUG, "v31-rule-replay"):
-        slug = V32_LIVE_SIM_STRATEGY_SLUG
-        combo = (slug, sym, tf)
-        if combo not in V32_LIVE_SIM_ALLOWED:
+        key = v32_candidate_key_from_params(parameter_overrides or {})
+        if not key or not is_v32_qualified_candidate_key(key):
             return LiveSimPolicyVerdict(
                 allowed=False,
-                reason="V32_COMBINATION_NOT_IN_PORTFOLIO",
+                reason="V32_CANDIDATE_NOT_QUALIFIED",
                 category="ROBOT_POLICY",
             )
         return LiveSimPolicyVerdict(allowed=True)
@@ -90,12 +62,6 @@ def evaluate_live_sim_v2_policy(
             allowed=False,
             reason="ROBOT_LIVE_PAUSED",
             category="ROBOT_POLICY",
-        )
-    if sym in LIVE_SIM_RESEARCH_ONLY_SYMBOLS:
-        return LiveSimPolicyVerdict(
-            allowed=False,
-            reason="ASSET_RESEARCH_ONLY",
-            category="ASSET_POLICY",
         )
     combo = (strategy_slug, sym, tf)
     if combo in LIVE_SIM_BLOCKED_COMBINATIONS:

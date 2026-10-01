@@ -5,9 +5,10 @@ from __future__ import annotations
 from decimal import Decimal
 
 DEFAULT_RISK_PER_TRADE_PCT = Decimal("1.00")
-DEFAULT_MAX_TOTAL_OPEN_SL_RISK_PCT = Decimal("3.00")
-DEFAULT_MAX_SYMBOL_SL_RISK_PCT = Decimal("1.00")
-DEFAULT_MAX_GROUP_SL_RISK_PCT = Decimal("2.00")
+# Parallel Live Sim: expose aggregate SL risk; do not cap at ~3× per-trade.
+DEFAULT_MAX_TOTAL_OPEN_SL_RISK_PCT = Decimal("100.00")
+DEFAULT_MAX_SYMBOL_SL_RISK_PCT = Decimal("25.00")
+DEFAULT_MAX_GROUP_SL_RISK_PCT = Decimal("50.00")
 DEFAULT_DAILY_LOSS_GATE_PCT = Decimal("2.00")
 DEFAULT_MAX_DRAWDOWN_GATE_PCT = Decimal("10.00")
 DEFAULT_CONCENTRATION_MODE = "ENFORCE"
@@ -36,4 +37,6 @@ REJECTION_HE: dict[str, str] = {
     "ROBOT_LIVE_PAUSED": "רובוט מושהה ב-Live Sim (Research נמשך)",
     "ASSET_RESEARCH_ONLY": "נכס במצב Research בלבד ב-Live Sim",
     "COMBINATION_BLOCKED": "שילוב רובוט×נכס×טיים-פריים חסום ב-Live Sim",
+    "V32_CANDIDATE_NOT_QUALIFIED": "מועמד V3.2 לא עבר Stage-B — לא פעיל ב-Live Sim",
+    "V32_COMBINATION_NOT_IN_PORTFOLIO": "שילוב V3.2 לא ברשימת המועמדים המאושרים",
 }

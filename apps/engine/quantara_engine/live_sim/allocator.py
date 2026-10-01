@@ -970,6 +970,7 @@ def maybe_allocate_live_sim(
         strategy_slug=strategy_slug,
         symbol=instrument.symbol,
         timeframe=instance.timeframe,
+        parameter_overrides=getattr(instance, "parameter_overrides", None) or {},
     )
     if not policy.allowed:
         log_allocation(

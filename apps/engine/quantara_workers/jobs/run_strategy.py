@@ -927,21 +927,60 @@ def _process_competition(
         robot_b_duration_ms = 0.0
         robot_cde_duration_ms = 0.0
 
-    groups_evaluated = groups_a + groups_b + groups_cde
-    portfolios_touched = touched_a + touched_b + touched_cde
-    total_decisions = decisions_a + decisions_b + decisions_cde
-    skipped_reasons = skipped_a + skipped_b + skipped_cde
+    groups_v32 = touched_v32 = decisions_v32 = 0
+    tf_v32: dict[str, dict] = {}
+    inst_v32: dict[str, dict] = {}
+    skipped_v32: list[str] = []
+    v32_entry_count = 0
+    if not historical_only:
+        v32_entries = s.list_v32_live_sim_entries()
+        v32_entry_count = len(v32_entries)
+        if v32_entries:
+            from quantara_engine.live_sim.v32_registry import load_v32_qualified_combinations
+
+            v32_combos = load_v32_qualified_combinations()
+            v32_symbols = sorted({str(c["asset"]) for c in v32_combos})
+            v32_timeframes = tuple(sorted({str(c["timeframe"]) for c in v32_combos}))
+            v32_t0 = time.perf_counter()
+            deadline_v32 = v32_t0 + min(120.0, time_budget_sec)
+            (
+                groups_v32,
+                touched_v32,
+                decisions_v32,
+                tf_v32,
+                inst_v32,
+                skipped_v32,
+            ) = _process_experiment(
+                s,
+                v32_entries,
+                v32_symbols,
+                v32_timeframes,
+                settings_dict,
+                started_at,
+                live_only=True,
+                historical_only=False,
+                time_budget_sec=min(120.0, time_budget_sec),
+                deadline=deadline_v32,
+                per_portfolio_eval=True,
+            )
+
+    groups_evaluated = groups_a + groups_b + groups_cde + groups_v32
+    portfolios_touched = touched_a + touched_b + touched_cde + touched_v32
+    total_decisions = decisions_a + decisions_b + decisions_cde + decisions_v32
+    skipped_reasons = skipped_a + skipped_b + skipped_cde + skipped_v32
     timeframe_status = {
         **tf_a,
         **{f"orb_{k}": v for k, v in tf_b.items()},
         **{f"cde_{k}": v for k, v in tf_cde.items()},
+        **{f"v32_{k}": v for k, v in tf_v32.items()},
     }
     instrument_status = {
         **inst_a,
         **{f"orb_{k}": v for k, v in inst_b.items()},
         **{f"cde_{k}": v for k, v in inst_cde.items()},
+        **{f"v32_{k}": v for k, v in inst_v32.items()},
     }
-    entries_count = len(robot_a) + len(orb_entries) + len(cde_entries)
+    entries_count = len(robot_a) + len(orb_entries) + len(cde_entries) + v32_entry_count
 
     overall_live, overall_historical, overall_backlog = aggregate_actionable_backlog(
         timeframe_status

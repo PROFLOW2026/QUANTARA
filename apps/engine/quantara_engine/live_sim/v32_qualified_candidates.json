@@ -1,0 +1,288 @@
+{
+  "version": "3.2",
+  "qualified": [
+    {
+      "key": "atr_trailing_trend|v1|AMD|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v1",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 55
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|AMD|15m|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|COIN|15m|short",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "COIN",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "PROMISING",
+      "classification": "FAIL"
+    },
+    {
+      "key": "channel_mean_revert|v2|COIN|15m|short",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "COIN",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "PROMISING",
+      "classification": "FAIL"
+    },
+    {
+      "key": "ema_pullback_continue|v1|AMD|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v1|NVDA|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v2|AMD|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v2|COIN|15m|short",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "COIN",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v2|NVDA|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "mtf_trend_ltf_entry|v1|AMD|5m|long",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v1",
+      "asset": "AMD",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 50
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "mtf_trend_ltf_entry|v1|COIN|5m|short",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v1",
+      "asset": "COIN",
+      "timeframe": "5m",
+      "direction": "short",
+      "parameters": {
+        "ema_slow": 50
+      },
+      "robustness": "ROBUST",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "orb_continuation|v1|AMD|15m|long",
+      "family": "orb_continuation",
+      "variant_id": "v1",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "orb_continuation|v1|AMD|5m|long",
+      "family": "orb_continuation",
+      "variant_id": "v1",
+      "asset": "AMD",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "orb_continuation|v1|COIN|5m|short",
+      "family": "orb_continuation",
+      "variant_id": "v1",
+      "asset": "COIN",
+      "timeframe": "5m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "orb_continuation|v1|NVDA|5m|long",
+      "family": "orb_continuation",
+      "variant_id": "v1",
+      "asset": "NVDA",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "rsi_divergence_mr|v1|AMD|15m|long",
+      "family": "rsi_divergence_mr",
+      "variant_id": "v1",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "rsi_divergence_mr|v1|COIN|15m|short",
+      "family": "rsi_divergence_mr",
+      "variant_id": "v1",
+      "asset": "COIN",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "squeeze_release|v1|AMD|15m|short",
+      "family": "squeeze_release",
+      "variant_id": "v1",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "squeeze_release|v1|COIN|15m|short",
+      "family": "squeeze_release",
+      "variant_id": "v1",
+      "asset": "COIN",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "PROMISING",
+      "classification": "PASS"
+    },
+    {
+      "key": "vol_expansion_v2|v1|AMD|15m|short",
+      "family": "vol_expansion_v2",
+      "variant_id": "v1",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "bb_std": 2.2
+      },
+      "robustness": "PROMISING",
+      "classification": "PASS"
+    },
+    {
+      "key": "vol_expansion_v2|v2|AMD|15m|short",
+      "family": "vol_expansion_v2",
+      "variant_id": "v2",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "bb_std": 2.6
+      },
+      "robustness": "PROMISING",
+      "classification": "PASS"
+    },
+    {
+      "key": "vol_expansion_v2|v2|COIN|15m|short",
+      "family": "vol_expansion_v2",
+      "variant_id": "v2",
+      "asset": "COIN",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "bb_std": 2.6
+      },
+      "robustness": "PROMISING",
+      "classification": "PASS"
+    },
+    {
+      "key": "vwap_session_revert|v1|TSLA|5m|short",
+      "family": "vwap_session_revert",
+      "variant_id": "v1",
+      "asset": "TSLA",
+      "timeframe": "5m",
+      "direction": "short",
+      "parameters": {
+        "dev": 0.004
+      },
+      "robustness": "ROBUST",
+      "classification": "WEAK_PASS"
+    }
+  ]
+}

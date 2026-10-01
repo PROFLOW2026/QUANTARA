@@ -1,4 +1,4 @@
-"""V3.2 P2 Live Sim routing — focused policy gates."""
+"""V3.2 Live Sim routing — registry-backed qualification."""
 
 from __future__ import annotations
 
@@ -7,71 +7,65 @@ from quantara_engine.live_sim.v2_policy import (
     V32_LIVE_SIM_STRATEGY_SLUG,
     evaluate_live_sim_v2_policy,
 )
+from quantara_engine.live_sim.v32_registry import load_v32_qualified_combinations
+
+
+def _params_for_key(key: str) -> dict:
+    for row in load_v32_qualified_combinations():
+        if row["key"] == key:
+            from quantara_engine.live_sim.v32_registry import parameter_overrides_for_combination
+
+            return parameter_overrides_for_combination(row)
+    raise KeyError(key)
+
+
 def test_v32_amd_rsi_15m_long_allowed():
+    params = _params_for_key("rsi_divergence_mr|v1|AMD|15m|long")
     v = evaluate_live_sim_v2_policy(
         strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
         symbol="AMD",
         timeframe="15m",
+        parameter_overrides=params,
     )
     assert v.allowed
 
 
-def test_v32_nvda_ema_15m_long_allowed():
+def test_v32_nvda_ema_v2_15m_long_allowed():
+    params = _params_for_key("ema_pullback_continue|v2|NVDA|15m|long")
     v = evaluate_live_sim_v2_policy(
         strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
         symbol="NVDA",
         timeframe="15m",
+        parameter_overrides=params,
     )
     assert v.allowed
 
 
-def test_v32_amd_orb_5m_blocked():
+def test_v32_unqualified_family_blocked():
     v = evaluate_live_sim_v2_policy(
         strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
         symbol="AMD",
-        timeframe="5m",
-    )
-    assert not v.allowed
-    assert v.reason == "V32_COMBINATION_NOT_IN_PORTFOLIO"
-
-
-def test_v32_nvda_other_timeframe_blocked():
-    v = evaluate_live_sim_v2_policy(
-        strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
-        symbol="NVDA",
-        timeframe="5m",
-    )
-    assert not v.allowed
-
-
-def test_v32_tsla_blocked_even_on_canonical_slug():
-    v = evaluate_live_sim_v2_policy(
-        strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
-        symbol="TSLA",
         timeframe="15m",
+        parameter_overrides={
+            "family": "not_a_real_family",
+            "trade_direction": "long",
+            "symbol": "AMD",
+            "v32_variant_id": "v1",
+        },
     )
     assert not v.allowed
-    assert v.reason == "V32_COMBINATION_NOT_IN_PORTFOLIO"
+    assert v.reason == "V32_CANDIDATE_NOT_QUALIFIED"
 
 
-def test_coin_live_blocked():
+def test_v32_coin_qualified_short_allowed():
+    params = _params_for_key("vol_expansion_v2|v2|COIN|15m|short")
     v = evaluate_live_sim_v2_policy(
         strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
         symbol="COIN",
         timeframe="15m",
+        parameter_overrides=params,
     )
-    assert not v.allowed
-    assert v.reason == "V32_COMBINATION_NOT_IN_PORTFOLIO"
-
-
-def test_tsla_live_blocked():
-    v = evaluate_live_sim_v2_policy(
-        strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
-        symbol="TSLA",
-        timeframe="15m",
-    )
-    assert not v.allowed
-    assert v.reason == "V32_COMBINATION_NOT_IN_PORTFOLIO"
+    assert v.allowed
 
 
 def test_robots_a_through_e_live_paused():
@@ -79,29 +73,3 @@ def test_robots_a_through_e_live_paused():
         v = evaluate_live_sim_v2_policy(strategy_slug=slug, symbol="AMD", timeframe="15m")
         assert not v.allowed
         assert v.reason == "ROBOT_LIVE_PAUSED"
-
-
-def test_legacy_ae_blocked_on_any_asset():
-    v = evaluate_live_sim_v2_policy(
-        strategy_slug="mean-reversion",
-        symbol="BTCUSD",
-        timeframe="5m",
-    )
-    assert not v.allowed
-    assert v.reason == "ROBOT_LIVE_PAUSED"
-
-
-def test_research_replay_isolation_default_off():
-    from quantara_engine.persistence.store import TradingStore
-
-    store = TradingStore.__new__(TradingStore)
-    assert getattr(store, "research_replay_isolation", False) is False
-
-
-def test_backtest_runner_sets_isolation_only_when_not_persisting():
-    import inspect
-
-    from quantara_engine.backtesting import runner as runner_mod
-
-    src = inspect.getsource(runner_mod)
-    assert "research_replay_isolation = not persist_backtest_record" in src

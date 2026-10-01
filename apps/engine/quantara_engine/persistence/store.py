@@ -717,6 +717,51 @@ class TradingStore:
         entries.sort(key=lambda e: e["sort_order"])
         return entries
 
+    def list_v32_live_sim_entries(self) -> list[dict[str, Any]]:
+        """Active V3.2 rule-replay instances for Live Sim execution."""
+        from quantara_engine.live_sim.v2_policy import V32_LIVE_SIM_STRATEGY_SLUG
+        from quantara_engine.live_sim.v32_registry import V32_LIVE_SIM_EXPERIMENT_ID
+
+        stmt = (
+            select(
+                OrmStrategyInstance,
+                OrmPortfolio,
+                OrmRiskProfile,
+                OrmStrategy,
+                OrmStrategyVersion,
+            )
+            .join(OrmPortfolio, OrmStrategyInstance.portfolio_id == OrmPortfolio.id)
+            .join(OrmRiskProfile, OrmStrategyInstance.risk_profile_id == OrmRiskProfile.id)
+            .join(
+                OrmStrategyVersion,
+                OrmStrategyInstance.strategy_version_id == OrmStrategyVersion.id,
+            )
+            .join(OrmStrategy, OrmStrategyVersion.strategy_id == OrmStrategy.id)
+            .where(
+                OrmStrategyInstance.experiment_id == _uuid(V32_LIVE_SIM_EXPERIMENT_ID),
+                OrmStrategyInstance.is_active.is_(True),
+                OrmStrategy.slug == V32_LIVE_SIM_STRATEGY_SLUG,
+            )
+        )
+        rows = self.session.execute(stmt).all()
+        entries: list[dict[str, Any]] = []
+        for instance_row, portfolio_row, risk_row, strategy_row, version_row in rows:
+            key = (instance_row.parameter_overrides or {}).get("v32_candidate_key", "")
+            entries.append(
+                {
+                    "portfolio": self._portfolio_to_domain(portfolio_row),
+                    "instance": self._strategy_instance_to_domain(
+                        instance_row,
+                        strategy_row.slug,
+                        version_row=version_row,
+                    ),
+                    "risk_profile": self._risk_profile_to_domain(risk_row),
+                    "sort_order": str(key),
+                }
+            )
+        entries.sort(key=lambda e: e["sort_order"])
+        return entries
+
     def is_orb_competition_enabled(self) -> bool:
         settings = self.get_settings_dict()
         return bool(settings.get("orb_competition_enabled"))

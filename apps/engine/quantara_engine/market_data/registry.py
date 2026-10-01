@@ -131,11 +131,59 @@ TARGET_ASSETS: tuple[AssetDefinition, ...] = (
     _equity("COIN"),
 )
 
+RESEARCH_EXTENDED_ASSETS: tuple[AssetDefinition, ...] = (
+    _equity("AAPL"),
+    _equity("MSFT"),
+    _equity("META"),
+    _equity("AMZN"),
+    _equity("GOOGL"),
+    _equity("SPY"),
+    _equity("QQQ"),
+    AssetDefinition(
+        canonical_symbol="EUR/USD",
+        db_symbol="EURUSD",
+        display_symbol="EUR/USD",
+        asset_class=AssetClass.FOREX,
+        primary_provider=ProviderName.TIINGO,
+        secondary_provider=ProviderName.TWELVE_DATA,
+        provider_symbols={
+            ProviderName.TWELVE_DATA.value: "EUR/USD",
+            ProviderName.TIINGO.value: "eurusd",
+            ProviderName.FINNHUB.value: "OANDA:EUR_USD",
+        },
+        trading_sessions={"sessions": ["24x5"]},
+        pip_size="0.0001",
+        price_tick_size="0.00001",
+        quantity_step="1000",
+        min_quantity="1000",
+    ),
+    AssetDefinition(
+        canonical_symbol="USD/JPY",
+        db_symbol="USDJPY",
+        display_symbol="USD/JPY",
+        asset_class=AssetClass.FOREX,
+        primary_provider=ProviderName.TIINGO,
+        secondary_provider=ProviderName.TWELVE_DATA,
+        provider_symbols={
+            ProviderName.TWELVE_DATA.value: "USD/JPY",
+            ProviderName.TIINGO.value: "usdjpy",
+            ProviderName.FINNHUB.value: "OANDA:USD_JPY",
+        },
+        trading_sessions={"sessions": ["24x5"]},
+        pip_size="0.01",
+        price_tick_size="0.001",
+        quantity_step="1000",
+        min_quantity="1000",
+    ),
+    _crypto("SOLUSD", "SOL/USD", "solusd"),
+)
+
 assert tuple(a.db_symbol for a in TARGET_ASSETS) == ACTIVE_DB_SYMBOLS, (
     "registry TARGET_ASSETS must match active_universe.ACTIVE_DB_SYMBOLS"
 )
 
-_ASSET_BY_DB: dict[str, AssetDefinition] = {a.db_symbol: a for a in TARGET_ASSETS}
+_ALL_KNOWN_ASSETS = TARGET_ASSETS + RESEARCH_EXTENDED_ASSETS
+_ASSET_BY_DB: dict[str, AssetDefinition] = {a.db_symbol: a for a in _ALL_KNOWN_ASSETS}
 _ASSET_BY_CANONICAL: dict[str, AssetDefinition] = {a.canonical_symbol: a for a in TARGET_ASSETS}
 
 
