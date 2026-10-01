@@ -1,0 +1,135 @@
+{
+  "symbols": {
+    "PLTR": {
+      "wired": true,
+      "research_ready": true,
+      "live_data_ready": true,
+      "provider": "alpaca",
+      "instrument_spec": {
+        "asset_class": "stock",
+        "quote_currency": "USD",
+        "session_key": "us_equity_rth"
+      },
+      "candle_counts": {
+        "5m": 10064,
+        "15m": 3311,
+        "1h": 763
+      },
+      "latest_5m": "2026-10-01T21:50:00+03:00"
+    },
+    "MSTR": {
+      "wired": true,
+      "research_ready": true,
+      "live_data_ready": true,
+      "provider": "alpaca",
+      "instrument_spec": {
+        "asset_class": "stock",
+        "quote_currency": "USD",
+        "session_key": "us_equity_rth"
+      },
+      "candle_counts": {
+        "5m": 10067,
+        "15m": 3311,
+        "1h": 763
+      },
+      "latest_5m": "2026-10-01T21:50:00+03:00"
+    },
+    "IWM": {
+      "wired": true,
+      "research_ready": true,
+      "live_data_ready": true,
+      "provider": "alpaca",
+      "instrument_spec": {
+        "asset_class": "stock",
+        "quote_currency": "USD",
+        "session_key": "us_equity_rth"
+      },
+      "candle_counts": {
+        "5m": 10064,
+        "15m": 3311,
+        "1h": 763
+      },
+      "latest_5m": "2026-10-01T21:50:00+03:00"
+    },
+    "DIA": {
+      "wired": true,
+      "research_ready": true,
+      "live_data_ready": true,
+      "provider": "alpaca",
+      "instrument_spec": {
+        "asset_class": "stock",
+        "quote_currency": "USD",
+        "session_key": "us_equity_rth"
+      },
+      "candle_counts": {
+        "5m": 10064,
+        "15m": 3311,
+        "1h": 763
+      },
+      "latest_5m": "2026-10-01T21:50:00+03:00"
+    },
+    "GBPUSD": {
+      "wired": true,
+      "research_ready": true,
+      "live_data_ready": false,
+      "provider": "tiingo",
+      "instrument_spec": {
+        "asset_class": "forex",
+        "quote_currency": "USD",
+        "session_key": "24x5"
+      },
+      "candle_counts": {
+        "5m": 7145,
+        "15m": 801,
+        "1h": 195
+      },
+      "latest_5m": "2025-11-05T01:55:00+02:00"
+    },
+    "AUDUSD": {
+      "wired": true,
+      "research_ready": true,
+      "live_data_ready": false,
+      "provider": "tiingo",
+      "instrument_spec": {
+        "asset_class": "forex",
+        "quote_currency": "USD",
+        "session_key": "24x5"
+      },
+      "candle_counts": {
+        "5m": 7143,
+        "15m": 801,
+        "1h": 195
+      },
+      "latest_5m": "2025-11-05T01:55:00+02:00"
+    },
+    "XRPUSD": {
+      "wired": true,
+      "research_ready": true,
+      "live_data_ready": true,
+      "provider": "coinbase",
+      "instrument_spec": {
+        "asset_class": "crypto",
+        "quote_currency": "USD",
+        "session_key": "24x7"
+      },
+      "candle_counts": {
+        "5m": 2412,
+        "15m": 803,
+        "1h": 200
+      },
+      "latest_5m": "2026-10-01T21:50:00+03:00"
+    }
+  },
+  "passed": [
+    "PLTR",
+    "MSTR",
+    "IWM",
+    "DIA",
+    "XRPUSD"
+  ],
+  "failed": [
+    "GBPUSD",
+    "AUDUSD"
+  ],
+  "xrp_included": true
+}

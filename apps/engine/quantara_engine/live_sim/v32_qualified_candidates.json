@@ -41,6 +41,19 @@
       "classification": "WEAK_PASS"
     },
     {
+      "key": "atr_trailing_trend|v1|IWM|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v1",
+      "asset": "IWM",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 55
+      },
+      "robustness": "FAIL",
+      "classification": "WEAK_PASS"
+    },
+    {
       "key": "atr_trailing_trend|v1|META|15m|long",
       "family": "atr_trailing_trend",
       "variant_id": "v1",
@@ -78,6 +91,45 @@
       },
       "robustness": "PROMISING",
       "classification": "WEAK_PASS"
+    },
+    {
+      "key": "atr_trailing_trend|v1|MSTR|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v1",
+      "asset": "MSTR",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 55
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "atr_trailing_trend|v1|MSTR|15m|short",
+      "family": "atr_trailing_trend",
+      "variant_id": "v1",
+      "asset": "MSTR",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "ema_slow": 55
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "atr_trailing_trend|v1|PLTR|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v1",
+      "asset": "PLTR",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 55
+      },
+      "robustness": "PROMISING",
+      "classification": "FAIL"
     },
     {
       "key": "atr_trailing_trend|v1|QQQ|15m|long",
@@ -216,6 +268,32 @@
       "asset": "MSFT",
       "timeframe": "15m",
       "direction": "long",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "PROMISING",
+      "classification": "FAIL"
+    },
+    {
+      "key": "atr_trailing_trend|v2|MSTR|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v2",
+      "asset": "MSTR",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "atr_trailing_trend|v2|MSTR|15m|short",
+      "family": "atr_trailing_trend",
+      "variant_id": "v2",
+      "asset": "MSTR",
+      "timeframe": "15m",
+      "direction": "short",
       "parameters": {
         "ema_slow": 80
       },
@@ -418,6 +496,45 @@
       "classification": "PASS"
     },
     {
+      "key": "channel_mean_revert|v1|DIA|15m|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "DIA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "RESEARCH_ONLY",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|DIA|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "DIA",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "PROMISING",
+      "classification": "PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|DIA|1h|short",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "DIA",
+      "timeframe": "1h",
+      "direction": "short",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "PROMISING",
+      "classification": "PASS"
+    },
+    {
       "key": "channel_mean_revert|v1|GOOGL|15m|long",
       "family": "channel_mean_revert",
       "variant_id": "v1",
@@ -444,6 +561,45 @@
       "classification": "FAIL"
     },
     {
+      "key": "channel_mean_revert|v1|IWM|15m|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "IWM",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "PROMISING",
+      "classification": "PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|IWM|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "IWM",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|IWM|1h|short",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "IWM",
+      "timeframe": "1h",
+      "direction": "short",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
       "key": "channel_mean_revert|v1|MSFT|1h|long",
       "family": "channel_mean_revert",
       "variant_id": "v1",
@@ -457,6 +613,19 @@
       "classification": "FAIL"
     },
     {
+      "key": "channel_mean_revert|v1|MSTR|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "MSTR",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
       "key": "channel_mean_revert|v1|NVDA|1h|long",
       "family": "channel_mean_revert",
       "variant_id": "v1",
@@ -468,6 +637,19 @@
       },
       "robustness": "ROBUST",
       "classification": "PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|PLTR|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "PLTR",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "ROBUST",
+      "classification": "WEAK_PASS"
     },
     {
       "key": "channel_mean_revert|v1|QQQ|15m|long",
@@ -703,6 +885,34 @@
       "classification": "FAIL"
     },
     {
+      "key": "channel_mean_revert|v2|IWM|15m|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "IWM",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "RESEARCH_ONLY",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "channel_mean_revert|v2|IWM|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "IWM",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
       "key": "channel_mean_revert|v2|META|1h|long",
       "family": "channel_mean_revert",
       "variant_id": "v2",
@@ -731,6 +941,34 @@
       "classification": "WEAK_PASS"
     },
     {
+      "key": "channel_mean_revert|v2|MSTR|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "MSTR",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "channel_mean_revert|v2|MSTR|1h|short",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "MSTR",
+      "timeframe": "1h",
+      "direction": "short",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
       "key": "channel_mean_revert|v2|NVDA|1h|long",
       "family": "channel_mean_revert",
       "variant_id": "v2",
@@ -749,6 +987,48 @@
       "family": "channel_mean_revert",
       "variant_id": "v2",
       "asset": "NVDA",
+      "timeframe": "1h",
+      "direction": "short",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "channel_mean_revert|v2|PLTR|15m|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "PLTR",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "channel_mean_revert|v2|PLTR|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "PLTR",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "channel_mean_revert|v2|PLTR|1h|short",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "PLTR",
       "timeframe": "1h",
       "direction": "short",
       "parameters": {
@@ -917,12 +1197,38 @@
       "classification": "FAIL"
     },
     {
+      "key": "donchian_breakout_v2|v1|MSTR|15m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "MSTR",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
       "key": "donchian_breakout_v2|v1|NVDA|1h|long",
       "family": "donchian_breakout_v2",
       "variant_id": "v1",
       "asset": "NVDA",
       "timeframe": "1h",
       "direction": "long",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|PLTR|15m|short",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "PLTR",
+      "timeframe": "15m",
+      "direction": "short",
       "parameters": {
         "channel": 30
       },
@@ -1073,6 +1379,32 @@
       "classification": "FAIL"
     },
     {
+      "key": "donchian_breakout_v2|v2|MSTR|15m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v2",
+      "asset": "MSTR",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 55
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "donchian_breakout_v2|v2|PLTR|15m|short",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v2",
+      "asset": "PLTR",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "channel": 55
+      },
+      "robustness": "RESEARCH_ONLY",
+      "classification": "FAIL"
+    },
+    {
       "key": "donchian_breakout_v2|v2|QQQ|15m|long",
       "family": "donchian_breakout_v2",
       "variant_id": "v2",
@@ -1213,6 +1545,17 @@
       "classification": "FAIL"
     },
     {
+      "key": "ema_pullback_continue|v1|DIA|1h|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "DIA",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "RESEARCH_ONLY",
+      "classification": "FAIL"
+    },
+    {
       "key": "ema_pullback_continue|v1|GOOGL|15m|long",
       "family": "ema_pullback_continue",
       "variant_id": "v1",
@@ -1222,6 +1565,17 @@
       "parameters": {},
       "robustness": "ROBUST",
       "classification": "PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v1|IWM|1h|short",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "IWM",
+      "timeframe": "1h",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "RESEARCH_ONLY",
+      "classification": "FAIL"
     },
     {
       "key": "ema_pullback_continue|v1|META|15m|long",
@@ -1246,6 +1600,28 @@
       "classification": "WEAK_PASS"
     },
     {
+      "key": "ema_pullback_continue|v1|MSTR|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "MSTR",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "ema_pullback_continue|v1|MSTR|15m|short",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "MSTR",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
       "key": "ema_pullback_continue|v1|NVDA|15m|long",
       "family": "ema_pullback_continue",
       "variant_id": "v1",
@@ -1261,6 +1637,28 @@
       "family": "ema_pullback_continue",
       "variant_id": "v1",
       "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "ema_pullback_continue|v1|PLTR|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "PLTR",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "ema_pullback_continue|v1|PLTR|15m|short",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "PLTR",
       "timeframe": "15m",
       "direction": "short",
       "parameters": {},
@@ -1396,6 +1794,20 @@
       "classification": "WEAK_PASS"
     },
     {
+      "key": "ema_pullback_continue|v2|DIA|1h|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "DIA",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "RESEARCH_ONLY",
+      "classification": "FAIL"
+    },
+    {
       "key": "ema_pullback_continue|v2|GOOGL|15m|long",
       "family": "ema_pullback_continue",
       "variant_id": "v2",
@@ -1408,6 +1820,20 @@
       },
       "robustness": "PROMISING",
       "classification": "WEAK_PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v2|IWM|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "IWM",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
     },
     {
       "key": "ema_pullback_continue|v2|META|15m|long",
@@ -1466,6 +1892,20 @@
       "classification": "WEAK_PASS"
     },
     {
+      "key": "ema_pullback_continue|v2|MSTR|15m|short",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "MSTR",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
       "key": "ema_pullback_continue|v2|NVDA|15m|long",
       "family": "ema_pullback_continue",
       "variant_id": "v2",
@@ -1478,6 +1918,20 @@
       },
       "robustness": "ROBUST",
       "classification": "PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v2|PLTR|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "PLTR",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
     },
     {
       "key": "ema_pullback_continue|v2|QQQ|15m|long",
@@ -1564,6 +2018,20 @@
       "classification": "FAIL"
     },
     {
+      "key": "ema_pullback_continue|v2|XRPUSD|15m|short",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "XRPUSD",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "RESEARCH_ONLY",
+      "classification": "FAIL"
+    },
+    {
       "key": "momentum_after_base|v1|AAPL|15m|long",
       "family": "momentum_after_base",
       "variant_id": "v1",
@@ -1586,6 +2054,17 @@
       "classification": "WEAK_PASS"
     },
     {
+      "key": "momentum_after_base|v1|IWM|15m|long",
+      "family": "momentum_after_base",
+      "variant_id": "v1",
+      "asset": "IWM",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "RESEARCH_ONLY",
+      "classification": "FAIL"
+    },
+    {
       "key": "momentum_after_base|v1|MSFT|15m|long",
       "family": "momentum_after_base",
       "variant_id": "v1",
@@ -1606,6 +2085,39 @@
       "parameters": {},
       "robustness": "ROBUST",
       "classification": "PASS"
+    },
+    {
+      "key": "momentum_after_base|v1|MSTR|15m|long",
+      "family": "momentum_after_base",
+      "variant_id": "v1",
+      "asset": "MSTR",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "momentum_after_base|v1|MSTR|15m|short",
+      "family": "momentum_after_base",
+      "variant_id": "v1",
+      "asset": "MSTR",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "momentum_after_base|v1|PLTR|15m|long",
+      "family": "momentum_after_base",
+      "variant_id": "v1",
+      "asset": "PLTR",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
     },
     {
       "key": "momentum_after_base|v1|QQQ|15m|long",
@@ -1680,6 +2192,19 @@
       "classification": "WEAK_PASS"
     },
     {
+      "key": "mtf_trend_ltf_entry|v1|DIA|5m|short",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v1",
+      "asset": "DIA",
+      "timeframe": "5m",
+      "direction": "short",
+      "parameters": {
+        "ema_slow": 50
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
       "key": "mtf_trend_ltf_entry|v1|GOOGL|5m|long",
       "family": "mtf_trend_ltf_entry",
       "variant_id": "v1",
@@ -1693,6 +2218,19 @@
       "classification": "FAIL"
     },
     {
+      "key": "mtf_trend_ltf_entry|v1|IWM|5m|long",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v1",
+      "asset": "IWM",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 50
+      },
+      "robustness": "FAIL",
+      "classification": "WEAK_PASS"
+    },
+    {
       "key": "mtf_trend_ltf_entry|v1|MSFT|5m|long",
       "family": "mtf_trend_ltf_entry",
       "variant_id": "v1",
@@ -1704,6 +2242,19 @@
       },
       "robustness": "FAIL",
       "classification": "FAIL"
+    },
+    {
+      "key": "mtf_trend_ltf_entry|v1|MSTR|5m|short",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v1",
+      "asset": "MSTR",
+      "timeframe": "5m",
+      "direction": "short",
+      "parameters": {
+        "ema_slow": 50
+      },
+      "robustness": "ROBUST",
+      "classification": "WEAK_PASS"
     },
     {
       "key": "mtf_trend_ltf_entry|v1|NVDA|5m|short",
@@ -1758,10 +2309,36 @@
       "classification": "FAIL"
     },
     {
+      "key": "mtf_trend_ltf_entry|v2|DIA|5m|short",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v2",
+      "asset": "DIA",
+      "timeframe": "5m",
+      "direction": "short",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
       "key": "mtf_trend_ltf_entry|v2|GOOGL|5m|long",
       "family": "mtf_trend_ltf_entry",
       "variant_id": "v2",
       "asset": "GOOGL",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "mtf_trend_ltf_entry|v2|IWM|5m|long",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v2",
+      "asset": "IWM",
       "timeframe": "5m",
       "direction": "long",
       "parameters": {
@@ -1777,6 +2354,19 @@
       "asset": "MSFT",
       "timeframe": "5m",
       "direction": "long",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "mtf_trend_ltf_entry|v2|MSTR|5m|short",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v2",
+      "asset": "MSTR",
+      "timeframe": "5m",
+      "direction": "short",
       "parameters": {
         "ema_slow": 80
       },
@@ -1865,6 +2455,17 @@
       "classification": "PASS"
     },
     {
+      "key": "orb_continuation|v1|MSTR|5m|long",
+      "family": "orb_continuation",
+      "variant_id": "v1",
+      "asset": "MSTR",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
       "key": "orb_continuation|v1|NVDA|15m|long",
       "family": "orb_continuation",
       "variant_id": "v1",
@@ -1885,6 +2486,94 @@
       "parameters": {},
       "robustness": "PROMISING",
       "classification": "WEAK_PASS"
+    },
+    {
+      "key": "orb_continuation|v1|PLTR|15m|short",
+      "family": "orb_continuation",
+      "variant_id": "v1",
+      "asset": "PLTR",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "orb_continuation|v1|PLTR|5m|short",
+      "family": "orb_continuation",
+      "variant_id": "v1",
+      "asset": "PLTR",
+      "timeframe": "5m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "prev_day_hl_break|v1|DIA|1h|long",
+      "family": "prev_day_hl_break",
+      "variant_id": "v1",
+      "asset": "DIA",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "prev_day_hl_break|v1|MSTR|15m|long",
+      "family": "prev_day_hl_break",
+      "variant_id": "v1",
+      "asset": "MSTR",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "prev_day_hl_break|v1|PLTR|15m|long",
+      "family": "prev_day_hl_break",
+      "variant_id": "v1",
+      "asset": "PLTR",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "prev_day_hl_break|v1|PLTR|15m|short",
+      "family": "prev_day_hl_break",
+      "variant_id": "v1",
+      "asset": "PLTR",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "prev_day_hl_break|v1|PLTR|1h|long",
+      "family": "prev_day_hl_break",
+      "variant_id": "v1",
+      "asset": "PLTR",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "prev_day_hl_break|v1|PLTR|1h|short",
+      "family": "prev_day_hl_break",
+      "variant_id": "v1",
+      "asset": "PLTR",
+      "timeframe": "1h",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
     },
     {
       "key": "rsi_divergence_mr|v1|AMD|15m|long",

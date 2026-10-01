@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-# Active polling / strategy / fetch targets (18). Phase 1 merged research extensions into active.
+# Active polling / strategy / fetch targets (25). Phase 2 adds equities/ETFs/FX/crypto.
 ACTIVE_DB_SYMBOLS: tuple[str, ...] = (
     "BTCUSD",
     "ETHUSD",
@@ -22,6 +22,13 @@ ACTIVE_DB_SYMBOLS: tuple[str, ...] = (
     "EURUSD",
     "USDJPY",
     "SOLUSD",
+    "PLTR",
+    "MSTR",
+    "IWM",
+    "DIA",
+    "GBPUSD",
+    "AUDUSD",
+    "XRPUSD",
 )
 
 # Reserved for staged promotion before active (empty while Phase 1 symbols are active).
@@ -41,6 +48,16 @@ PHASE1_EXPANDED_DB_SYMBOLS: tuple[str, ...] = (
     "EURUSD",
     "USDJPY",
     "SOLUSD",
+)
+
+PHASE2_EXPANDED_DB_SYMBOLS: tuple[str, ...] = (
+    "PLTR",
+    "MSTR",
+    "IWM",
+    "DIA",
+    "GBPUSD",
+    "AUDUSD",
+    "XRPUSD",
 )
 
 # ORB session type per active asset — explicit canonical mapping.
@@ -63,6 +80,13 @@ ORB_SESSION_BY_SYMBOL: dict[str, str] = {
     "GBPJPY": "fx_utc_daily",
     "EURUSD": "fx_utc_daily",
     "USDJPY": "fx_utc_daily",
+    "PLTR": "us_equity_rth",
+    "MSTR": "us_equity_rth",
+    "IWM": "us_equity_rth",
+    "DIA": "us_equity_rth",
+    "GBPUSD": "fx_utc_daily",
+    "AUDUSD": "fx_utc_daily",
+    "XRPUSD": "crypto_utc_daily",
 }
 
 

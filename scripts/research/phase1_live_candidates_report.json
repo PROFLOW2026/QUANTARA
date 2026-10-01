@@ -1,13 +1,13 @@
 {
-  "generated_at": "2026-10-01T18:25:11.247408+00:00",
+  "generated_at": "2026-10-01T20:08:44.668476+00:00",
   "stage_a": {
     "complete": true,
-    "total_jobs_planned": 500,
-    "total_checkpoint": 592,
-    "phase1_planned": 264,
+    "total_jobs_planned": 750,
+    "total_checkpoint": 778,
+    "phase1_planned": 304,
     "phase1_completed": 264,
-    "survivors": 163,
-    "rejected": 429,
+    "survivors": 218,
+    "rejected": 560,
     "breakdown": {
       "by_symbol": {
         "AMD": 20,
@@ -21,39 +21,45 @@
         "QQQ": 14,
         "SPY": 8,
         "AMZN": 12,
-        "SOLUSD": 3
+        "SOLUSD": 3,
+        "IWM": 11,
+        "MSTR": 18,
+        "PLTR": 17,
+        "DIA": 8,
+        "XRPUSD": 1
       },
       "by_family": {
-        "atr_trailing_trend": 21,
-        "channel_mean_revert": 38,
-        "ema_pullback_continue": 35,
-        "mtf_trend_ltf_entry": 13,
-        "orb_continuation": 7,
+        "atr_trailing_trend": 27,
+        "channel_mean_revert": 53,
+        "ema_pullback_continue": 46,
+        "mtf_trend_ltf_entry": 19,
+        "orb_continuation": 10,
         "rsi_divergence_mr": 4,
         "squeeze_release": 3,
         "vol_expansion_v2": 6,
         "vwap_session_revert": 3,
-        "donchian_breakout_v2": 26,
-        "momentum_after_base": 7
+        "donchian_breakout_v2": 30,
+        "momentum_after_base": 11,
+        "prev_day_hl_break": 6
       },
       "by_timeframe": {
-        "15m": 99,
-        "5m": 21,
-        "1h": 43
+        "15m": 129,
+        "5m": 29,
+        "1h": 60
       },
       "by_direction": {
-        "long": 110,
-        "short": 53
+        "long": 143,
+        "short": 75
       }
     }
   },
   "stage_b": {
     "complete": true,
-    "total": 163,
+    "total": 218,
     "classifications": {
-      "WEAK_PASS": 47,
-      "FAIL": 71,
-      "PASS": 45
+      "WEAK_PASS": 55,
+      "FAIL": 112,
+      "PASS": 51
     },
     "phase1_classifications": {
       "WEAK_PASS": 25,
@@ -67,15 +73,15 @@
     "new_fail": 0,
     "new_live_eligible": 0,
     "new_phase1_eligible": 0,
-    "total_live_eligible": 92
+    "total_live_eligible": 106
   },
   "fx_freshness": {
     "EURUSD": {
-      "latest_5m": "2026-10-01T21:20:00+03:00",
+      "latest_5m": "2026-10-01T22:50:00+03:00",
       "live_fresh": true
     },
     "USDJPY": {
-      "latest_5m": "2026-10-01T21:20:00+03:00",
+      "latest_5m": "2026-10-01T22:50:00+03:00",
       "live_fresh": true
     }
   },

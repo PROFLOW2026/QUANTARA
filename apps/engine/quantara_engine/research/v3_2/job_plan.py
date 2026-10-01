@@ -14,10 +14,26 @@ from quantara_engine.research.v3.data_quality_gate import build_data_quality_mat
 from quantara_engine.research.v3.discovery import _test_pairs
 
 _EQUITIES = frozenset(
-    {"NVDA", "TSLA", "AMD", "COIN", "AAPL", "MSFT", "META", "AMZN", "GOOGL", "SPY", "QQQ"}
+    {
+        "NVDA",
+        "TSLA",
+        "AMD",
+        "COIN",
+        "AAPL",
+        "MSFT",
+        "META",
+        "AMZN",
+        "GOOGL",
+        "SPY",
+        "QQQ",
+        "PLTR",
+        "MSTR",
+        "IWM",
+        "DIA",
+    }
 )
-_CRYPTO = frozenset({"BTCUSD", "ETHUSD", "SOLUSD"})
-_FX = frozenset({"XAUUSD", "GBPJPY", "EURUSD", "USDJPY"})
+_CRYPTO = frozenset({"BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD"})
+_FX = frozenset({"XAUUSD", "GBPJPY", "EURUSD", "USDJPY", "GBPUSD", "AUDUSD"})
 _ALL = frozenset(list_research_db_symbols())
 
 FAMILY_SPECS: list[dict[str, Any]] = [
@@ -35,7 +51,7 @@ FAMILY_SPECS: list[dict[str, Any]] = [
     {"family": "channel_mean_revert", "assets": _FX | _EQUITIES, "timeframes": ("15m", "1h"), "variants": [{"channel": 25}, {"dev": 0.008, "channel": 30}]},
 ]
 
-MAX_JOBS = 500
+MAX_JOBS = 750
 
 
 @dataclass(frozen=True)

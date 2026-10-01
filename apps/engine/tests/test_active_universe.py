@@ -13,7 +13,7 @@ from quantara_engine.market_data.registry import list_target_assets
 
 
 def test_active_universe_eighteen():
-    assert len(list_active_db_symbols()) == 18
+    assert len(list_active_db_symbols()) == 25
     assert list_active_db_symbols() == ACTIVE_DB_SYMBOLS
     assert tuple(a.db_symbol for a in list_target_assets()) == ACTIVE_DB_SYMBOLS
     assert set(PHASE1_EXPANDED_DB_SYMBOLS).issubset(set(ACTIVE_DB_SYMBOLS))

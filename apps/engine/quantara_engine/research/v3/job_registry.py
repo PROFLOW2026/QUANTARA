@@ -67,9 +67,25 @@ def load_registry(path: Path) -> dict[str, Any]:
 
 def save_registry(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
-    tmp.replace(path)
+    payload = json.dumps(data, indent=2, default=str)
+    last_err: OSError | None = None
+    for attempt in range(8):
+        tmp = path.with_name(f"{path.stem}.{os.getpid()}.{attempt}.tmp")
+        try:
+            tmp.write_text(payload, encoding="utf-8")
+            tmp.replace(path)
+            return
+        except OSError as exc:
+            last_err = exc
+            time.sleep(0.05 * (attempt + 1))
+        finally:
+            if tmp.is_file():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+    if last_err:
+        raise last_err
 
 
 def claim_job(

@@ -1,0 +1,33 @@
+{
+  "generated_at": "2026-10-01T20:06:31.763603+00:00",
+  "master_scoreboard": {
+    "start_usd": 10000,
+    "current_equity_usd": 10000.0,
+    "return_pct": 0.0,
+    "realized_pnl_usd": 0.0,
+    "unrealized_pnl_usd": 0.0,
+    "max_drawdown_pct": 0.0,
+    "total_live_trades": 0,
+    "profit_factor": null,
+    "expectancy_usd": null,
+    "open_planned_sl_risk_usd": 0.0,
+    "fees_usd": 0.0,
+    "audit_since": "2026-10-01T12:28:17.281564+00:00"
+  },
+  "active_candidates_manifest": 106,
+  "leaderboard": [],
+  "top_contributors": [],
+  "bottom_contributors": [],
+  "concentration": {
+    "open_planned_risk_by_asset": {},
+    "open_planned_risk_by_asset_class": {},
+    "open_planned_risk_by_direction": {},
+    "total_open_planned_sl_risk_usd": 0.0,
+    "pnl_by_asset": {},
+    "pnl_concentration_pct_by_asset": {},
+    "pnl_by_strategy_family": {},
+    "simultaneous_strategies_same_symbol": {}
+  },
+  "live_trades_since_anchor": 0,
+  "active_live_assets": 15
+}

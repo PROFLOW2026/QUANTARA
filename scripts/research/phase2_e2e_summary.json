@@ -1,0 +1,14 @@
+{
+  "gated_symbols": [
+    "DIA",
+    "IWM",
+    "MSTR",
+    "PLTR",
+    "XRPUSD"
+  ],
+  "stage_a_jobs": 186,
+  "stage_a_new": 0,
+  "stage_b_survivors": 55,
+  "stage_b_new": 55,
+  "timestamp": 1790885326.017934
+}

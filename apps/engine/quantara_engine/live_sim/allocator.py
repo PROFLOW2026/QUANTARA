@@ -930,6 +930,12 @@ def maybe_allocate_live_sim(
     strategy_slug = instance.strategy_slug
     strategy_version = getattr(instance, "strategy_version", None) or "1.0.0"
     robot_label = ROBOT_LABELS.get(strategy_slug, strategy_slug)
+    param_overrides = getattr(instance, "parameter_overrides", None) or {}
+    from quantara_engine.live_sim.v32_registry import v32_candidate_key_from_params
+
+    v32_candidate_key = param_overrides.get("v32_candidate_key") or v32_candidate_key_from_params(
+        param_overrides
+    )
     direction = "long" if signal.action == SignalAction.BUY else "short"
     dir_enum = Direction.LONG if direction == "long" else Direction.SHORT
 
@@ -1390,6 +1396,8 @@ def maybe_allocate_live_sim(
         "execution_candle_timestamp": exec_ts.isoformat(),
         **sizing_meta,
     }
+    if v32_candidate_key:
+        pending_meta["v32_candidate_key"] = str(v32_candidate_key)
     if candle_index + 1 >= len(candles):
         log_id = log_allocation(
             store,

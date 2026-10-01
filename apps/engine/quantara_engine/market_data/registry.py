@@ -150,6 +150,13 @@ TARGET_ASSETS: tuple[AssetDefinition, ...] = (
     _forex("EURUSD", "EUR/USD", pip_size="0.0001", price_tick_size="0.00001"),
     _forex("USDJPY", "USD/JPY", pip_size="0.01", price_tick_size="0.001"),
     _crypto("SOLUSD", "SOL/USD", "solusd"),
+    _equity("PLTR"),
+    _equity("MSTR"),
+    _equity("IWM"),
+    _equity("DIA"),
+    _forex("GBPUSD", "GBP/USD", pip_size="0.0001", price_tick_size="0.00001"),
+    _forex("AUDUSD", "AUD/USD", pip_size="0.0001", price_tick_size="0.00001"),
+    _crypto("XRPUSD", "XRP/USD", "xrpusd"),
 )
 
 RESEARCH_EXTENDED_ASSETS: tuple[AssetDefinition, ...] = ()

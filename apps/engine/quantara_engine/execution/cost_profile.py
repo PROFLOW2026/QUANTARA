@@ -173,6 +173,23 @@ EXECUTION_COST_BY_SYMBOL: dict[str, ExecutionCostProfile] = {
         slippage_pips=Decimal("0.2"),
     ),
     "SOLUSD": ExecutionCostProfile(spread_model="absolute", spread_absolute=Decimal("0.05")),
+    "PLTR": ExecutionCostProfile(spread_model="absolute", spread_absolute=Decimal("0.02")),
+    "MSTR": ExecutionCostProfile(spread_model="absolute", spread_absolute=Decimal("0.02")),
+    "IWM": ExecutionCostProfile(spread_model="absolute", spread_absolute=Decimal("0.01")),
+    "DIA": ExecutionCostProfile(spread_model="absolute", spread_absolute=Decimal("0.01")),
+    "GBPUSD": ExecutionCostProfile(
+        spread_model="pips",
+        spread_pips=Decimal("1.0"),
+        slippage_model="pips",
+        slippage_pips=Decimal("0.1"),
+    ),
+    "AUDUSD": ExecutionCostProfile(
+        spread_model="pips",
+        spread_pips=Decimal("1.0"),
+        slippage_model="pips",
+        slippage_pips=Decimal("0.1"),
+    ),
+    "XRPUSD": ExecutionCostProfile(spread_model="absolute", spread_absolute=Decimal("0.0005")),
 }
 
 
