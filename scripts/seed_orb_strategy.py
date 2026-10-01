@@ -10,14 +10,20 @@ import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-_ci_db_url = (
-    os.environ.get("DATABASE_URL", "").strip()
-    or os.environ.get("BROKER_TEST_MIGRATE_URL", "").strip()
-    or os.environ.get("BROKER_TEST_DATABASE_URL", "").strip()
-)
+if os.environ.get("QUANTARA_CI_BROKER_SEED") == "1":
+    _ci_db_url = (
+        os.environ.get("BROKER_TEST_MIGRATE_URL", "").strip()
+        or os.environ.get("BROKER_TEST_DATABASE_URL", "").strip()
+    )
+else:
+    _ci_db_url = (
+        os.environ.get("DATABASE_URL", "").strip()
+        or os.environ.get("BROKER_TEST_MIGRATE_URL", "").strip()
+        or os.environ.get("BROKER_TEST_DATABASE_URL", "").strip()
+    )
 if _ci_db_url:
     os.environ["DATABASE_URL"] = _ci_db_url
-    os.environ.setdefault("DIRECT_URL", _ci_db_url)
+    os.environ["DIRECT_URL"] = _ci_db_url
 sys.path.insert(0, str(ROOT / "apps" / "engine"))
 
 from sqlalchemy import text  # noqa: E402

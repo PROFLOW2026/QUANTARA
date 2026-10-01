@@ -109,8 +109,7 @@ jobs:
         env:
           BROKER_TEST_REUSE: "1"
           BROKER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
-          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
-          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
+          BROKER_TEST_MIGRATE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
           QUANTARA_CI_BROKER_SEED: "1"
         run: |
           cd "$GITHUB_WORKSPACE"

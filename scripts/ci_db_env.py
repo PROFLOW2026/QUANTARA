@@ -6,11 +6,17 @@ import os
 
 
 def apply() -> None:
-    url = (
-        os.environ.get("DATABASE_URL", "").strip()
-        or os.environ.get("BROKER_TEST_MIGRATE_URL", "").strip()
-        or os.environ.get("BROKER_TEST_DATABASE_URL", "").strip()
-    )
+    if os.environ.get("QUANTARA_CI_BROKER_SEED") == "1":
+        url = (
+            os.environ.get("BROKER_TEST_MIGRATE_URL", "").strip()
+            or os.environ.get("BROKER_TEST_DATABASE_URL", "").strip()
+        )
+    else:
+        url = (
+            os.environ.get("DATABASE_URL", "").strip()
+            or os.environ.get("BROKER_TEST_MIGRATE_URL", "").strip()
+            or os.environ.get("BROKER_TEST_DATABASE_URL", "").strip()
+        )
     if not url:
         return
     os.environ["DATABASE_URL"] = url
