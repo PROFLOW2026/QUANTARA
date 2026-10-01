@@ -511,6 +511,8 @@
     "live_sim_v32_starting_model": "הון השוואה התחלתי",
     "live_sim_v32_anchor": "עוגן תצפית V3.2",
     "live_sim_v32_ae_note": "רובוטים A–E אינם פעילים ב-Live; ביצועי V3.2 נמדדים מהעוגן ואילך.",
+    "live_sim_v32_window_pnl": "רווח/הפסד V3.2 (מעוגן)",
+    "live_sim_v32_metrics_scope": "נתוני V3.2 בלבד, מתחילת הניסוי",
     "live_sim_risk_target_pct": "יעד סיכון %",
     "live_sim_avg_planned_risk_pct": "סיכון מתוכנן ממוצע %",
     "live_sim_capital_utilization": "ניצול הון %",

@@ -144,6 +144,22 @@ def test_hard_max_risk_clamps_quantity():
     assert (res.expected_risk_usd or 0) <= Decimal("5.01")
 
 
+def test_v32_audit_since_prefers_observation_anchor():
+    from quantara_engine.live_sim.audit_scope import resolve_live_sim_audit_since
+
+    ts = resolve_live_sim_audit_since(
+        MagicMock(),
+        account_metadata={
+            "live_sim_experiment": "v3.2-p2",
+            "v32_observation_anchor": "2026-10-01T12:28:17.281564+00:00",
+            "baseline_reset_at": "2020-01-01T00:00:00+00:00",
+        },
+        activated_at=None,
+    )
+    assert ts is not None
+    assert ts.isoformat().startswith("2026-10-01T12:28:17.281564")
+
+
 def test_release_v32_live_sim_script_model_broker_and_db_driver():
     """Release tooling must stamp live-sim-10k and use psycopg2 SQLAlchemy URLs."""
     from pathlib import Path

@@ -34,6 +34,10 @@ def resolve_live_sim_audit_since(
     Research paper run boundary (owner clean baseline), then account activation.
     """
     meta = account_metadata or {}
+    if meta.get("live_sim_experiment") == "v3.2-p2":
+        v32 = _parse_ts(meta.get("v32_observation_anchor"))
+        if v32 is not None:
+            return v32
     explicit = _parse_ts(meta.get("baseline_reset_at"))
     if explicit is not None:
         return explicit

@@ -64,7 +64,17 @@ export function LiveSimDashboard({ data, loading }: Props) {
   const riskVis = data.risk_visibility;
   const cleanWin = data.clean_window;
   const v32 = data.v32_experiment;
-  const totalPnl = data.total_pnl ?? (data.realized_pnl ?? 0) + (data.unrealized_pnl ?? 0);
+  const v32OpenUnrealized = (data.open_positions ?? []).reduce(
+    (sum, p) => sum + (p.unrealized_pnl ?? 0),
+    0
+  );
+  const v32Realized = cleanWin?.net_pnl ?? 0;
+  const v32Unrealized = v32 ? v32OpenUnrealized : (data.unrealized_pnl ?? 0);
+  const v32TotalPnl = v32 ? v32Realized + v32Unrealized : undefined;
+  const displayRealized = v32 ? v32Realized : (data.realized_pnl ?? 0);
+  const displayUnrealized = v32 ? v32Unrealized : (data.unrealized_pnl ?? 0);
+  const displayTotalPnl =
+    v32TotalPnl ?? data.total_pnl ?? (data.realized_pnl ?? 0) + (data.unrealized_pnl ?? 0);
 
   return (
     <>
@@ -93,6 +103,7 @@ export function LiveSimDashboard({ data, loading }: Props) {
               ))}
             </ul>
             <p className="text-xs text-muted">{t("home.live_sim_v32_ae_note")}</p>
+            <p className="text-xs font-medium text-muted">{t("home.live_sim_v32_metrics_scope")}</p>
           </CardContent>
         </Card>
       ) : null}
@@ -102,13 +113,13 @@ export function LiveSimDashboard({ data, loading }: Props) {
           <HomeSummaryValue>{formatCurrency(data.equity ?? 0)}</HomeSummaryValue>
         </HomeSummaryCard>
         <HomeSummaryCard label={t("home.live_sim_total_pnl")}>
-          <PnLDisplay value={totalPnl} size="lg" />
+          <PnLDisplay value={displayTotalPnl} size="lg" />
         </HomeSummaryCard>
         <HomeSummaryCard label={t("home.realized_pnl")}>
-          <PnLDisplay value={data.realized_pnl ?? 0} size="lg" />
+          <PnLDisplay value={displayRealized} size="lg" />
         </HomeSummaryCard>
         <HomeSummaryCard label={t("home.unrealized_pnl")}>
-          <PnLDisplay value={data.unrealized_pnl ?? 0} size="lg" />
+          <PnLDisplay value={displayUnrealized} size="lg" />
         </HomeSummaryCard>
         <HomeSummaryCard label={t("home.live_sim_open_count")}>
           <HomeSummaryValue>{openCount}</HomeSummaryValue>
