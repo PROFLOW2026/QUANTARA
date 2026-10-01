@@ -142,3 +142,21 @@ def test_hard_max_risk_clamps_quantity():
         hard_max_risk_usd=Decimal("5"),
     )
     assert (res.expected_risk_usd or 0) <= Decimal("5.01")
+
+
+def test_release_v32_live_sim_script_model_broker_and_db_driver():
+    """Release tooling must stamp live-sim-10k and use psycopg2 SQLAlchemy URLs."""
+    from pathlib import Path
+
+    from quantara_engine.broker.accounts import LIVE_SIM_10K_ACCOUNT_SLUG
+    from quantara_engine.db.sqlalchemy_url import normalize_sqlalchemy_postgres_url
+
+    root = Path(__file__).resolve().parents[3]
+    source = (root / "scripts" / "release_v32_live_sim.py").read_text(encoding="utf-8")
+    assert "LIVE_SIM_OWNER_SLUG" not in source
+    assert "LIVE_SIM_10K_ACCOUNT_SLUG" in source
+    assert "create_engine(normalize_sqlalchemy_postgres_url(db_url()))" in source
+    assert LIVE_SIM_10K_ACCOUNT_SLUG == "live-sim-10k"
+    assert normalize_sqlalchemy_postgres_url("postgresql://localhost/db").startswith(
+        "postgresql+psycopg2://"
+    )

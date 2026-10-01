@@ -15,17 +15,17 @@ sys.path.insert(0, str(ROOT / "apps" / "engine"))
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
+from quantara_engine.broker.accounts import LIVE_SIM_10K_ACCOUNT_SLUG
+from quantara_engine.db.sqlalchemy_url import normalize_sqlalchemy_postgres_url
 from quantara_engine.live_sim.integrity_containment import release_live_sim_entry_containment
 from quantara_engine.live_sim.v32_experiment import V32_EXPERIMENT_ID, V32_INITIAL_RISK_PCT
-from quantara_engine.owner_portfolio.service import LIVE_SIM_OWNER_SLUG
 from quantara_engine.persistence.store import TradingStore
 
 REPORT = ROOT / "scripts" / "research" / "v3_2_portfolio_p2_p3_p4_report.json"
 MANIFEST = ROOT / "scripts" / "research" / "v3_2_live_sim_manifest.json"
 
 _LIVE_SIM_RISK_SLUGS = (
-    LIVE_SIM_OWNER_SLUG,
-    "live-sim-10k",
+    LIVE_SIM_10K_ACCOUNT_SLUG,
     "live-sim-ibkr-like",
     "live-sim-kraken-like",
 )
@@ -72,8 +72,10 @@ def _stamp_v32_observation_anchor(store: TradingStore, *, anchor: datetime) -> d
             {"aid": row["id"], "meta": json.dumps(meta), "risk": json.dumps(risk)},
         )
         updated.append(slug)
-    if LIVE_SIM_OWNER_SLUG not in updated:
-        raise RuntimeError(f"owner live sim account missing: {LIVE_SIM_OWNER_SLUG}")
+    if LIVE_SIM_10K_ACCOUNT_SLUG not in updated:
+        raise RuntimeError(
+            f"live sim execution account missing: {LIVE_SIM_10K_ACCOUNT_SLUG}"
+        )
     return {
         "accounts_updated": updated,
         "observation_anchor": anchor_iso,
@@ -94,7 +96,7 @@ def main() -> None:
         raise SystemExit("manifest strategy_slug must be v32-p2-live-sim")
 
     anchor = datetime.now(timezone.utc)
-    session = sessionmaker(bind=create_engine(db_url()))()
+    session = sessionmaker(bind=create_engine(normalize_sqlalchemy_postgres_url(db_url())))()
     store = TradingStore(session)
     anchor_payload = _stamp_v32_observation_anchor(store, anchor=anchor)
     payload = release_live_sim_entry_containment(store)
