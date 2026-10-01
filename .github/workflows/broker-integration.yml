@@ -99,11 +99,12 @@ jobs:
           DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
           QUANTARA_CI_BROKER_SEED: "1"
         run: |
-          python3 scripts/seed.py
-          python3 scripts/seed_8_assets.py
-          python3 scripts/seed_competition.py
-          python3 scripts/seed_orb_strategy.py
-          python3 scripts/seed_orb_competition.py
+          cd "$GITHUB_WORKSPACE"
+          python3 "$GITHUB_WORKSPACE/scripts/seed.py"
+          python3 "$GITHUB_WORKSPACE/scripts/seed_8_assets.py"
+          python3 "$GITHUB_WORKSPACE/scripts/seed_competition.py"
+          python3 "$GITHUB_WORKSPACE/scripts/seed_orb_strategy.py"
+          python3 "$GITHUB_WORKSPACE/scripts/seed_orb_competition.py"
 
       - name: Bootstrap broker test schema
         working-directory: apps/engine
