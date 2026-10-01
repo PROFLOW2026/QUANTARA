@@ -7,6 +7,7 @@ from decimal import Decimal
 from enum import Enum
 
 from quantara_engine.broker.execution_model import ExecutionModelVersion, uses_realistic_broker
+from quantara_engine.broker.instruments import get_instrument_spec
 from quantara_engine.broker.types import AssetClassRules
 from quantara_engine.domain.types import Direction
 
@@ -125,11 +126,16 @@ def _route_open(sym: str, dir_norm: str, execution_model: ExecutionModelVersion)
     is_short = dir_norm == "short"
     realistic = uses_realistic_broker(execution_model)
 
-    if sym in ("BTCUSD", "ETHUSD"):
+    try:
+        spec = get_instrument_spec(sym)
+    except KeyError:
+        spec = None
+
+    if spec is not None and spec.asset_class == "crypto":
         if realistic:
             product = ExecutionProduct.CRYPTO_DERIVATIVE
         elif is_short:
-            product = ExecutionProduct.CRYPTO_SPOT  # legacy: blocked by shorting_allowed=False
+            product = ExecutionProduct.CRYPTO_SPOT
         else:
             product = ExecutionProduct.CRYPTO_SPOT
         rules = EXECUTION_PRODUCT_RULES[product]
@@ -140,19 +146,26 @@ def _route_open(sym: str, dir_norm: str, execution_model: ExecutionModelVersion)
             rules=rules,
         )
 
-    if sym == "GBPJPY":
+    if spec is not None and spec.asset_class == "forex":
+        product = ExecutionProduct.MARGIN_FX
+    elif spec is not None and spec.asset_class == "commodity":
+        product = ExecutionProduct.MARGIN_GOLD
+    elif spec is not None and spec.asset_class == "stock":
+        product = ExecutionProduct.EQUITY_MARGIN_SHORT if is_short else ExecutionProduct.EQUITY_CASH
+    elif sym in ("GBPJPY", "EURUSD", "USDJPY"):
         product = ExecutionProduct.MARGIN_FX
     elif sym == "XAUUSD":
         product = ExecutionProduct.MARGIN_GOLD
-    elif sym in ("NVDA", "TSLA", "AMD", "COIN"):
-        product = ExecutionProduct.EQUITY_MARGIN_SHORT if is_short else ExecutionProduct.EQUITY_CASH
+    elif sym in ("BTCUSD", "ETHUSD", "SOLUSD"):
+        product = ExecutionProduct.CRYPTO_SPOT
     else:
-        product = ExecutionProduct.EQUITY_CASH
+        product = ExecutionProduct.EQUITY_MARGIN_SHORT if is_short else ExecutionProduct.EQUITY_CASH
 
     rules = EXECUTION_PRODUCT_RULES[product]
+    asset_key = spec.asset_class if spec is not None else product.value.split("_")[0]
     return ExecutionProductRoute(
         product=product,
-        asset_class_key=product.value.replace("_", " ").split()[0],
+        asset_class_key=asset_key,
         short_capable=rules.shorting_allowed,
         rules=rules,
     )

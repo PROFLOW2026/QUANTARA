@@ -73,3 +73,15 @@ def test_robots_a_through_e_live_paused():
         v = evaluate_live_sim_v2_policy(strategy_slug=slug, symbol="AMD", timeframe="15m")
         assert not v.allowed
         assert v.reason == "ROBOT_LIVE_PAUSED"
+
+
+def test_v32_fail_classification_blocked():
+    params = _params_for_key("channel_mean_revert|v1|COIN|15m|short")
+    v = evaluate_live_sim_v2_policy(
+        strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
+        symbol="COIN",
+        timeframe="15m",
+        parameter_overrides=params,
+    )
+    assert not v.allowed
+    assert v.reason == "V32_CANDIDATE_NOT_QUALIFIED"

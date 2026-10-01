@@ -6,6 +6,25 @@ from decimal import Decimal
 
 from quantara_engine.broker.types import InstrumentSpec
 
+
+def _us_equity(symbol: str) -> InstrumentSpec:
+    return InstrumentSpec(
+        symbol=symbol,
+        asset_class="stock",
+        base_currency=symbol,
+        quote_currency="USD",
+        pip_size=Decimal("0.01"),
+        tick_size=Decimal("0.01"),
+        contract_size=Decimal("1"),
+        min_quantity=Decimal("1"),
+        quantity_step=Decimal("1"),
+        min_notional=Decimal("1"),
+        shortable=True,
+        fractional=False,
+        session_key="us_equity_rth",
+    )
+
+
 INSTRUMENT_SPECS: dict[str, InstrumentSpec] = {
     "BTCUSD": InstrumentSpec(
         symbol="BTCUSD",
@@ -112,20 +131,58 @@ INSTRUMENT_SPECS: dict[str, InstrumentSpec] = {
         fractional=False,
         session_key="us_equity_rth",
     ),
-    "COIN": InstrumentSpec(
-        symbol="COIN",
-        asset_class="stock",
-        base_currency="COIN",
+    "COIN": _us_equity("COIN"),
+    "AAPL": _us_equity("AAPL"),
+    "MSFT": _us_equity("MSFT"),
+    "META": _us_equity("META"),
+    "AMZN": _us_equity("AMZN"),
+    "GOOGL": _us_equity("GOOGL"),
+    "SPY": _us_equity("SPY"),
+    "QQQ": _us_equity("QQQ"),
+    "EURUSD": InstrumentSpec(
+        symbol="EURUSD",
+        asset_class="forex",
+        base_currency="EUR",
+        quote_currency="USD",
+        pip_size=Decimal("0.0001"),
+        tick_size=Decimal("0.00001"),
+        contract_size=Decimal("1"),
+        min_quantity=Decimal("1000"),
+        quantity_step=Decimal("1000"),
+        min_notional=Decimal("1000"),
+        shortable=True,
+        fractional=False,
+        session_key="24x5",
+    ),
+    "USDJPY": InstrumentSpec(
+        symbol="USDJPY",
+        asset_class="forex",
+        base_currency="USD",
+        quote_currency="JPY",
+        pip_size=Decimal("0.01"),
+        tick_size=Decimal("0.001"),
+        contract_size=Decimal("1"),
+        min_quantity=Decimal("1000"),
+        quantity_step=Decimal("1000"),
+        min_notional=Decimal("1000"),
+        shortable=True,
+        fractional=False,
+        session_key="24x5",
+    ),
+    "SOLUSD": InstrumentSpec(
+        symbol="SOLUSD",
+        asset_class="crypto",
+        base_currency="SOL",
         quote_currency="USD",
         pip_size=Decimal("0.01"),
         tick_size=Decimal("0.01"),
         contract_size=Decimal("1"),
-        min_quantity=Decimal("1"),
-        quantity_step=Decimal("1"),
-        min_notional=Decimal("1"),
-        shortable=True,
-        fractional=False,
-        session_key="us_equity_rth",
+        min_quantity=Decimal("0.0001"),
+        quantity_step=Decimal("0.0001"),
+        min_notional=Decimal("10"),
+        shortable=False,
+        fractional=True,
+        session_key="24x7",
     ),
 }
 

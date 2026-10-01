@@ -86,6 +86,34 @@ def _crypto(db_symbol: str, canonical: str, tiingo_ticker: str) -> AssetDefiniti
     )
 
 
+def _forex(
+    db_symbol: str,
+    canonical: str,
+    *,
+    pip_size: str,
+    price_tick_size: str,
+) -> AssetDefinition:
+    finnhub_key = f"OANDA:{canonical.replace('/', '_')}"
+    return AssetDefinition(
+        canonical_symbol=canonical,
+        db_symbol=db_symbol,
+        display_symbol=canonical,
+        asset_class=AssetClass.FOREX,
+        primary_provider=ProviderName.TIINGO,
+        secondary_provider=ProviderName.TWELVE_DATA,
+        provider_symbols={
+            ProviderName.TWELVE_DATA.value: canonical,
+            ProviderName.TIINGO.value: db_symbol.lower(),
+            ProviderName.FINNHUB.value: finnhub_key,
+        },
+        trading_sessions={"sessions": ["24x5"]},
+        pip_size=pip_size,
+        price_tick_size=price_tick_size,
+        quantity_step="1000",
+        min_quantity="1000",
+    )
+
+
 TARGET_ASSETS: tuple[AssetDefinition, ...] = (
     _crypto("BTCUSD", "BTC/USD", "btcusd"),
     _crypto("ETHUSD", "ETH/USD", "ethusd"),
@@ -107,31 +135,11 @@ TARGET_ASSETS: tuple[AssetDefinition, ...] = (
         quantity_step="0.01",
         min_quantity="0.01",
     ),
-    AssetDefinition(
-        canonical_symbol="GBP/JPY",
-        db_symbol="GBPJPY",
-        display_symbol="GBP/JPY",
-        asset_class=AssetClass.FOREX,
-        primary_provider=ProviderName.TIINGO,
-        secondary_provider=ProviderName.TWELVE_DATA,
-        provider_symbols={
-            ProviderName.TWELVE_DATA.value: "GBP/JPY",
-            ProviderName.TIINGO.value: "gbpjpy",
-            ProviderName.FINNHUB.value: "OANDA:GBP_JPY",
-        },
-        trading_sessions={"sessions": ["24x5"]},
-        pip_size="0.01",
-        price_tick_size="0.001",
-        quantity_step="1000",
-        min_quantity="1000",
-    ),
+    _forex("GBPJPY", "GBP/JPY", pip_size="0.01", price_tick_size="0.001"),
     _equity("NVDA"),
     _equity("TSLA"),
     _equity("AMD"),
     _equity("COIN"),
-)
-
-RESEARCH_EXTENDED_ASSETS: tuple[AssetDefinition, ...] = (
     _equity("AAPL"),
     _equity("MSFT"),
     _equity("META"),
@@ -139,44 +147,12 @@ RESEARCH_EXTENDED_ASSETS: tuple[AssetDefinition, ...] = (
     _equity("GOOGL"),
     _equity("SPY"),
     _equity("QQQ"),
-    AssetDefinition(
-        canonical_symbol="EUR/USD",
-        db_symbol="EURUSD",
-        display_symbol="EUR/USD",
-        asset_class=AssetClass.FOREX,
-        primary_provider=ProviderName.TIINGO,
-        secondary_provider=ProviderName.TWELVE_DATA,
-        provider_symbols={
-            ProviderName.TWELVE_DATA.value: "EUR/USD",
-            ProviderName.TIINGO.value: "eurusd",
-            ProviderName.FINNHUB.value: "OANDA:EUR_USD",
-        },
-        trading_sessions={"sessions": ["24x5"]},
-        pip_size="0.0001",
-        price_tick_size="0.00001",
-        quantity_step="1000",
-        min_quantity="1000",
-    ),
-    AssetDefinition(
-        canonical_symbol="USD/JPY",
-        db_symbol="USDJPY",
-        display_symbol="USD/JPY",
-        asset_class=AssetClass.FOREX,
-        primary_provider=ProviderName.TIINGO,
-        secondary_provider=ProviderName.TWELVE_DATA,
-        provider_symbols={
-            ProviderName.TWELVE_DATA.value: "USD/JPY",
-            ProviderName.TIINGO.value: "usdjpy",
-            ProviderName.FINNHUB.value: "OANDA:USD_JPY",
-        },
-        trading_sessions={"sessions": ["24x5"]},
-        pip_size="0.01",
-        price_tick_size="0.001",
-        quantity_step="1000",
-        min_quantity="1000",
-    ),
+    _forex("EURUSD", "EUR/USD", pip_size="0.0001", price_tick_size="0.00001"),
+    _forex("USDJPY", "USD/JPY", pip_size="0.01", price_tick_size="0.001"),
     _crypto("SOLUSD", "SOL/USD", "solusd"),
 )
+
+RESEARCH_EXTENDED_ASSETS: tuple[AssetDefinition, ...] = ()
 
 assert tuple(a.db_symbol for a in TARGET_ASSETS) == ACTIVE_DB_SYMBOLS, (
     "registry TARGET_ASSETS must match active_universe.ACTIVE_DB_SYMBOLS"

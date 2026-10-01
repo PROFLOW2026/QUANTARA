@@ -13,9 +13,11 @@ from quantara_engine.research.v3.constants import V3_RESEARCH_START
 from quantara_engine.research.v3.data_quality_gate import build_data_quality_matrix
 from quantara_engine.research.v3.discovery import _test_pairs
 
-_EQUITIES = frozenset({"NVDA", "TSLA", "AMD", "COIN"})
-_CRYPTO = frozenset({"BTCUSD", "ETHUSD"})
-_FX = frozenset({"XAUUSD", "GBPJPY"})
+_EQUITIES = frozenset(
+    {"NVDA", "TSLA", "AMD", "COIN", "AAPL", "MSFT", "META", "AMZN", "GOOGL", "SPY", "QQQ"}
+)
+_CRYPTO = frozenset({"BTCUSD", "ETHUSD", "SOLUSD"})
+_FX = frozenset({"XAUUSD", "GBPJPY", "EURUSD", "USDJPY"})
 _ALL = frozenset(list_research_db_symbols())
 
 FAMILY_SPECS: list[dict[str, Any]] = [

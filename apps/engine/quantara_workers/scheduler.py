@@ -192,6 +192,27 @@ class WorkerScheduler:
                 logger.exception("Live Sim broker startup recovery failed")
             finally:
                 session.close()
+            import os
+
+            from quantara_workers.runtime_build import WORKER_RUNTIME_BUILD_TAG
+
+            session = SessionLocal()
+            try:
+                store = TradingStore(session)
+                store.update_settings(
+                    "worker_runtime:build",
+                    {
+                        "tag": WORKER_RUNTIME_BUILD_TAG,
+                        "pid": os.getpid(),
+                        "started_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                session.commit()
+            except Exception:
+                session.rollback()
+                logger.exception("Failed to record worker runtime build tag")
+            finally:
+                session.close()
             from quantara_engine.market_data.credits import maybe_refresh_twelve_data_health
 
             self.scheduler.add_job(

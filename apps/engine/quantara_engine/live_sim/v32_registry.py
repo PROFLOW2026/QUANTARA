@@ -31,6 +31,9 @@ V32_QUALIFIED_MANIFEST = Path(__file__).with_name("v32_qualified_candidates.json
 # Explicit Live Sim blocks (not Stage-B qualified / owner research-only).
 V32_LIVE_SIM_BLOCKED_KEYS: frozenset[str] = frozenset()
 
+# Stage-B classifications excluded from virtual Live Sim (manifest may retain for research).
+V32_LIVE_SIM_BLOCKED_CLASSIFICATIONS: frozenset[str] = frozenset({"FAIL"})
+
 
 @lru_cache(maxsize=1)
 def load_v32_qualified_combinations() -> tuple[dict[str, Any], ...]:
@@ -44,6 +47,19 @@ def load_v32_qualified_combinations() -> tuple[dict[str, Any], ...]:
 @lru_cache(maxsize=1)
 def v32_qualified_keys() -> frozenset[str]:
     return frozenset(r["key"] for r in load_v32_qualified_combinations())
+
+
+def v32_row_live_sim_eligible(row: dict[str, Any]) -> bool:
+    key = row.get("key")
+    if not key or key in V32_LIVE_SIM_BLOCKED_KEYS:
+        return False
+    cls = str(row.get("classification") or "").upper()
+    return cls not in V32_LIVE_SIM_BLOCKED_CLASSIFICATIONS
+
+
+def load_v32_live_sim_active_combinations() -> tuple[dict[str, Any], ...]:
+    """Manifest rows permitted for Live Sim execution and instance sync."""
+    return tuple(r for r in load_v32_qualified_combinations() if v32_row_live_sim_eligible(r))
 
 
 def v32_candidate_key_from_params(params: dict[str, Any] | None) -> str | None:
@@ -80,7 +96,10 @@ def v32_candidate_key_from_params(params: dict[str, Any] | None) -> str | None:
 def is_v32_qualified_candidate_key(key: str | None) -> bool:
     if not key or key in V32_LIVE_SIM_BLOCKED_KEYS:
         return False
-    return key in v32_qualified_keys()
+    for row in load_v32_qualified_combinations():
+        if row["key"] == key:
+            return v32_row_live_sim_eligible(row)
+    return False
 
 
 def v32_instance_id_for_key(key: str) -> str:

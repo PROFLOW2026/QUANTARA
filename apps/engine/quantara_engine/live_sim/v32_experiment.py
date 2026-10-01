@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from quantara_engine.live_sim.v2_policy import V32_LIVE_SIM_STRATEGY_SLUG
-from quantara_engine.live_sim.v32_registry import load_v32_qualified_combinations
+from quantara_engine.live_sim.v32_registry import load_v32_live_sim_active_combinations
 
 V32_EXPERIMENT_ID = "v3.2-p2"
 V32_OWNER_LABEL = "QUANTARA V3.2"
@@ -15,7 +15,7 @@ V32_INITIAL_RISK_PCT = 1.0
 
 def _active_strategy_rows() -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
-    for c in load_v32_qualified_combinations():
+    for c in load_v32_live_sim_active_combinations():
         variant = c.get("variant_id") or str(c["key"]).split("|")[1]
         rows.append(
             {

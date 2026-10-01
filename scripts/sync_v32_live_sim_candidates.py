@@ -17,9 +17,10 @@ from sqlalchemy.orm import sessionmaker
 
 from quantara_engine.competition.constants import OWNER_ID
 from quantara_engine.db.sqlalchemy_url import normalize_sqlalchemy_postgres_url
+from quantara_engine.market_data.active_universe import list_active_db_symbols
 from quantara_engine.live_sim.v32_registry import (
     V32_LIVE_SIM_EXPERIMENT_ID,
-    load_v32_qualified_combinations,
+    load_v32_live_sim_active_combinations,
     parameter_overrides_for_combination,
     v32_instance_id_for_key,
     v32_portfolio_id_for_key,
@@ -101,7 +102,7 @@ def _ensure_v32_strategy(conn) -> uuid.UUID:
         r[0]
         for r in conn.execute(
             text("SELECT id FROM instruments WHERE symbol = ANY(:syms)"),
-            {"syms": ["BTCUSD", "ETHUSD", "XAUUSD", "GBPJPY", "NVDA", "TSLA", "AMD", "COIN"]},
+            {"syms": list(list_active_db_symbols())},
         ).fetchall()
     ]
     conn.execute(
@@ -179,7 +180,7 @@ def _risk_profile_id(conn) -> uuid.UUID:
 
 
 def main() -> None:
-    combos = load_v32_qualified_combinations()
+    combos = load_v32_live_sim_active_combinations()
     if not combos:
         raise SystemExit("no qualified combinations in v32_qualified_candidates.json")
 

@@ -720,7 +720,10 @@ class TradingStore:
     def list_v32_live_sim_entries(self) -> list[dict[str, Any]]:
         """Active V3.2 rule-replay instances for Live Sim execution."""
         from quantara_engine.live_sim.v2_policy import V32_LIVE_SIM_STRATEGY_SLUG
-        from quantara_engine.live_sim.v32_registry import V32_LIVE_SIM_EXPERIMENT_ID
+        from quantara_engine.live_sim.v32_registry import (
+            V32_LIVE_SIM_EXPERIMENT_ID,
+            is_v32_qualified_candidate_key,
+        )
 
         stmt = (
             select(
@@ -747,6 +750,8 @@ class TradingStore:
         entries: list[dict[str, Any]] = []
         for instance_row, portfolio_row, risk_row, strategy_row, version_row in rows:
             key = (instance_row.parameter_overrides or {}).get("v32_candidate_key", "")
+            if not is_v32_qualified_candidate_key(str(key) if key else None):
+                continue
             entries.append(
                 {
                     "portfolio": self._portfolio_to_domain(portfolio_row),

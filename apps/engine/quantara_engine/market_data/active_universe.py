@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-# Exactly 8 active Paper targets. All workers, API, UI, and runners derive from here.
+# Active polling / strategy / fetch targets (18). Phase 1 merged research extensions into active.
 ACTIVE_DB_SYMBOLS: tuple[str, ...] = (
     "BTCUSD",
     "ETHUSD",
@@ -12,10 +12,6 @@ ACTIVE_DB_SYMBOLS: tuple[str, ...] = (
     "TSLA",
     "AMD",
     "COIN",
-)
-
-# Research-only extensions (adapters verified — seed before discovery jobs).
-RESEARCH_EXTENDED_DB_SYMBOLS: tuple[str, ...] = (
     "AAPL",
     "MSFT",
     "META",
@@ -28,8 +24,24 @@ RESEARCH_EXTENDED_DB_SYMBOLS: tuple[str, ...] = (
     "SOLUSD",
 )
 
+# Reserved for staged promotion before active (empty while Phase 1 symbols are active).
+RESEARCH_EXTENDED_DB_SYMBOLS: tuple[str, ...] = ()
+
 # Removed from active polling/evaluation; historical DB rows remain queryable.
 REMOVED_DB_SYMBOLS: tuple[str, ...] = ()
+
+PHASE1_EXPANDED_DB_SYMBOLS: tuple[str, ...] = (
+    "AAPL",
+    "MSFT",
+    "META",
+    "AMZN",
+    "GOOGL",
+    "SPY",
+    "QQQ",
+    "EURUSD",
+    "USDJPY",
+    "SOLUSD",
+)
 
 # ORB session type per active asset — explicit canonical mapping.
 ORB_SESSION_BY_SYMBOL: dict[str, str] = {
@@ -46,8 +58,11 @@ ORB_SESSION_BY_SYMBOL: dict[str, str] = {
     "QQQ": "us_equity_rth",
     "BTCUSD": "crypto_utc_daily",
     "ETHUSD": "crypto_utc_daily",
+    "SOLUSD": "crypto_utc_daily",
     "XAUUSD": "fx_utc_daily",
     "GBPJPY": "fx_utc_daily",
+    "EURUSD": "fx_utc_daily",
+    "USDJPY": "fx_utc_daily",
 }
 
 
@@ -56,7 +71,7 @@ def list_active_db_symbols() -> tuple[str, ...]:
 
 
 def list_research_db_symbols() -> tuple[str, ...]:
-    """Canonical 8 + research extensions (deduped, stable order)."""
+    """Active universe + optional research-only extensions (deduped)."""
     seen: dict[str, None] = {}
     for sym in (*ACTIVE_DB_SYMBOLS, *RESEARCH_EXTENDED_DB_SYMBOLS):
         seen.setdefault(sym, None)

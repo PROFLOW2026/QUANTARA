@@ -215,6 +215,25 @@ def _canonical_strategy_representatives(group: list[dict]) -> list[dict]:
     return list(seen.values())
 
 
+def _live_sim_forward_representatives(group: list[dict]) -> list[dict]:
+    """Live Sim signal forwards — one eval per distinct candidate identity in the group."""
+    from quantara_engine.live_sim.v32_registry import V32_LIVE_SIM_STRATEGY_SLUG
+
+    v32_slugs = frozenset({V32_LIVE_SIM_STRATEGY_SLUG, "v31-rule-replay"})
+    if group and all(str(e["instance"].strategy_slug) in v32_slugs for e in group):
+        seen_keys: set[str] = set()
+        reps: list[dict] = []
+        for entry in group:
+            overrides = entry["instance"].parameter_overrides or {}
+            dedupe = str(overrides.get("v32_candidate_key") or entry["instance"].id)
+            if dedupe in seen_keys:
+                continue
+            seen_keys.add(dedupe)
+            reps.append(entry)
+        return reps
+    return _canonical_strategy_representatives(group)
+
+
 def _process_candle_batch(
     s: TradingStore,
     instrument,
@@ -298,7 +317,7 @@ def _process_candle_batch(
         # not one per risk-tier Research clone).
         from quantara_engine.learning.hooks import observe_generic_eval
 
-        for rep in _canonical_strategy_representatives(group):
+        for rep in _live_sim_forward_representatives(group):
             rep_state = prefetched_states.get(rep["portfolio"].id)
             if rep_state is None:
                 rep_state = s.load_portfolio_runtime_state(rep["portfolio"].id)
@@ -936,9 +955,9 @@ def _process_competition(
         v32_entries = s.list_v32_live_sim_entries()
         v32_entry_count = len(v32_entries)
         if v32_entries:
-            from quantara_engine.live_sim.v32_registry import load_v32_qualified_combinations
+            from quantara_engine.live_sim.v32_registry import load_v32_live_sim_active_combinations
 
-            v32_combos = load_v32_qualified_combinations()
+            v32_combos = load_v32_live_sim_active_combinations()
             v32_symbols = sorted({str(c["asset"]) for c in v32_combos})
             v32_timeframes = tuple(sorted({str(c["timeframe"]) for c in v32_combos}))
             v32_t0 = time.perf_counter()

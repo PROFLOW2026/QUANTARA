@@ -153,7 +153,26 @@ EXECUTION_COST_BY_SYMBOL: dict[str, ExecutionCostProfile] = {
     "AMD": ExecutionCostProfile(spread_model="absolute", spread_absolute=Decimal("0.02")),
 
     "COIN": ExecutionCostProfile(spread_model="absolute", spread_absolute=Decimal("0.02")),
-
+    "AAPL": ExecutionCostProfile(spread_model="absolute", spread_absolute=Decimal("0.02")),
+    "MSFT": ExecutionCostProfile(spread_model="absolute", spread_absolute=Decimal("0.02")),
+    "META": ExecutionCostProfile(spread_model="absolute", spread_absolute=Decimal("0.02")),
+    "AMZN": ExecutionCostProfile(spread_model="absolute", spread_absolute=Decimal("0.02")),
+    "GOOGL": ExecutionCostProfile(spread_model="absolute", spread_absolute=Decimal("0.02")),
+    "SPY": ExecutionCostProfile(spread_model="absolute", spread_absolute=Decimal("0.01")),
+    "QQQ": ExecutionCostProfile(spread_model="absolute", spread_absolute=Decimal("0.01")),
+    "EURUSD": ExecutionCostProfile(
+        spread_model="pips",
+        spread_pips=Decimal("1.0"),
+        slippage_model="pips",
+        slippage_pips=Decimal("0.1"),
+    ),
+    "USDJPY": ExecutionCostProfile(
+        spread_model="pips",
+        spread_pips=Decimal("1.5"),
+        slippage_model="pips",
+        slippage_pips=Decimal("0.2"),
+    ),
+    "SOLUSD": ExecutionCostProfile(spread_model="absolute", spread_absolute=Decimal("0.05")),
 }
 
 

@@ -16,6 +16,12 @@ SYMBOL_ALIASES = {
     "ETH/USD": "ETH/USD",
     "GBPJPY": "GBP/JPY",
     "GBP/JPY": "GBP/JPY",
+    "EURUSD": "EUR/USD",
+    "EUR/USD": "EUR/USD",
+    "USDJPY": "USD/JPY",
+    "USD/JPY": "USD/JPY",
+    "SOLUSD": "SOL/USD",
+    "SOL/USD": "SOL/USD",
 }
 
 

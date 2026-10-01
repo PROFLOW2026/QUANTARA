@@ -65,7 +65,9 @@ def _test_pairs(quality: dict[str, Any]) -> list[tuple[str, str]]:
         ("COIN", "15m"),
         ("COIN", "5m"),
     ]
-    return [p for p in preferred if p in allowed]
+    ordered = [p for p in preferred if p in allowed]
+    rest = sorted(allowed - set(ordered))
+    return ordered + rest
 
 
 def _chronological_folds(start: datetime, end: datetime, n: int = 4) -> list[tuple[datetime, datetime]]:
