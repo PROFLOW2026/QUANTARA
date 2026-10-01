@@ -87,6 +87,11 @@ def _ensure_ci_competition_seed(url: str) -> None:
         os.environ["DIRECT_URL"] = url
         os.environ["QUANTARA_CI_BROKER_SEED"] = "1"
         _seed_disposable_competition_data(url)
+        if _reference_portfolio_count(url) < 160:
+            raise RuntimeError(
+                "broker CI competition seed incomplete "
+                f"(portfolios={_reference_portfolio_count(url)})"
+            )
     finally:
         if prior_db is None:
             os.environ.pop("DATABASE_URL", None)

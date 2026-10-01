@@ -129,6 +129,8 @@ def seed_disposable_competition_data(url: str) -> None:
     env = os.environ.copy()
     env["DATABASE_URL"] = url
     env["DIRECT_URL"] = url
+    env["BROKER_TEST_DATABASE_URL"] = url
+    env["BROKER_TEST_MIGRATE_URL"] = url
     env["QUANTARA_CI_BROKER_SEED"] = "1"
     scripts = (
         "seed.py",
