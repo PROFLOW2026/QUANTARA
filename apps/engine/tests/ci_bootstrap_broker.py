@@ -3,26 +3,16 @@
 from __future__ import annotations
 
 import importlib.util
-import sys
 import traceback
 from pathlib import Path
 
-_ENGINE_ROOT = Path(__file__).resolve().parents[1]
-_SUPPORT = _ENGINE_ROOT / "tests" / "broker_integration_support.py"
+_MIGRATE = Path(__file__).resolve().with_name("broker_ci_migrate.py")
 
 
-def _load_bootstrap_fn():
-    engine_root_str = str(_ENGINE_ROOT)
-    if sys.path[0] != engine_root_str:
-        while engine_root_str in sys.path:
-            sys.path.remove(engine_root_str)
-        sys.path.insert(0, engine_root_str)
-    spec = importlib.util.spec_from_file_location(
-        "broker_integration_support",
-        _SUPPORT,
-    )
+def _bootstrap_fn():
+    spec = importlib.util.spec_from_file_location("broker_ci_migrate", _MIGRATE)
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load broker integration support: {_SUPPORT}")
+        raise RuntimeError(f"cannot load {_MIGRATE}")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     fn = getattr(mod, "bootstrap_broker_test_schema_for_ci", None)
@@ -32,8 +22,7 @@ def _load_bootstrap_fn():
 
 
 def main() -> None:
-    bootstrap = _load_bootstrap_fn()
-    url = bootstrap()
+    url = _bootstrap_fn()()
     print("bootstrap ok", url, flush=True)
 
 

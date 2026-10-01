@@ -15,8 +15,8 @@ def test_ci_bootstrap_script_resolves_tests_import():
         # Simulate GitHub Actions: cwd=apps/engine, argv like `python tests/ci_bootstrap_broker.py`
         sys.path = [str(script.parent), *saved]
         mod = runpy.run_path(str(script), run_name="__ci_bootstrap_import_probe__")
-        assert callable(mod.get("_load_bootstrap_fn"))
-        assert callable(mod["_load_bootstrap_fn"]())
+        assert callable(mod.get("_bootstrap_fn"))
+        assert callable(mod["_bootstrap_fn"]())
     finally:
         sys.path = saved
 
