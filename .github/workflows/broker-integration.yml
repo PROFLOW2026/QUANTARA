@@ -93,19 +93,6 @@ jobs:
           DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
         run: npm run db:migrate
 
-      - name: Seed broker test reference data
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
-          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
-          QUANTARA_CI_BROKER_SEED: "1"
-        run: |
-          cd "$GITHUB_WORKSPACE"
-          python "$GITHUB_WORKSPACE/scripts/seed.py"
-          python "$GITHUB_WORKSPACE/scripts/seed_8_assets.py"
-          python "$GITHUB_WORKSPACE/scripts/seed_competition.py"
-          python "$GITHUB_WORKSPACE/scripts/seed_orb_strategy.py"
-          python "$GITHUB_WORKSPACE/scripts/seed_orb_competition.py"
-
       - name: Bootstrap broker test schema
         working-directory: apps/engine
         env:
@@ -119,8 +106,18 @@ jobs:
         run: python tests/ci_bootstrap_broker.py
 
       - name: Run broker integration tests
-        working-directory: apps/engine
         env:
           BROKER_TEST_REUSE: "1"
           BROKER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
-        run: pytest tests/test_broker_execution_integration.py -v --tb=short
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
+          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
+          QUANTARA_CI_BROKER_SEED: "1"
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          python scripts/seed.py
+          python scripts/seed_8_assets.py
+          python scripts/seed_competition.py
+          python scripts/seed_orb_strategy.py
+          python scripts/seed_orb_competition.py
+          cd apps/engine
+          pytest tests/test_broker_execution_integration.py -v --tb=short
