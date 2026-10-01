@@ -100,11 +100,11 @@ jobs:
           QUANTARA_CI_BROKER_SEED: "1"
         run: |
           cd "$GITHUB_WORKSPACE"
-          python3 "$GITHUB_WORKSPACE/scripts/seed.py"
-          python3 "$GITHUB_WORKSPACE/scripts/seed_8_assets.py"
-          python3 "$GITHUB_WORKSPACE/scripts/seed_competition.py"
-          python3 "$GITHUB_WORKSPACE/scripts/seed_orb_strategy.py"
-          python3 "$GITHUB_WORKSPACE/scripts/seed_orb_competition.py"
+          python "$GITHUB_WORKSPACE/scripts/seed.py"
+          python "$GITHUB_WORKSPACE/scripts/seed_8_assets.py"
+          python "$GITHUB_WORKSPACE/scripts/seed_competition.py"
+          python "$GITHUB_WORKSPACE/scripts/seed_orb_strategy.py"
+          python "$GITHUB_WORKSPACE/scripts/seed_orb_competition.py"
 
       - name: Bootstrap broker test schema
         working-directory: apps/engine
