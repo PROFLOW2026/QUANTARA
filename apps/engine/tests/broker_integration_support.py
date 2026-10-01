@@ -112,15 +112,18 @@ def _broker_tables_exist(url: str) -> bool:
 
 
 def _apply_all_migrations(url: str) -> None:
+    node_err: Exception | None = None
     try:
         _apply_all_migrations_via_node(url)
-    except RuntimeError as node_err:
-        try:
-            _apply_all_migrations_via_psycopg(url)
-        except Exception as sql_err:
-            raise RuntimeError(
-                f"node migrate failed: {node_err}; psycopg fallback failed: {sql_err}"
-            ) from sql_err
+        return
+    except Exception as exc:
+        node_err = exc
+    try:
+        _apply_all_migrations_via_psycopg(url)
+    except Exception as sql_err:
+        raise RuntimeError(
+            f"node migrate failed: {node_err}; psycopg fallback failed: {sql_err}"
+        ) from sql_err
 
 
 def _seed_disposable_competition_data(url: str) -> None:
