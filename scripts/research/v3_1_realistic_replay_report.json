@@ -1,0 +1,1509 @@
+{
+  "entry_model": {
+    "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+    "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+    "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+    "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+  },
+  "execution_note": "BacktestRunner + CandleProcessor + execution_assumptions_for (canonical QUANTARA backtest path). realistic_broker_v1 order lifecycle not yet wired into BacktestRunner \u2014 NEEDS_REALISTIC_REPLAY for full broker engine.",
+  "candidates": [
+    {
+      "key": "atr_trend|v1|AMD|15m|long",
+      "family": "atr_trend",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 15,
+        "ema_slow": 40
+      },
+      "candidate_id": "atr_trend_{'ema_fast': 15, 'ema_slow': 40}",
+      "entry_model": {
+        "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+        "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+        "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+        "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+      },
+      "data_quality": {
+        "classification": "GOOD",
+        "expected_bars": 3670,
+        "actual_bars": 3565,
+        "missing_bars": 105,
+        "completeness_pct": 97.14
+      },
+      "rule_lab": {
+        "trades": 189,
+        "pf": 1.4251,
+        "expectancy_r": 0.2183
+      },
+      "realistic_full_sample": {
+        "trades": 161,
+        "pf": 1.7693,
+        "expectancy": 12.862,
+        "expectancy_r": 0.481,
+        "win_rate_pct": 53.42,
+        "avg_winner": 55.3794,
+        "avg_loser": -35.8913,
+        "payoff_ratio": 1.543,
+        "max_consecutive_losses": 5,
+        "largest_win": 829.77,
+        "largest_loss": -202.74,
+        "avg_win_r": 2.1278,
+        "avg_loss_r": -1.4072,
+        "max_dd_r": 26.0522,
+        "profit_concentration": 0.17422516550729322,
+        "wins": 86,
+        "losses": 75
+      },
+      "realistic_oos": {
+        "trades": 34,
+        "pf": 1.1656,
+        "expectancy": 2.3712,
+        "expectancy_r": 0.0561,
+        "win_rate_pct": 52.94,
+        "avg_winner": 31.5278,
+        "avg_loser": -30.43,
+        "payoff_ratio": 1.0361,
+        "max_consecutive_losses": 4,
+        "largest_win": 89.28,
+        "largest_loss": -69.76,
+        "avg_win_r": 1.1379,
+        "avg_loss_r": -1.1608,
+        "max_dd_r": 7.0919,
+        "profit_concentration": 0.1573215859030837,
+        "wins": 18,
+        "losses": 16
+      },
+      "walk_forward_realistic": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_pf": 1.9297,
+        "worst_pf": 0.5468,
+        "median_expectancy_r": 0.7571,
+        "worst_expectancy_r": -0.4011,
+        "median_dd_r": 12.1851,
+        "worst_dd_r": 15.3335
+      },
+      "delta_vs_rule_lab": {
+        "trade_count": -28,
+        "pf": 0.3442,
+        "expectancy_r": 0.2627
+      },
+      "classification": "SURVIVES",
+      "signal_timestamp_example": "2026-09-30T22:30:00+03:00"
+    },
+    {
+      "key": "atr_trend|v1|NVDA|15m|long",
+      "family": "atr_trend",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 15,
+        "ema_slow": 40
+      },
+      "candidate_id": "atr_trend_{'ema_fast': 15, 'ema_slow': 40}",
+      "entry_model": {
+        "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+        "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+        "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+        "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+      },
+      "data_quality": {
+        "classification": "GOOD",
+        "expected_bars": 3670,
+        "actual_bars": 3633,
+        "missing_bars": 37,
+        "completeness_pct": 98.99
+      },
+      "rule_lab": {
+        "trades": 153,
+        "pf": 1.3169,
+        "expectancy_r": 0.1609
+      },
+      "realistic_full_sample": {
+        "trades": 137,
+        "pf": 1.1145,
+        "expectancy": 1.5868,
+        "expectancy_r": 0.072,
+        "win_rate_pct": 51.09,
+        "avg_winner": 30.229,
+        "avg_loser": -28.3379,
+        "payoff_ratio": 1.0667,
+        "max_consecutive_losses": 6,
+        "largest_win": 183.88,
+        "largest_loss": -115.52,
+        "avg_win_r": 1.2677,
+        "avg_loss_r": -1.1773,
+        "max_dd_r": 12.4136,
+        "profit_concentration": 0.08689857894264258,
+        "wins": 70,
+        "losses": 67
+      },
+      "realistic_oos": {
+        "trades": 31,
+        "pf": 0.7989,
+        "expectancy": -3.4461,
+        "expectancy_r": -0.0798,
+        "win_rate_pct": 38.71,
+        "avg_winner": 35.3733,
+        "avg_loser": -27.9637,
+        "payoff_ratio": 1.265,
+        "max_consecutive_losses": 5,
+        "largest_win": 124.65,
+        "largest_loss": -94.4,
+        "avg_win_r": 1.6185,
+        "avg_loss_r": -1.1524,
+        "max_dd_r": 8.869,
+        "profit_concentration": 0.2936534112325669,
+        "wins": 12,
+        "losses": 19
+      },
+      "walk_forward_realistic": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_pf": 1.0788,
+        "worst_pf": 0.7989,
+        "median_expectancy_r": 0.0475,
+        "worst_expectancy_r": -0.0798,
+        "median_dd_r": 8.4834,
+        "worst_dd_r": 8.869
+      },
+      "delta_vs_rule_lab": {
+        "trade_count": -16,
+        "pf": -0.2024,
+        "expectancy_r": -0.0889
+      },
+      "classification": "DEGRADED_BUT_VALID",
+      "signal_timestamp_example": "2026-09-30T22:30:00+03:00"
+    },
+    {
+      "key": "atr_trend|v2|AMD|15m|long",
+      "family": "atr_trend",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 20,
+        "ema_slow": 50
+      },
+      "candidate_id": "atr_trend_{'ema_fast': 20, 'ema_slow': 50}",
+      "entry_model": {
+        "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+        "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+        "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+        "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+      },
+      "data_quality": {
+        "classification": "GOOD",
+        "expected_bars": 3670,
+        "actual_bars": 3565,
+        "missing_bars": 105,
+        "completeness_pct": 97.14
+      },
+      "rule_lab": {
+        "trades": 182,
+        "pf": 1.3921,
+        "expectancy_r": 0.2038
+      },
+      "realistic_full_sample": {
+        "trades": 152,
+        "pf": 1.5907,
+        "expectancy": 9.2347,
+        "expectancy_r": 0.3614,
+        "win_rate_pct": 53.95,
+        "avg_winner": 46.0983,
+        "avg_loser": -33.9484,
+        "payoff_ratio": 1.3579,
+        "max_consecutive_losses": 5,
+        "largest_win": 628.23,
+        "largest_loss": -165.25,
+        "avg_win_r": 1.8649,
+        "avg_loss_r": -1.3998,
+        "max_dd_r": 23.1622,
+        "profit_concentration": 0.16619577467024332,
+        "wins": 82,
+        "losses": 70
+      },
+      "realistic_oos": {
+        "trades": 32,
+        "pf": 0.9545,
+        "expectancy": -0.6712,
+        "expectancy_r": -0.0247,
+        "win_rate_pct": 50.0,
+        "avg_winner": 28.1375,
+        "avg_loser": -29.48,
+        "payoff_ratio": 0.9545,
+        "max_consecutive_losses": 3,
+        "largest_win": 116.9,
+        "largest_loss": -69.76,
+        "avg_win_r": 1.1135,
+        "avg_loss_r": -1.1628,
+        "max_dd_r": 5.75,
+        "profit_concentration": 0.25966237227898714,
+        "wins": 16,
+        "losses": 16
+      },
+      "walk_forward_realistic": {
+        "folds": 4,
+        "positive_folds": 2,
+        "negative_folds": 2,
+        "median_pf": 1.9981,
+        "worst_pf": 0.6506,
+        "median_expectancy_r": 0.6147,
+        "worst_expectancy_r": -0.3359,
+        "median_dd_r": 9.7419,
+        "worst_dd_r": 16.2856
+      },
+      "delta_vs_rule_lab": {
+        "trade_count": -30,
+        "pf": 0.1986,
+        "expectancy_r": 0.1576
+      },
+      "classification": "DEGRADED_BUT_VALID",
+      "signal_timestamp_example": "2026-09-30T22:30:00+03:00"
+    },
+    {
+      "key": "atr_trend|v2|NVDA|15m|long",
+      "family": "atr_trend",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 20,
+        "ema_slow": 50
+      },
+      "candidate_id": "atr_trend_{'ema_fast': 20, 'ema_slow': 50}",
+      "entry_model": {
+        "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+        "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+        "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+        "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+      },
+      "data_quality": {
+        "classification": "GOOD",
+        "expected_bars": 3670,
+        "actual_bars": 3633,
+        "missing_bars": 37,
+        "completeness_pct": 98.99
+      },
+      "rule_lab": {
+        "trades": 160,
+        "pf": 1.3075,
+        "expectancy_r": 0.1595
+      },
+      "realistic_full_sample": {
+        "trades": 148,
+        "pf": 1.4081,
+        "expectancy": 5.2397,
+        "expectancy_r": 0.2028,
+        "win_rate_pct": 51.35,
+        "avg_winner": 35.2083,
+        "avg_loser": -26.3939,
+        "payoff_ratio": 1.334,
+        "max_consecutive_losses": 6,
+        "largest_win": 194.69,
+        "largest_loss": -82.53,
+        "avg_win_r": 1.4253,
+        "avg_loss_r": -1.0876,
+        "max_dd_r": 12.0904,
+        "profit_concentration": 0.07275873280440087,
+        "wins": 76,
+        "losses": 72
+      },
+      "realistic_oos": {
+        "trades": 33,
+        "pf": 1.1762,
+        "expectancy": 2.4748,
+        "expectancy_r": 0.129,
+        "win_rate_pct": 42.42,
+        "avg_winner": 38.95,
+        "avg_loser": -24.4016,
+        "payoff_ratio": 1.5962,
+        "max_consecutive_losses": 5,
+        "largest_win": 130.2,
+        "largest_loss": -27.9,
+        "avg_win_r": 1.6552,
+        "avg_loss_r": -0.9954,
+        "max_dd_r": 4.9818,
+        "profit_concentration": 0.23876765083440307,
+        "wins": 14,
+        "losses": 19
+      },
+      "walk_forward_realistic": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_pf": 1.2897,
+        "worst_pf": 1.1762,
+        "median_expectancy_r": 0.1455,
+        "worst_expectancy_r": 0.1224,
+        "median_dd_r": 5.0911,
+        "worst_dd_r": 10.4971
+      },
+      "delta_vs_rule_lab": {
+        "trade_count": -12,
+        "pf": 0.1006,
+        "expectancy_r": 0.0433
+      },
+      "classification": "SURVIVES",
+      "signal_timestamp_example": "2026-09-30T22:30:00+03:00"
+    },
+    {
+      "key": "session_breakout|v1|AMD|15m|long",
+      "family": "session_breakout",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "candidate_id": "session_breakout_{}",
+      "entry_model": {
+        "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+        "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+        "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+        "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+      },
+      "data_quality": {
+        "classification": "GOOD",
+        "expected_bars": 3670,
+        "actual_bars": 3565,
+        "missing_bars": 105,
+        "completeness_pct": 97.14
+      },
+      "rule_lab": {
+        "trades": 160,
+        "pf": 1.2505,
+        "expectancy_r": 0.1332
+      },
+      "realistic_full_sample": {
+        "trades": 129,
+        "pf": 1.0705,
+        "expectancy": 1.3119,
+        "expectancy_r": -0.2928,
+        "win_rate_pct": 48.06,
+        "avg_winner": 41.45,
+        "avg_loser": -35.8307,
+        "payoff_ratio": 1.1568,
+        "max_consecutive_losses": 5,
+        "largest_win": 205.47,
+        "largest_loss": -574.14,
+        "avg_win_r": 1.7775,
+        "avg_loss_r": -2.2086,
+        "max_dd_r": 71.4795,
+        "profit_concentration": 0.079952527335694,
+        "wins": 62,
+        "losses": 67
+      },
+      "realistic_oos": {
+        "trades": 36,
+        "pf": 0.5682,
+        "expectancy": -11.5008,
+        "expectancy_r": -1.7162,
+        "win_rate_pct": 50.0,
+        "avg_winner": 30.2706,
+        "avg_loser": -53.2722,
+        "payoff_ratio": 0.5682,
+        "max_consecutive_losses": 4,
+        "largest_win": 114.62,
+        "largest_loss": -574.14,
+        "avg_win_r": 1.2722,
+        "avg_loss_r": -4.7047,
+        "max_dd_r": 71.4795,
+        "profit_concentration": 0.21036210472222733,
+        "wins": 18,
+        "losses": 18
+      },
+      "walk_forward_realistic": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_pf": 1.3732,
+        "worst_pf": 0.5682,
+        "median_expectancy_r": 0.2808,
+        "worst_expectancy_r": -1.7162,
+        "median_dd_r": 10.5629,
+        "worst_dd_r": 71.4795
+      },
+      "delta_vs_rule_lab": {
+        "trade_count": -31,
+        "pf": -0.18,
+        "expectancy_r": -0.426
+      },
+      "classification": "FAIL",
+      "signal_timestamp_example": "2026-09-30T22:30:00+03:00"
+    },
+    {
+      "key": "session_breakout|v2|AMD|15m|long",
+      "family": "session_breakout",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "max_bars": 18
+      },
+      "candidate_id": "session_breakout_{'max_bars': 18}",
+      "entry_model": {
+        "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+        "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+        "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+        "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+      },
+      "data_quality": {
+        "classification": "GOOD",
+        "expected_bars": 3670,
+        "actual_bars": 3565,
+        "missing_bars": 105,
+        "completeness_pct": 97.14
+      },
+      "rule_lab": {
+        "trades": 163,
+        "pf": 1.2602,
+        "expectancy_r": 0.1332
+      },
+      "realistic_full_sample": {
+        "trades": 129,
+        "pf": 1.0705,
+        "expectancy": 1.3119,
+        "expectancy_r": -0.2928,
+        "win_rate_pct": 48.06,
+        "avg_winner": 41.45,
+        "avg_loser": -35.8307,
+        "payoff_ratio": 1.1568,
+        "max_consecutive_losses": 5,
+        "largest_win": 205.47,
+        "largest_loss": -574.14,
+        "avg_win_r": 1.7775,
+        "avg_loss_r": -2.2086,
+        "max_dd_r": 71.4795,
+        "profit_concentration": 0.079952527335694,
+        "wins": 62,
+        "losses": 67
+      },
+      "realistic_oos": {
+        "trades": 36,
+        "pf": 0.5682,
+        "expectancy": -11.5008,
+        "expectancy_r": -1.7162,
+        "win_rate_pct": 50.0,
+        "avg_winner": 30.2706,
+        "avg_loser": -53.2722,
+        "payoff_ratio": 0.5682,
+        "max_consecutive_losses": 4,
+        "largest_win": 114.62,
+        "largest_loss": -574.14,
+        "avg_win_r": 1.2722,
+        "avg_loss_r": -4.7047,
+        "max_dd_r": 71.4795,
+        "profit_concentration": 0.21036210472222733,
+        "wins": 18,
+        "losses": 18
+      },
+      "walk_forward_realistic": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_pf": 1.3732,
+        "worst_pf": 0.5682,
+        "median_expectancy_r": 0.2808,
+        "worst_expectancy_r": -1.7162,
+        "median_dd_r": 10.5629,
+        "worst_dd_r": 71.4795
+      },
+      "delta_vs_rule_lab": {
+        "trade_count": -34,
+        "pf": -0.1897,
+        "expectancy_r": -0.426
+      },
+      "classification": "FAIL",
+      "signal_timestamp_example": "2026-09-30T22:30:00+03:00"
+    },
+    {
+      "key": "trend_pullback_alt|v1|COIN|15m|short",
+      "family": "trend_pullback_alt",
+      "asset": "COIN",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "rsi_pull": 40
+      },
+      "candidate_id": "trend_pullback_alt_{'rsi_pull': 40}",
+      "entry_model": {
+        "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+        "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+        "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+        "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+      },
+      "data_quality": {
+        "classification": "GOOD",
+        "expected_bars": 3669,
+        "actual_bars": 3506,
+        "missing_bars": 163,
+        "completeness_pct": 95.56
+      },
+      "rule_lab": {
+        "trades": 165,
+        "pf": 1.1211,
+        "expectancy_r": 0.0691
+      },
+      "realistic_full_sample": {
+        "trades": 4,
+        "pf": 2.1464,
+        "expectancy": 11.905,
+        "expectancy_r": 0.5025,
+        "win_rate_pct": 50.0,
+        "avg_winner": 44.58,
+        "avg_loser": -20.77,
+        "payoff_ratio": 2.1464,
+        "max_consecutive_losses": 1,
+        "largest_win": 69.5,
+        "largest_loss": -21.39,
+        "avg_win_r": 1.8724,
+        "avg_loss_r": -0.8674,
+        "max_dd_r": 0.9474,
+        "profit_concentration": 0.7794975325257963,
+        "wins": 2,
+        "losses": 2
+      },
+      "realistic_oos": {
+        "trades": 0,
+        "pf": null,
+        "expectancy": null,
+        "expectancy_r": null,
+        "win_rate_pct": null,
+        "avg_win_r": null,
+        "avg_loss_r": null,
+        "max_dd_r": 0.0,
+        "profit_concentration": null,
+        "wins": 0,
+        "losses": 0
+      },
+      "walk_forward_realistic": {
+        "folds": 4,
+        "positive_folds": 1,
+        "negative_folds": 3,
+        "median_pf": 0.4733,
+        "worst_pf": 0.4733,
+        "median_expectancy_r": 2.9574,
+        "worst_expectancy_r": -0.3158,
+        "median_dd_r": 0.0,
+        "worst_dd_r": 0.9474
+      },
+      "delta_vs_rule_lab": {
+        "trade_count": -161,
+        "pf": 1.0253,
+        "expectancy_r": 0.4334
+      },
+      "classification": "DEGRADED_BUT_VALID",
+      "signal_timestamp_example": "2026-09-30T21:45:00+03:00"
+    },
+    {
+      "key": "vwap_mean_reversion|v1|AMD|15m|long",
+      "family": "vwap_mean_reversion",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.003
+      },
+      "candidate_id": "vwap_mean_reversion_{'dev': 0.003}",
+      "entry_model": {
+        "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+        "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+        "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+        "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+      },
+      "data_quality": {
+        "classification": "GOOD",
+        "expected_bars": 3670,
+        "actual_bars": 3565,
+        "missing_bars": 105,
+        "completeness_pct": 97.14
+      },
+      "rule_lab": {
+        "trades": 176,
+        "pf": 1.3727,
+        "expectancy_r": 0.1933
+      },
+      "realistic_full_sample": {
+        "trades": 159,
+        "pf": 1.4134,
+        "expectancy": 6.0752,
+        "expectancy_r": 0.271,
+        "win_rate_pct": 44.65,
+        "avg_winner": 46.5146,
+        "avg_loser": -26.5522,
+        "payoff_ratio": 1.7518,
+        "max_consecutive_losses": 8,
+        "largest_win": 326.8,
+        "largest_loss": -150.87,
+        "avg_win_r": 2.0907,
+        "avg_loss_r": -1.1972,
+        "max_dd_r": 32.9873,
+        "profit_concentration": 0.09895413832989154,
+        "wins": 71,
+        "losses": 88
+      },
+      "realistic_oos": {
+        "trades": 27,
+        "pf": 1.7652,
+        "expectancy": 12.2193,
+        "expectancy_r": 0.4509,
+        "win_rate_pct": 44.44,
+        "avg_winner": 63.4233,
+        "avg_loser": -28.744,
+        "payoff_ratio": 2.2065,
+        "max_consecutive_losses": 6,
+        "largest_win": 187.88,
+        "largest_loss": -86.78,
+        "avg_win_r": 2.6283,
+        "avg_loss_r": -1.291,
+        "max_dd_r": 9.013,
+        "profit_concentration": 0.24685972565301936,
+        "wins": 12,
+        "losses": 15
+      },
+      "walk_forward_realistic": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_pf": 1.8211,
+        "worst_pf": 0.4943,
+        "median_expectancy_r": 0.4509,
+        "worst_expectancy_r": -0.3666,
+        "median_dd_r": 9.013,
+        "worst_dd_r": 25.0669
+      },
+      "delta_vs_rule_lab": {
+        "trade_count": -17,
+        "pf": 0.0407,
+        "expectancy_r": 0.0777
+      },
+      "classification": "DEGRADED_BUT_VALID",
+      "signal_timestamp_example": "2026-09-30T22:30:00+03:00"
+    },
+    {
+      "key": "vwap_mean_reversion|v1|AMD|5m|long",
+      "family": "vwap_mean_reversion",
+      "asset": "AMD",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.003
+      },
+      "candidate_id": "vwap_mean_reversion_{'dev': 0.003}",
+      "entry_model": {
+        "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+        "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+        "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+        "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+      },
+      "data_quality": {
+        "classification": "WATCH",
+        "expected_bars": 11012,
+        "actual_bars": 10919,
+        "missing_bars": 93,
+        "completeness_pct": 99.16
+      },
+      "rule_lab": {
+        "trades": 537,
+        "pf": 1.1751,
+        "expectancy_r": 0.0947
+      },
+      "realistic_full_sample": {
+        "trades": 513,
+        "pf": 1.3572,
+        "expectancy": 6.4325,
+        "expectancy_r": 0.2368,
+        "win_rate_pct": 36.65,
+        "avg_winner": 66.6871,
+        "avg_loser": -28.4225,
+        "payoff_ratio": 2.3463,
+        "max_consecutive_losses": 14,
+        "largest_win": 937.7,
+        "largest_loss": -301.02,
+        "avg_win_r": 2.5817,
+        "avg_loss_r": -1.1197,
+        "max_dd_r": 29.2219,
+        "profit_concentration": 0.07479359376956682,
+        "wins": 188,
+        "losses": 325
+      },
+      "realistic_oos": {
+        "trades": 103,
+        "pf": 1.5031,
+        "expectancy": 11.0577,
+        "expectancy_r": 0.2993,
+        "win_rate_pct": 34.95,
+        "avg_winner": 94.5194,
+        "avg_loser": -33.7875,
+        "payoff_ratio": 2.7975,
+        "max_consecutive_losses": 6,
+        "largest_win": 590.5,
+        "largest_loss": -172.22,
+        "avg_win_r": 3.1579,
+        "avg_loss_r": -1.2367,
+        "max_dd_r": 17.1962,
+        "profit_concentration": 0.17353866047550476,
+        "wins": 36,
+        "losses": 67
+      },
+      "walk_forward_realistic": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_pf": 1.4617,
+        "worst_pf": 1.1862,
+        "median_expectancy_r": 0.2993,
+        "worst_expectancy_r": 0.1148,
+        "median_dd_r": 24.4926,
+        "worst_dd_r": 24.6592
+      },
+      "delta_vs_rule_lab": {
+        "trade_count": -24,
+        "pf": 0.1821,
+        "expectancy_r": 0.1421
+      },
+      "classification": "SURVIVES",
+      "signal_timestamp_example": "2026-09-30T22:45:00+03:00"
+    },
+    {
+      "key": "vwap_mean_reversion|v2|AMD|5m|long",
+      "family": "vwap_mean_reversion",
+      "asset": "AMD",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.005
+      },
+      "candidate_id": "vwap_mean_reversion_{'dev': 0.005}",
+      "entry_model": {
+        "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+        "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+        "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+        "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+      },
+      "data_quality": {
+        "classification": "WATCH",
+        "expected_bars": 11012,
+        "actual_bars": 10919,
+        "missing_bars": 93,
+        "completeness_pct": 99.16
+      },
+      "rule_lab": {
+        "trades": 445,
+        "pf": 1.2802,
+        "expectancy_r": 0.1462
+      },
+      "realistic_full_sample": {
+        "trades": 432,
+        "pf": 1.4428,
+        "expectancy": 7.26,
+        "expectancy_r": 0.2823,
+        "win_rate_pct": 38.43,
+        "avg_winner": 61.5657,
+        "avg_loser": -26.63,
+        "payoff_ratio": 2.3119,
+        "max_consecutive_losses": 14,
+        "largest_win": 563.66,
+        "largest_loss": -301.02,
+        "avg_win_r": 2.4809,
+        "avg_loss_r": -1.0897,
+        "max_dd_r": 21.2785,
+        "profit_concentration": 0.05515318153797982,
+        "wins": 166,
+        "losses": 266
+      },
+      "realistic_oos": {
+        "trades": 82,
+        "pf": 1.8602,
+        "expectancy": 17.3309,
+        "expectancy_r": 0.5576,
+        "win_rate_pct": 42.68,
+        "avg_winner": 87.8063,
+        "avg_loser": -35.1509,
+        "payoff_ratio": 2.498,
+        "max_consecutive_losses": 6,
+        "largest_win": 563.66,
+        "largest_loss": -172.22,
+        "avg_win_r": 2.9954,
+        "avg_loss_r": -1.2579,
+        "max_dd_r": 14.4317,
+        "profit_concentration": 0.18341023421688002,
+        "wins": 35,
+        "losses": 47
+      },
+      "walk_forward_realistic": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_pf": 1.3885,
+        "worst_pf": 1.2795,
+        "median_expectancy_r": 0.3438,
+        "worst_expectancy_r": 0.1629,
+        "median_dd_r": 19.028,
+        "worst_dd_r": 21.2785
+      },
+      "delta_vs_rule_lab": {
+        "trade_count": -13,
+        "pf": 0.1626,
+        "expectancy_r": 0.1361
+      },
+      "classification": "SURVIVES",
+      "signal_timestamp_example": "2026-09-30T22:45:00+03:00"
+    },
+    {
+      "key": "vwap_mean_reversion|v2|NVDA|15m|long",
+      "family": "vwap_mean_reversion",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.005
+      },
+      "candidate_id": "vwap_mean_reversion_{'dev': 0.005}",
+      "entry_model": {
+        "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+        "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+        "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+        "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+      },
+      "data_quality": {
+        "classification": "GOOD",
+        "expected_bars": 3670,
+        "actual_bars": 3633,
+        "missing_bars": 37,
+        "completeness_pct": 98.99
+      },
+      "rule_lab": {
+        "trades": 162,
+        "pf": 1.1371,
+        "expectancy_r": 0.0754
+      },
+      "realistic_full_sample": {
+        "trades": 162,
+        "pf": 1.0938,
+        "expectancy": 1.5135,
+        "expectancy_r": 0.0456,
+        "win_rate_pct": 37.04,
+        "avg_winner": 47.6307,
+        "avg_loser": -25.6143,
+        "payoff_ratio": 1.8595,
+        "max_consecutive_losses": 10,
+        "largest_win": 264.29,
+        "largest_loss": -147.97,
+        "avg_win_r": 1.9802,
+        "avg_loss_r": -1.0924,
+        "max_dd_r": 26.2651,
+        "profit_concentration": 0.09247893513982589,
+        "wins": 60,
+        "losses": 102
+      },
+      "realistic_oos": {
+        "trades": 33,
+        "pf": 1.1574,
+        "expectancy": 2.8827,
+        "expectancy_r": 0.104,
+        "win_rate_pct": 33.33,
+        "avg_winner": 63.5955,
+        "avg_loser": -27.4736,
+        "payoff_ratio": 2.3148,
+        "max_consecutive_losses": 8,
+        "largest_win": 172.63,
+        "largest_loss": -62.15,
+        "avg_win_r": 2.592,
+        "avg_loss_r": -1.14,
+        "max_dd_r": 9.4438,
+        "profit_concentration": 0.24677292545207635,
+        "wins": 11,
+        "losses": 22
+      },
+      "walk_forward_realistic": {
+        "folds": 4,
+        "positive_folds": 2,
+        "negative_folds": 2,
+        "median_pf": 1.1574,
+        "worst_pf": 0.816,
+        "median_expectancy_r": 0.104,
+        "worst_expectancy_r": -0.144,
+        "median_dd_r": 10.1199,
+        "worst_dd_r": 22.8587
+      },
+      "delta_vs_rule_lab": {
+        "trade_count": 0,
+        "pf": -0.0433,
+        "expectancy_r": -0.0298
+      },
+      "classification": "DEGRADED_BUT_VALID",
+      "signal_timestamp_example": "2026-09-30T22:30:00+03:00"
+    }
+  ],
+  "deduplication": [
+    {
+      "a": "atr_trend|v1|AMD|15m|long",
+      "b": "atr_trend|v2|AMD|15m|long",
+      "entry_overlap_pct": 79.5
+    },
+    {
+      "a": "atr_trend|v1|NVDA|15m|long",
+      "b": "atr_trend|v2|NVDA|15m|long",
+      "entry_overlap_pct": 82.48
+    },
+    {
+      "a": "vwap_mean_reversion|v1|AMD|5m|long",
+      "b": "vwap_mean_reversion|v2|AMD|5m|long",
+      "entry_overlap_pct": 87.13
+    }
+  ],
+  "near_duplicates_removed": [
+    "atr_trend|v1|NVDA|15m|long",
+    "atr_trend|v2|AMD|15m|long",
+    "vwap_mean_reversion|v1|AMD|5m|long"
+  ],
+  "survivors_count": 4,
+  "degraded_count": 5,
+  "failed_count": 2,
+  "data_rejected_count": 0,
+  "distinct_portfolio": [
+    {
+      "key": "vwap_mean_reversion|v2|AMD|5m|long",
+      "family": "vwap_mean_reversion",
+      "asset": "AMD",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.005
+      },
+      "candidate_id": "vwap_mean_reversion_{'dev': 0.005}",
+      "entry_model": {
+        "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+        "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+        "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+        "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+      },
+      "data_quality": {
+        "classification": "WATCH",
+        "expected_bars": 11012,
+        "actual_bars": 10919,
+        "missing_bars": 93,
+        "completeness_pct": 99.16
+      },
+      "rule_lab": {
+        "trades": 445,
+        "pf": 1.2802,
+        "expectancy_r": 0.1462
+      },
+      "realistic_full_sample": {
+        "trades": 432,
+        "pf": 1.4428,
+        "expectancy": 7.26,
+        "expectancy_r": 0.2823,
+        "win_rate_pct": 38.43,
+        "avg_winner": 61.5657,
+        "avg_loser": -26.63,
+        "payoff_ratio": 2.3119,
+        "max_consecutive_losses": 14,
+        "largest_win": 563.66,
+        "largest_loss": -301.02,
+        "avg_win_r": 2.4809,
+        "avg_loss_r": -1.0897,
+        "max_dd_r": 21.2785,
+        "profit_concentration": 0.05515318153797982,
+        "wins": 166,
+        "losses": 266
+      },
+      "realistic_oos": {
+        "trades": 82,
+        "pf": 1.8602,
+        "expectancy": 17.3309,
+        "expectancy_r": 0.5576,
+        "win_rate_pct": 42.68,
+        "avg_winner": 87.8063,
+        "avg_loser": -35.1509,
+        "payoff_ratio": 2.498,
+        "max_consecutive_losses": 6,
+        "largest_win": 563.66,
+        "largest_loss": -172.22,
+        "avg_win_r": 2.9954,
+        "avg_loss_r": -1.2579,
+        "max_dd_r": 14.4317,
+        "profit_concentration": 0.18341023421688002,
+        "wins": 35,
+        "losses": 47
+      },
+      "walk_forward_realistic": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_pf": 1.3885,
+        "worst_pf": 1.2795,
+        "median_expectancy_r": 0.3438,
+        "worst_expectancy_r": 0.1629,
+        "median_dd_r": 19.028,
+        "worst_dd_r": 21.2785
+      },
+      "delta_vs_rule_lab": {
+        "trade_count": -13,
+        "pf": 0.1626,
+        "expectancy_r": 0.1361
+      },
+      "classification": "SURVIVES",
+      "signal_timestamp_example": "2026-09-30T22:45:00+03:00"
+    },
+    {
+      "key": "vwap_mean_reversion|v1|AMD|15m|long",
+      "family": "vwap_mean_reversion",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.003
+      },
+      "candidate_id": "vwap_mean_reversion_{'dev': 0.003}",
+      "entry_model": {
+        "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+        "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+        "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+        "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+      },
+      "data_quality": {
+        "classification": "GOOD",
+        "expected_bars": 3670,
+        "actual_bars": 3565,
+        "missing_bars": 105,
+        "completeness_pct": 97.14
+      },
+      "rule_lab": {
+        "trades": 176,
+        "pf": 1.3727,
+        "expectancy_r": 0.1933
+      },
+      "realistic_full_sample": {
+        "trades": 159,
+        "pf": 1.4134,
+        "expectancy": 6.0752,
+        "expectancy_r": 0.271,
+        "win_rate_pct": 44.65,
+        "avg_winner": 46.5146,
+        "avg_loser": -26.5522,
+        "payoff_ratio": 1.7518,
+        "max_consecutive_losses": 8,
+        "largest_win": 326.8,
+        "largest_loss": -150.87,
+        "avg_win_r": 2.0907,
+        "avg_loss_r": -1.1972,
+        "max_dd_r": 32.9873,
+        "profit_concentration": 0.09895413832989154,
+        "wins": 71,
+        "losses": 88
+      },
+      "realistic_oos": {
+        "trades": 27,
+        "pf": 1.7652,
+        "expectancy": 12.2193,
+        "expectancy_r": 0.4509,
+        "win_rate_pct": 44.44,
+        "avg_winner": 63.4233,
+        "avg_loser": -28.744,
+        "payoff_ratio": 2.2065,
+        "max_consecutive_losses": 6,
+        "largest_win": 187.88,
+        "largest_loss": -86.78,
+        "avg_win_r": 2.6283,
+        "avg_loss_r": -1.291,
+        "max_dd_r": 9.013,
+        "profit_concentration": 0.24685972565301936,
+        "wins": 12,
+        "losses": 15
+      },
+      "walk_forward_realistic": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_pf": 1.8211,
+        "worst_pf": 0.4943,
+        "median_expectancy_r": 0.4509,
+        "worst_expectancy_r": -0.3666,
+        "median_dd_r": 9.013,
+        "worst_dd_r": 25.0669
+      },
+      "delta_vs_rule_lab": {
+        "trade_count": -17,
+        "pf": 0.0407,
+        "expectancy_r": 0.0777
+      },
+      "classification": "DEGRADED_BUT_VALID",
+      "signal_timestamp_example": "2026-09-30T22:30:00+03:00"
+    },
+    {
+      "key": "atr_trend|v2|NVDA|15m|long",
+      "family": "atr_trend",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 20,
+        "ema_slow": 50
+      },
+      "candidate_id": "atr_trend_{'ema_fast': 20, 'ema_slow': 50}",
+      "entry_model": {
+        "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+        "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+        "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+        "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+      },
+      "data_quality": {
+        "classification": "GOOD",
+        "expected_bars": 3670,
+        "actual_bars": 3633,
+        "missing_bars": 37,
+        "completeness_pct": 98.99
+      },
+      "rule_lab": {
+        "trades": 160,
+        "pf": 1.3075,
+        "expectancy_r": 0.1595
+      },
+      "realistic_full_sample": {
+        "trades": 148,
+        "pf": 1.4081,
+        "expectancy": 5.2397,
+        "expectancy_r": 0.2028,
+        "win_rate_pct": 51.35,
+        "avg_winner": 35.2083,
+        "avg_loser": -26.3939,
+        "payoff_ratio": 1.334,
+        "max_consecutive_losses": 6,
+        "largest_win": 194.69,
+        "largest_loss": -82.53,
+        "avg_win_r": 1.4253,
+        "avg_loss_r": -1.0876,
+        "max_dd_r": 12.0904,
+        "profit_concentration": 0.07275873280440087,
+        "wins": 76,
+        "losses": 72
+      },
+      "realistic_oos": {
+        "trades": 33,
+        "pf": 1.1762,
+        "expectancy": 2.4748,
+        "expectancy_r": 0.129,
+        "win_rate_pct": 42.42,
+        "avg_winner": 38.95,
+        "avg_loser": -24.4016,
+        "payoff_ratio": 1.5962,
+        "max_consecutive_losses": 5,
+        "largest_win": 130.2,
+        "largest_loss": -27.9,
+        "avg_win_r": 1.6552,
+        "avg_loss_r": -0.9954,
+        "max_dd_r": 4.9818,
+        "profit_concentration": 0.23876765083440307,
+        "wins": 14,
+        "losses": 19
+      },
+      "walk_forward_realistic": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_pf": 1.2897,
+        "worst_pf": 1.1762,
+        "median_expectancy_r": 0.1455,
+        "worst_expectancy_r": 0.1224,
+        "median_dd_r": 5.0911,
+        "worst_dd_r": 10.4971
+      },
+      "delta_vs_rule_lab": {
+        "trade_count": -12,
+        "pf": 0.1006,
+        "expectancy_r": 0.0433
+      },
+      "classification": "SURVIVES",
+      "signal_timestamp_example": "2026-09-30T22:30:00+03:00"
+    },
+    {
+      "key": "vwap_mean_reversion|v2|NVDA|15m|long",
+      "family": "vwap_mean_reversion",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.005
+      },
+      "candidate_id": "vwap_mean_reversion_{'dev': 0.005}",
+      "entry_model": {
+        "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+        "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+        "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+        "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+      },
+      "data_quality": {
+        "classification": "GOOD",
+        "expected_bars": 3670,
+        "actual_bars": 3633,
+        "missing_bars": 37,
+        "completeness_pct": 98.99
+      },
+      "rule_lab": {
+        "trades": 162,
+        "pf": 1.1371,
+        "expectancy_r": 0.0754
+      },
+      "realistic_full_sample": {
+        "trades": 162,
+        "pf": 1.0938,
+        "expectancy": 1.5135,
+        "expectancy_r": 0.0456,
+        "win_rate_pct": 37.04,
+        "avg_winner": 47.6307,
+        "avg_loser": -25.6143,
+        "payoff_ratio": 1.8595,
+        "max_consecutive_losses": 10,
+        "largest_win": 264.29,
+        "largest_loss": -147.97,
+        "avg_win_r": 1.9802,
+        "avg_loss_r": -1.0924,
+        "max_dd_r": 26.2651,
+        "profit_concentration": 0.09247893513982589,
+        "wins": 60,
+        "losses": 102
+      },
+      "realistic_oos": {
+        "trades": 33,
+        "pf": 1.1574,
+        "expectancy": 2.8827,
+        "expectancy_r": 0.104,
+        "win_rate_pct": 33.33,
+        "avg_winner": 63.5955,
+        "avg_loser": -27.4736,
+        "payoff_ratio": 2.3148,
+        "max_consecutive_losses": 8,
+        "largest_win": 172.63,
+        "largest_loss": -62.15,
+        "avg_win_r": 2.592,
+        "avg_loss_r": -1.14,
+        "max_dd_r": 9.4438,
+        "profit_concentration": 0.24677292545207635,
+        "wins": 11,
+        "losses": 22
+      },
+      "walk_forward_realistic": {
+        "folds": 4,
+        "positive_folds": 2,
+        "negative_folds": 2,
+        "median_pf": 1.1574,
+        "worst_pf": 0.816,
+        "median_expectancy_r": 0.104,
+        "worst_expectancy_r": -0.144,
+        "median_dd_r": 10.1199,
+        "worst_dd_r": 22.8587
+      },
+      "delta_vs_rule_lab": {
+        "trade_count": 0,
+        "pf": -0.0433,
+        "expectancy_r": -0.0298
+      },
+      "classification": "DEGRADED_BUT_VALID",
+      "signal_timestamp_example": "2026-09-30T22:30:00+03:00"
+    },
+    {
+      "key": "atr_trend|v1|AMD|15m|long",
+      "family": "atr_trend",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 15,
+        "ema_slow": 40
+      },
+      "candidate_id": "atr_trend_{'ema_fast': 15, 'ema_slow': 40}",
+      "entry_model": {
+        "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+        "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+        "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+        "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+      },
+      "data_quality": {
+        "classification": "GOOD",
+        "expected_bars": 3670,
+        "actual_bars": 3565,
+        "missing_bars": 105,
+        "completeness_pct": 97.14
+      },
+      "rule_lab": {
+        "trades": 189,
+        "pf": 1.4251,
+        "expectancy_r": 0.2183
+      },
+      "realistic_full_sample": {
+        "trades": 161,
+        "pf": 1.7693,
+        "expectancy": 12.862,
+        "expectancy_r": 0.481,
+        "win_rate_pct": 53.42,
+        "avg_winner": 55.3794,
+        "avg_loser": -35.8913,
+        "payoff_ratio": 1.543,
+        "max_consecutive_losses": 5,
+        "largest_win": 829.77,
+        "largest_loss": -202.74,
+        "avg_win_r": 2.1278,
+        "avg_loss_r": -1.4072,
+        "max_dd_r": 26.0522,
+        "profit_concentration": 0.17422516550729322,
+        "wins": 86,
+        "losses": 75
+      },
+      "realistic_oos": {
+        "trades": 34,
+        "pf": 1.1656,
+        "expectancy": 2.3712,
+        "expectancy_r": 0.0561,
+        "win_rate_pct": 52.94,
+        "avg_winner": 31.5278,
+        "avg_loser": -30.43,
+        "payoff_ratio": 1.0361,
+        "max_consecutive_losses": 4,
+        "largest_win": 89.28,
+        "largest_loss": -69.76,
+        "avg_win_r": 1.1379,
+        "avg_loss_r": -1.1608,
+        "max_dd_r": 7.0919,
+        "profit_concentration": 0.1573215859030837,
+        "wins": 18,
+        "losses": 16
+      },
+      "walk_forward_realistic": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_pf": 1.9297,
+        "worst_pf": 0.5468,
+        "median_expectancy_r": 0.7571,
+        "worst_expectancy_r": -0.4011,
+        "median_dd_r": 12.1851,
+        "worst_dd_r": 15.3335
+      },
+      "delta_vs_rule_lab": {
+        "trade_count": -28,
+        "pf": 0.3442,
+        "expectancy_r": 0.2627
+      },
+      "classification": "SURVIVES",
+      "signal_timestamp_example": "2026-09-30T22:30:00+03:00"
+    },
+    {
+      "key": "trend_pullback_alt|v1|COIN|15m|short",
+      "family": "trend_pullback_alt",
+      "asset": "COIN",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "rsi_pull": 40
+      },
+      "candidate_id": "trend_pullback_alt_{'rsi_pull': 40}",
+      "entry_model": {
+        "signal_timestamp": "completed_bar_i_close (candles[:-1][-1])",
+        "execution_eligible_timestamp": "next_execution_timestamp(signal, timeframe) \u2014 N+1 bar open",
+        "execution_price_source": "CandleProcessor + PaperBrokerAdapter fill at N+1 open with spread/slippage/fees from execution_assumptions_for",
+        "execution_assumptions": "execution_assumptions_for(instrument, mark) \u2014 canonical cost profile (not flat 8bps rule-lab)"
+      },
+      "data_quality": {
+        "classification": "GOOD",
+        "expected_bars": 3669,
+        "actual_bars": 3506,
+        "missing_bars": 163,
+        "completeness_pct": 95.56
+      },
+      "rule_lab": {
+        "trades": 165,
+        "pf": 1.1211,
+        "expectancy_r": 0.0691
+      },
+      "realistic_full_sample": {
+        "trades": 4,
+        "pf": 2.1464,
+        "expectancy": 11.905,
+        "expectancy_r": 0.5025,
+        "win_rate_pct": 50.0,
+        "avg_winner": 44.58,
+        "avg_loser": -20.77,
+        "payoff_ratio": 2.1464,
+        "max_consecutive_losses": 1,
+        "largest_win": 69.5,
+        "largest_loss": -21.39,
+        "avg_win_r": 1.8724,
+        "avg_loss_r": -0.8674,
+        "max_dd_r": 0.9474,
+        "profit_concentration": 0.7794975325257963,
+        "wins": 2,
+        "losses": 2
+      },
+      "realistic_oos": {
+        "trades": 0,
+        "pf": null,
+        "expectancy": null,
+        "expectancy_r": null,
+        "win_rate_pct": null,
+        "avg_win_r": null,
+        "avg_loss_r": null,
+        "max_dd_r": 0.0,
+        "profit_concentration": null,
+        "wins": 0,
+        "losses": 0
+      },
+      "walk_forward_realistic": {
+        "folds": 4,
+        "positive_folds": 1,
+        "negative_folds": 3,
+        "median_pf": 0.4733,
+        "worst_pf": 0.4733,
+        "median_expectancy_r": 2.9574,
+        "worst_expectancy_r": -0.3158,
+        "median_dd_r": 0.0,
+        "worst_dd_r": 0.9474
+      },
+      "delta_vs_rule_lab": {
+        "trade_count": -161,
+        "pf": 1.0253,
+        "expectancy_r": 0.4334
+      },
+      "classification": "DEGRADED_BUT_VALID",
+      "signal_timestamp_example": "2026-09-30T21:45:00+03:00"
+    }
+  ],
+  "portfolio_sim_10k_0_25": {
+    "starting_equity": 10000.0,
+    "ending_equity": 17241.31,
+    "pnl": 7241.31,
+    "return_pct": 72.4131,
+    "trades": 1066,
+    "pf": 1.4345,
+    "expectancy_r": 0.2645,
+    "max_dd_usd": 1060.88,
+    "max_dd_pct": 10.6088
+  },
+  "monte_carlo_5000": {
+    "iterations": 5000,
+    "median_return": 282.98696020034373,
+    "p10_return": 169.63280736366588,
+    "p90_return": 396.41776938684,
+    "median_dd": 34.537644242662,
+    "p90_dd": 51.4346939991118,
+    "p95_dd": 59.13275689926607,
+    "median_losing_streak": 11,
+    "p95_losing_streak": 16,
+    "probability_negative": 0.0006,
+    "probability_dd_gt_5pct": 1.0,
+    "probability_dd_gt_10pct": 1.0
+  },
+  "realistic_edge_confirmed": true,
+  "unique_realistic_survivors": [
+    "atr_trend|v1|AMD|15m|long",
+    "atr_trend|v2|NVDA|15m|long",
+    "vwap_mean_reversion|v1|AMD|5m|long",
+    "vwap_mean_reversion|v2|AMD|5m|long"
+  ],
+  "survivor_count_note": "Four unique SURVIVES in candidates[]; fourth is vwap_mean_reversion|v1|AMD|5m|long (near-duplicate of v2 AMD 5m \u2014 excluded from Live Sim finalists)."
+}

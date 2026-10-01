@@ -63,10 +63,39 @@ export function LiveSimDashboard({ data, loading }: Props) {
   const exitFills = data.exit_fills_count ?? data.closed_trades_count;
   const riskVis = data.risk_visibility;
   const cleanWin = data.clean_window;
+  const v32 = data.v32_experiment;
   const totalPnl = data.total_pnl ?? (data.realized_pnl ?? 0) + (data.unrealized_pnl ?? 0);
 
   return (
     <>
+      {v32 ? (
+        <Card className="mb-4 border-accent/30">
+          <CardHeader>
+            <CardTitle>{v32.label ?? t("home.live_sim_v32_title")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p>{t("home.live_sim_v32_portfolio", { id: v32.portfolio ?? "P2" })}</p>
+            <p>{t("home.live_sim_v32_risk", { pct: formatPercent(v32.risk_per_trade_pct ?? 0.25) })}</p>
+            <p>
+              {t("home.live_sim_v32_starting_model")}:{" "}
+              {formatCurrency(v32.starting_model_equity_usd ?? data.starting_capital ?? 10000)}
+            </p>
+            {v32.observation_anchor ? (
+              <p className="text-xs text-muted">
+                {t("home.live_sim_v32_anchor")}: {v32.observation_anchor}
+              </p>
+            ) : null}
+            <ul className="list-disc ps-5 text-muted">
+              {v32.active_strategies?.map((s) => (
+                <li key={`${s.symbol}-${s.timeframe}-${s.family}`}>
+                  {s.display ?? s.family} · {s.symbol} · {s.timeframe} · {s.direction}
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-muted">{t("home.live_sim_v32_ae_note")}</p>
+          </CardContent>
+        </Card>
+      ) : null}
       {/* Owner financial truth — primary */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <HomeSummaryCard label={t("home.live_sim_equity")}>

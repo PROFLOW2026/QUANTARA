@@ -24,26 +24,34 @@ def test_robot_d_e_paused_in_live_policy():
         assert v.reason == "ROBOT_LIVE_PAUSED"
 
 
-def test_robot_a_c_active_in_live_policy():
-    for slug in ("gold-trend-pullback", "mean-reversion", "opening-range-breakout"):
+def test_robot_a_b_paused_in_live_policy():
+    for slug in ("gold-trend-pullback", "opening-range-breakout"):
         v = evaluate_live_sim_v2_policy(strategy_slug=slug, symbol="BTCUSD", timeframe="5m")
-        assert v.allowed
+        assert not v.allowed
+        assert v.reason == "ROBOT_LIVE_PAUSED"
 
 
-def test_coin_research_only_live():
+def test_robot_c_paused_in_live_policy():
+    v = evaluate_live_sim_v2_policy(strategy_slug="mean-reversion", symbol="BTCUSD", timeframe="5m")
+    assert not v.allowed
+    assert v.reason == "ROBOT_LIVE_PAUSED"
+
+
+def test_coin_live_blocked_under_v32_slug():
+    from quantara_engine.live_sim.v2_policy import V32_LIVE_SIM_STRATEGY_SLUG
+
     v = evaluate_live_sim_v2_policy(
-        strategy_slug="mean-reversion", symbol="COIN", timeframe="15m"
+        strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG, symbol="COIN", timeframe="15m"
     )
     assert not v.allowed
-    assert v.reason == "ASSET_RESEARCH_ONLY"
 
 
-def test_combination_block_xau_1h():
+def test_robot_a_paused_even_on_blocked_combo_xau_1h():
     v = evaluate_live_sim_v2_policy(
         strategy_slug="gold-trend-pullback", symbol="XAUUSD", timeframe="1h"
     )
     assert not v.allowed
-    assert v.reason == "COMBINATION_BLOCKED"
+    assert v.reason == "ROBOT_LIVE_PAUSED"
 
 
 def test_owner_equity_produces_larger_target_risk_than_asset_slice():

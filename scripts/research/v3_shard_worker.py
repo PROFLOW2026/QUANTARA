@@ -23,6 +23,7 @@ from quantara_engine.research.v3.constants import V3_RESEARCH_START
 from quantara_engine.research.v3.discovery import run_v3_job
 from quantara_engine.research.v3.job_plan import plan_v3_jobs
 from quantara_engine.research.v3.job_registry import claim_job, finish_job, init_registry_jobs
+from quantara_engine.research.v3.orchestration import write_authoritative_progress
 
 RESEARCH = ROOT / "scripts" / "research"
 CHECKPOINT = RESEARCH / "v3_discovery_checkpoint.jsonl"
@@ -45,26 +46,12 @@ def candidate_by_id(cid: str):
     return None
 
 
-def update_progress(*, total: int, done_keys: set[str], registry_path: Path) -> None:
-    reg = json.loads(registry_path.read_text(encoding="utf-8")) if registry_path.is_file() else {"jobs": {}}
-    jobs = reg.get("jobs") or {}
-    running = sum(1 for j in jobs.values() if j.get("status") == "RUNNING")
-    failed = sum(1 for j in jobs.values() if j.get("status") == "FAILED")
-    completed = len(done_keys)
-    remaining = max(0, total - completed)
-    PROGRESS.write_text(
-        json.dumps(
-            {
-                "total": total,
-                "completed": completed,
-                "running": running,
-                "failed": failed,
-                "remaining": remaining,
-                "updated_at": time.time(),
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
+def update_progress(*, total: int, checkpoint_path: Path, registry_path: Path) -> None:
+    write_authoritative_progress(
+        progress_path=PROGRESS,
+        checkpoint_path=checkpoint_path,
+        total=total,
+        registry_path=registry_path,
     )
 
 
@@ -171,10 +158,12 @@ def main() -> None:
                 pid=pid,
                 status="DONE",
             )
-        update_progress(total=len(jobs), done_keys=set(completed.keys()), registry_path=REGISTRY)
+        completed = load_completed(CHECKPOINT)
+        update_progress(total=len(jobs), checkpoint_path=CHECKPOINT, registry_path=REGISTRY)
 
     session.close()
-    update_progress(total=len(jobs), done_keys=set(completed.keys()), registry_path=REGISTRY)
+    completed = load_completed(CHECKPOINT)
+    update_progress(total=len(jobs), checkpoint_path=CHECKPOINT, registry_path=REGISTRY)
     print(json.dumps({"shard": args.shard_id, "completed": len(completed), "total": len(jobs)}))
 
 

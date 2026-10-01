@@ -1145,6 +1145,24 @@ export interface LiveSimAccountSummary {
     expectancy_usd?: number | null;
     since?: string;
   } | null;
+  v32_experiment?: {
+    experiment_id?: string;
+    label?: string;
+    portfolio?: string;
+    strategy_slug?: string;
+    risk_per_trade_pct?: number;
+    starting_model_equity_usd?: number;
+    observation_anchor?: string | null;
+    legacy_ae_live_disabled?: boolean;
+    active_strategies?: Array<{
+      display?: string;
+      family?: string;
+      version?: string;
+      symbol?: string;
+      timeframe?: string;
+      direction?: string;
+    }>;
+  } | null;
   risk_visibility?: {
     risk_target_pct?: number | null;
     avg_planned_risk_pct?: number | null;

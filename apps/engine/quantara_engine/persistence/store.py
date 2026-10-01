@@ -159,6 +159,8 @@ class TradingStore:
             tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]] | None
         ) = None
         self.egress_metrics: EgressMetrics | None = None
+        # Full-broker research replays: evaluate rules in memory, do not mutate competition rows.
+        self.research_replay_isolation: bool = False
 
     def flush(self) -> None:
         self.session.flush()
@@ -2349,6 +2351,8 @@ class TradingStore:
         flush → SUM(realized) → SUM(open position unrealized) → balance/equity → persist.
         """
         if not portfolios:
+            return
+        if self.research_replay_isolation:
             return
         from quantara_engine.portfolio.balance_reconciliation import apply_canonical_financial_state
 

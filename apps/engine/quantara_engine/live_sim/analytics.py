@@ -12,6 +12,7 @@ from quantara_engine.broker.execution_service import BrokerExecutionService
 from quantara_engine.broker.state_builder import build_live_sim_broker_account
 from quantara_engine.broker.vendor import vendor_label_he
 from quantara_engine.live_sim.audit_scope import resolve_live_sim_audit_since
+from quantara_engine.live_sim.v32_experiment import build_v32_owner_experiment_payload
 from quantara_engine.live_sim.candidate_log import list_recent_allocations
 from quantara_engine.live_sim.execution_routing import (
     is_multi_broker_live_sim_active,
@@ -475,10 +476,21 @@ def build_live_sim_summary(store: TradingStore) -> dict:
         ).scalar()
         closed_positions_count = int(closed_positions_count or 0)
 
+        owner_meta_row = store.session.execute(
+            text("SELECT account_metadata FROM broker_accounts WHERE slug = :slug"),
+            {"slug": LIVE_SIM_OWNER_SLUG},
+        ).mappings().first()
+        owner_meta = dict((owner_meta_row or {}).get("account_metadata") or {})
+        legacy_meta = dict((legacy or {}).get("account_metadata") or {})
+        audit_meta = {**legacy_meta, **owner_meta}
         audit_since = resolve_live_sim_audit_since(
             store,
-            account_metadata=dict((legacy or {}).get("account_metadata") or {}),
+            account_metadata=audit_meta,
             activated_at=activated_at,
+        )
+        v32_experiment = build_v32_owner_experiment_payload(
+            observation_anchor_iso=audit_since.isoformat() if audit_since else None,
+            account_metadata=audit_meta,
         )
         funnel = _funnel_counters(store, active_ids, audit_since)
         recent: list[dict] = []
@@ -626,6 +638,7 @@ def build_live_sim_summary(store: TradingStore) -> dict:
             "closed_positions_count": closed_positions_count,
             "exit_fills_count": exit_fills_count,
             "clean_window": clean_window,
+            "v32_experiment": v32_experiment,
             "risk_visibility": risk_visibility,
             "win_rate_pct": win_rate,
             "candidates": funnel,

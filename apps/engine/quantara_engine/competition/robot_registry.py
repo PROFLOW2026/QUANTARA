@@ -8,6 +8,8 @@ ROBOT_LABELS: dict[str, str] = {
     "mean-reversion": "Robot C",
     "volatility-squeeze": "Robot D",
     "momentum-continuation": "Robot E",
+    "v32-p2-live-sim": "V3.2 Live Sim (P2)",
+    "v31-rule-replay": "V3.2 Live Sim (P2)",
 }
 
 ROBOT_LABELS_HE: dict[str, str] = {

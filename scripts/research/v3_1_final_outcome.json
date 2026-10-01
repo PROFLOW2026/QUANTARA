@@ -1,0 +1,1052 @@
+{
+  "stage_a_survivors": 76,
+  "stage_b_validated": 76,
+  "robust_candidates": [
+    {
+      "key": "atr_trend|v1|AMD|15m|long",
+      "family": "atr_trend",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 15,
+        "ema_slow": 40
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_oos_pf": 1.4342,
+        "worst_oos_pf": 0.9439,
+        "median_oos_expectancy": 22.71296997970282,
+        "worst_fold_expectancy": -3.4943892889078194
+      },
+      "oos": {
+        "trades": 42,
+        "pf": 1.4342,
+        "expectancy": 22.713,
+        "expectancy_r": 0.22712969979702818,
+        "win_rate_pct": 45.24,
+        "avg_winner": 165.8309,
+        "avg_loser": -95.5149,
+        "payoff_ratio": 1.7362,
+        "max_consecutive_losses": 4,
+        "largest_win": 165.9291,
+        "largest_loss": -101.0014
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.05266274636674208,
+      "benchmark_buy_hold_return_pct": 211.833,
+      "research_only": false
+    },
+    {
+      "key": "atr_trend|v1|NVDA|15m|long",
+      "family": "atr_trend",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 15,
+        "ema_slow": 40
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_oos_pf": 1.2652,
+        "worst_oos_pf": 1.1377,
+        "median_oos_expectancy": 13.128264049913104,
+        "worst_fold_expectancy": 7.537462101889816
+      },
+      "oos": {
+        "trades": 33,
+        "pf": 1.2652,
+        "expectancy": 13.1283,
+        "expectancy_r": 0.13128264049913108,
+        "win_rate_pct": 42.42,
+        "avg_winner": 147.6517,
+        "avg_loser": -85.9943,
+        "payoff_ratio": 1.717,
+        "max_consecutive_losses": 4,
+        "largest_win": 166.3141,
+        "largest_loss": -100.3709
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.08045674728394132,
+      "benchmark_buy_hold_return_pct": 26.4698,
+      "research_only": false
+    },
+    {
+      "key": "atr_trend|v2|AMD|15m|long",
+      "family": "atr_trend",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 20,
+        "ema_slow": 50
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_oos_pf": 1.4088,
+        "worst_oos_pf": 0.8966,
+        "median_oos_expectancy": 21.65275529698929,
+        "worst_fold_expectancy": -6.619243053686135
+      },
+      "oos": {
+        "trades": 40,
+        "pf": 1.4088,
+        "expectancy": 21.6528,
+        "expectancy_r": 0.21652755296989296,
+        "win_rate_pct": 45.0,
+        "avg_winner": 165.8252,
+        "avg_loser": -96.3065,
+        "payoff_ratio": 1.7218,
+        "max_consecutive_losses": 4,
+        "largest_win": 165.9172,
+        "largest_loss": -101.0014
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.05558638072578425,
+      "benchmark_buy_hold_return_pct": 211.833,
+      "research_only": false
+    },
+    {
+      "key": "atr_trend|v2|NVDA|15m|long",
+      "family": "atr_trend",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 20,
+        "ema_slow": 50
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_oos_pf": 1.4168,
+        "worst_oos_pf": 1.1489,
+        "median_oos_expectancy": 19.323145088099082,
+        "worst_fold_expectancy": 8.378668194293327
+      },
+      "oos": {
+        "trades": 34,
+        "pf": 1.4168,
+        "expectancy": 19.3231,
+        "expectancy_r": 0.19323145088099083,
+        "win_rate_pct": 44.12,
+        "avg_winner": 148.8952,
+        "avg_loser": -82.9706,
+        "payoff_ratio": 1.7946,
+        "max_consecutive_losses": 5,
+        "largest_win": 166.3147,
+        "largest_loss": -100.3709
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.07446610005016502,
+      "benchmark_buy_hold_return_pct": 26.4698,
+      "research_only": false
+    },
+    {
+      "key": "session_breakout|v1|AMD|15m|long",
+      "family": "session_breakout",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_oos_pf": 1.2719,
+        "worst_oos_pf": 0.9774,
+        "median_oos_expectancy": 14.873155137330265,
+        "worst_fold_expectancy": -1.3150252084318046
+      },
+      "oos": {
+        "trades": 42,
+        "pf": 1.2719,
+        "expectancy": 14.8732,
+        "expectancy_r": 0.14873155137330263,
+        "win_rate_pct": 42.86,
+        "avg_winner": 162.3229,
+        "avg_loser": -95.7142,
+        "payoff_ratio": 1.6959,
+        "max_consecutive_losses": 5,
+        "largest_win": 165.9279,
+        "largest_loss": -101.0014
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.056789379214314074,
+      "benchmark_buy_hold_return_pct": 211.833,
+      "research_only": false
+    },
+    {
+      "key": "session_breakout|v2|AMD|15m|long",
+      "family": "session_breakout",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "max_bars": 18
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_oos_pf": 1.2036,
+        "worst_oos_pf": 1.0319,
+        "median_oos_expectancy": 10.523659210651259,
+        "worst_fold_expectancy": 1.8273323470170404
+      },
+      "oos": {
+        "trades": 43,
+        "pf": 1.2036,
+        "expectancy": 10.5237,
+        "expectancy_r": 0.10523659210651257,
+        "win_rate_pct": 44.19,
+        "avg_winner": 140.8157,
+        "avg_loser": -92.6242,
+        "payoff_ratio": 1.5203,
+        "max_consecutive_losses": 6,
+        "largest_win": 165.9279,
+        "largest_loss": -101.0014
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.06201758501646408,
+      "benchmark_buy_hold_return_pct": 211.833,
+      "research_only": false
+    },
+    {
+      "key": "trend_pullback_alt|v1|COIN|15m|short",
+      "family": "trend_pullback_alt",
+      "asset": "COIN",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "rsi_pull": 40
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_oos_pf": 1.1227,
+        "worst_oos_pf": 1.0126,
+        "median_oos_expectancy": 7.0570880054373175,
+        "worst_fold_expectancy": 0.717335817767344
+      },
+      "oos": {
+        "trades": 30,
+        "pf": 1.3264,
+        "expectancy": 17.4545,
+        "expectancy_r": 0.17454531158780692,
+        "win_rate_pct": 46.67,
+        "avg_winner": 151.9943,
+        "avg_loser": -100.2677,
+        "payoff_ratio": 1.5159,
+        "max_consecutive_losses": 8,
+        "largest_win": 166.3858,
+        "largest_loss": -100.3168
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.0781917559111759,
+      "benchmark_buy_hold_return_pct": 11.9175,
+      "research_only": false
+    },
+    {
+      "key": "vwap_mean_reversion|v1|AMD|15m|long",
+      "family": "vwap_mean_reversion",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.003
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_oos_pf": 1.4595,
+        "worst_oos_pf": 0.9071,
+        "median_oos_expectancy": 23.424313793563584,
+        "worst_fold_expectancy": -5.780002469361477
+      },
+      "oos": {
+        "trades": 32,
+        "pf": 1.4041,
+        "expectancy": 19.4522,
+        "expectancy_r": 0.19452199401047923,
+        "win_rate_pct": 46.88,
+        "avg_winner": 144.1854,
+        "avg_loser": -90.6065,
+        "payoff_ratio": 1.5913,
+        "max_consecutive_losses": 6,
+        "largest_win": 165.9439,
+        "largest_loss": -100.9732
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.07672706132020873,
+      "benchmark_buy_hold_return_pct": 211.833,
+      "research_only": false
+    },
+    {
+      "key": "vwap_mean_reversion|v1|AMD|5m|long",
+      "family": "vwap_mean_reversion",
+      "asset": "AMD",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.003
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_oos_pf": 1.2532,
+        "worst_oos_pf": 1.0702,
+        "median_oos_expectancy": 13.835997141028743,
+        "worst_fold_expectancy": 3.9230117489084195
+      },
+      "oos": {
+        "trades": 111,
+        "pf": 1.2803,
+        "expectancy": 13.9784,
+        "expectancy_r": 0.1397835584118099,
+        "win_rate_pct": 48.65,
+        "avg_winner": 131.2271,
+        "avg_loser": -97.0994,
+        "payoff_ratio": 1.3515,
+        "max_consecutive_losses": 6,
+        "largest_win": 165.9472,
+        "largest_loss": -100.9965
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.02341814182064541,
+      "benchmark_buy_hold_return_pct": 212.6569,
+      "research_only": false
+    },
+    {
+      "key": "vwap_mean_reversion|v2|AMD|5m|long",
+      "family": "vwap_mean_reversion",
+      "asset": "AMD",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.005
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_oos_pf": 1.2544,
+        "worst_oos_pf": 1.179,
+        "median_oos_expectancy": 13.779378577224813,
+        "worst_fold_expectancy": 9.706091944982553
+      },
+      "oos": {
+        "trades": 88,
+        "pf": 1.6036,
+        "expectancy": 27.5736,
+        "expectancy_r": 0.27573609904596563,
+        "win_rate_pct": 53.41,
+        "avg_winner": 137.1551,
+        "avg_loser": -98.0442,
+        "payoff_ratio": 1.3989,
+        "max_consecutive_losses": 6,
+        "largest_win": 165.9472,
+        "largest_loss": -100.9965
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.025743044067208412,
+      "benchmark_buy_hold_return_pct": 212.6569,
+      "research_only": false
+    },
+    {
+      "key": "vwap_mean_reversion|v2|NVDA|15m|long",
+      "family": "vwap_mean_reversion",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.005
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_oos_pf": 1.2569,
+        "worst_oos_pf": 0.7683,
+        "median_oos_expectancy": 13.143850754061194,
+        "worst_fold_expectancy": -14.336198365733372
+      },
+      "oos": {
+        "trades": 37,
+        "pf": 1.2569,
+        "expectancy": 13.1439,
+        "expectancy_r": 0.13143850754061193,
+        "win_rate_pct": 45.95,
+        "avg_winner": 139.9451,
+        "avg_loser": -94.6372,
+        "payoff_ratio": 1.4788,
+        "max_consecutive_losses": 8,
+        "largest_win": 166.3316,
+        "largest_loss": -100.3649
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.06991464781581495,
+      "benchmark_buy_hold_return_pct": 26.4698,
+      "research_only": false
+    }
+  ],
+  "top10": [
+    {
+      "key": "vwap_mean_reversion|v2|AMD|5m|long",
+      "family": "vwap_mean_reversion",
+      "asset": "AMD",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.005
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_oos_pf": 1.2544,
+        "worst_oos_pf": 1.179,
+        "median_oos_expectancy": 13.779378577224813,
+        "worst_fold_expectancy": 9.706091944982553
+      },
+      "oos": {
+        "trades": 88,
+        "pf": 1.6036,
+        "expectancy": 27.5736,
+        "expectancy_r": 0.27573609904596563,
+        "win_rate_pct": 53.41,
+        "avg_winner": 137.1551,
+        "avg_loser": -98.0442,
+        "payoff_ratio": 1.3989,
+        "max_consecutive_losses": 6,
+        "largest_win": 165.9472,
+        "largest_loss": -100.9965
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.025743044067208412,
+      "benchmark_buy_hold_return_pct": 212.6569,
+      "research_only": false
+    },
+    {
+      "key": "atr_trend|v1|AMD|15m|long",
+      "family": "atr_trend",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 15,
+        "ema_slow": 40
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_oos_pf": 1.4342,
+        "worst_oos_pf": 0.9439,
+        "median_oos_expectancy": 22.71296997970282,
+        "worst_fold_expectancy": -3.4943892889078194
+      },
+      "oos": {
+        "trades": 42,
+        "pf": 1.4342,
+        "expectancy": 22.713,
+        "expectancy_r": 0.22712969979702818,
+        "win_rate_pct": 45.24,
+        "avg_winner": 165.8309,
+        "avg_loser": -95.5149,
+        "payoff_ratio": 1.7362,
+        "max_consecutive_losses": 4,
+        "largest_win": 165.9291,
+        "largest_loss": -101.0014
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.05266274636674208,
+      "benchmark_buy_hold_return_pct": 211.833,
+      "research_only": false
+    },
+    {
+      "key": "atr_trend|v2|AMD|15m|long",
+      "family": "atr_trend",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 20,
+        "ema_slow": 50
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_oos_pf": 1.4088,
+        "worst_oos_pf": 0.8966,
+        "median_oos_expectancy": 21.65275529698929,
+        "worst_fold_expectancy": -6.619243053686135
+      },
+      "oos": {
+        "trades": 40,
+        "pf": 1.4088,
+        "expectancy": 21.6528,
+        "expectancy_r": 0.21652755296989296,
+        "win_rate_pct": 45.0,
+        "avg_winner": 165.8252,
+        "avg_loser": -96.3065,
+        "payoff_ratio": 1.7218,
+        "max_consecutive_losses": 4,
+        "largest_win": 165.9172,
+        "largest_loss": -101.0014
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.05558638072578425,
+      "benchmark_buy_hold_return_pct": 211.833,
+      "research_only": false
+    },
+    {
+      "key": "vwap_mean_reversion|v1|AMD|15m|long",
+      "family": "vwap_mean_reversion",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.003
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_oos_pf": 1.4595,
+        "worst_oos_pf": 0.9071,
+        "median_oos_expectancy": 23.424313793563584,
+        "worst_fold_expectancy": -5.780002469361477
+      },
+      "oos": {
+        "trades": 32,
+        "pf": 1.4041,
+        "expectancy": 19.4522,
+        "expectancy_r": 0.19452199401047923,
+        "win_rate_pct": 46.88,
+        "avg_winner": 144.1854,
+        "avg_loser": -90.6065,
+        "payoff_ratio": 1.5913,
+        "max_consecutive_losses": 6,
+        "largest_win": 165.9439,
+        "largest_loss": -100.9732
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.07672706132020873,
+      "benchmark_buy_hold_return_pct": 211.833,
+      "research_only": false
+    },
+    {
+      "key": "atr_trend|v2|NVDA|15m|long",
+      "family": "atr_trend",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 20,
+        "ema_slow": 50
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_oos_pf": 1.4168,
+        "worst_oos_pf": 1.1489,
+        "median_oos_expectancy": 19.323145088099082,
+        "worst_fold_expectancy": 8.378668194293327
+      },
+      "oos": {
+        "trades": 34,
+        "pf": 1.4168,
+        "expectancy": 19.3231,
+        "expectancy_r": 0.19323145088099083,
+        "win_rate_pct": 44.12,
+        "avg_winner": 148.8952,
+        "avg_loser": -82.9706,
+        "payoff_ratio": 1.7946,
+        "max_consecutive_losses": 5,
+        "largest_win": 166.3147,
+        "largest_loss": -100.3709
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.07446610005016502,
+      "benchmark_buy_hold_return_pct": 26.4698,
+      "research_only": false
+    },
+    {
+      "key": "trend_pullback_alt|v1|COIN|15m|short",
+      "family": "trend_pullback_alt",
+      "asset": "COIN",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "rsi_pull": 40
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_oos_pf": 1.1227,
+        "worst_oos_pf": 1.0126,
+        "median_oos_expectancy": 7.0570880054373175,
+        "worst_fold_expectancy": 0.717335817767344
+      },
+      "oos": {
+        "trades": 30,
+        "pf": 1.3264,
+        "expectancy": 17.4545,
+        "expectancy_r": 0.17454531158780692,
+        "win_rate_pct": 46.67,
+        "avg_winner": 151.9943,
+        "avg_loser": -100.2677,
+        "payoff_ratio": 1.5159,
+        "max_consecutive_losses": 8,
+        "largest_win": 166.3858,
+        "largest_loss": -100.3168
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.0781917559111759,
+      "benchmark_buy_hold_return_pct": 11.9175,
+      "research_only": false
+    },
+    {
+      "key": "session_breakout|v1|AMD|15m|long",
+      "family": "session_breakout",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_oos_pf": 1.2719,
+        "worst_oos_pf": 0.9774,
+        "median_oos_expectancy": 14.873155137330265,
+        "worst_fold_expectancy": -1.3150252084318046
+      },
+      "oos": {
+        "trades": 42,
+        "pf": 1.2719,
+        "expectancy": 14.8732,
+        "expectancy_r": 0.14873155137330263,
+        "win_rate_pct": 42.86,
+        "avg_winner": 162.3229,
+        "avg_loser": -95.7142,
+        "payoff_ratio": 1.6959,
+        "max_consecutive_losses": 5,
+        "largest_win": 165.9279,
+        "largest_loss": -101.0014
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.056789379214314074,
+      "benchmark_buy_hold_return_pct": 211.833,
+      "research_only": false
+    },
+    {
+      "key": "vwap_mean_reversion|v1|AMD|5m|long",
+      "family": "vwap_mean_reversion",
+      "asset": "AMD",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.003
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_oos_pf": 1.2532,
+        "worst_oos_pf": 1.0702,
+        "median_oos_expectancy": 13.835997141028743,
+        "worst_fold_expectancy": 3.9230117489084195
+      },
+      "oos": {
+        "trades": 111,
+        "pf": 1.2803,
+        "expectancy": 13.9784,
+        "expectancy_r": 0.1397835584118099,
+        "win_rate_pct": 48.65,
+        "avg_winner": 131.2271,
+        "avg_loser": -97.0994,
+        "payoff_ratio": 1.3515,
+        "max_consecutive_losses": 6,
+        "largest_win": 165.9472,
+        "largest_loss": -100.9965
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.02341814182064541,
+      "benchmark_buy_hold_return_pct": 212.6569,
+      "research_only": false
+    },
+    {
+      "key": "vwap_mean_reversion|v2|NVDA|15m|long",
+      "family": "vwap_mean_reversion",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.005
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_oos_pf": 1.2569,
+        "worst_oos_pf": 0.7683,
+        "median_oos_expectancy": 13.143850754061194,
+        "worst_fold_expectancy": -14.336198365733372
+      },
+      "oos": {
+        "trades": 37,
+        "pf": 1.2569,
+        "expectancy": 13.1439,
+        "expectancy_r": 0.13143850754061193,
+        "win_rate_pct": 45.95,
+        "avg_winner": 139.9451,
+        "avg_loser": -94.6372,
+        "payoff_ratio": 1.4788,
+        "max_consecutive_losses": 8,
+        "largest_win": 166.3316,
+        "largest_loss": -100.3649
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.06991464781581495,
+      "benchmark_buy_hold_return_pct": 26.4698,
+      "research_only": false
+    },
+    {
+      "key": "atr_trend|v1|NVDA|15m|long",
+      "family": "atr_trend",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 15,
+        "ema_slow": 40
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_oos_pf": 1.2652,
+        "worst_oos_pf": 1.1377,
+        "median_oos_expectancy": 13.128264049913104,
+        "worst_fold_expectancy": 7.537462101889816
+      },
+      "oos": {
+        "trades": 33,
+        "pf": 1.2652,
+        "expectancy": 13.1283,
+        "expectancy_r": 0.13128264049913108,
+        "win_rate_pct": 42.42,
+        "avg_winner": 147.6517,
+        "avg_loser": -85.9943,
+        "payoff_ratio": 1.717,
+        "max_consecutive_losses": 4,
+        "largest_win": 166.3141,
+        "largest_loss": -100.3709
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.08045674728394132,
+      "benchmark_buy_hold_return_pct": 26.4698,
+      "research_only": false
+    }
+  ],
+  "production_portfolio": [
+    {
+      "key": "vwap_mean_reversion|v2|AMD|5m|long",
+      "family": "vwap_mean_reversion",
+      "asset": "AMD",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.005
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_oos_pf": 1.2544,
+        "worst_oos_pf": 1.179,
+        "median_oos_expectancy": 13.779378577224813,
+        "worst_fold_expectancy": 9.706091944982553
+      },
+      "oos": {
+        "trades": 88,
+        "pf": 1.6036,
+        "expectancy": 27.5736,
+        "expectancy_r": 0.27573609904596563,
+        "win_rate_pct": 53.41,
+        "avg_winner": 137.1551,
+        "avg_loser": -98.0442,
+        "payoff_ratio": 1.3989,
+        "max_consecutive_losses": 6,
+        "largest_win": 165.9472,
+        "largest_loss": -100.9965
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.025743044067208412,
+      "benchmark_buy_hold_return_pct": 212.6569,
+      "research_only": false
+    },
+    {
+      "key": "atr_trend|v1|AMD|15m|long",
+      "family": "atr_trend",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 15,
+        "ema_slow": 40
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_oos_pf": 1.4342,
+        "worst_oos_pf": 0.9439,
+        "median_oos_expectancy": 22.71296997970282,
+        "worst_fold_expectancy": -3.4943892889078194
+      },
+      "oos": {
+        "trades": 42,
+        "pf": 1.4342,
+        "expectancy": 22.713,
+        "expectancy_r": 0.22712969979702818,
+        "win_rate_pct": 45.24,
+        "avg_winner": 165.8309,
+        "avg_loser": -95.5149,
+        "payoff_ratio": 1.7362,
+        "max_consecutive_losses": 4,
+        "largest_win": 165.9291,
+        "largest_loss": -101.0014
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.05266274636674208,
+      "benchmark_buy_hold_return_pct": 211.833,
+      "research_only": false
+    },
+    {
+      "key": "atr_trend|v2|AMD|15m|long",
+      "family": "atr_trend",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 20,
+        "ema_slow": 50
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_oos_pf": 1.4088,
+        "worst_oos_pf": 0.8966,
+        "median_oos_expectancy": 21.65275529698929,
+        "worst_fold_expectancy": -6.619243053686135
+      },
+      "oos": {
+        "trades": 40,
+        "pf": 1.4088,
+        "expectancy": 21.6528,
+        "expectancy_r": 0.21652755296989296,
+        "win_rate_pct": 45.0,
+        "avg_winner": 165.8252,
+        "avg_loser": -96.3065,
+        "payoff_ratio": 1.7218,
+        "max_consecutive_losses": 4,
+        "largest_win": 165.9172,
+        "largest_loss": -101.0014
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.05558638072578425,
+      "benchmark_buy_hold_return_pct": 211.833,
+      "research_only": false
+    },
+    {
+      "key": "vwap_mean_reversion|v1|AMD|15m|long",
+      "family": "vwap_mean_reversion",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.003
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 3,
+        "negative_folds": 1,
+        "median_oos_pf": 1.4595,
+        "worst_oos_pf": 0.9071,
+        "median_oos_expectancy": 23.424313793563584,
+        "worst_fold_expectancy": -5.780002469361477
+      },
+      "oos": {
+        "trades": 32,
+        "pf": 1.4041,
+        "expectancy": 19.4522,
+        "expectancy_r": 0.19452199401047923,
+        "win_rate_pct": 46.88,
+        "avg_winner": 144.1854,
+        "avg_loser": -90.6065,
+        "payoff_ratio": 1.5913,
+        "max_consecutive_losses": 6,
+        "largest_win": 165.9439,
+        "largest_loss": -100.9732
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.07672706132020873,
+      "benchmark_buy_hold_return_pct": 211.833,
+      "research_only": false
+    },
+    {
+      "key": "atr_trend|v2|NVDA|15m|long",
+      "family": "atr_trend",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 20,
+        "ema_slow": 50
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_oos_pf": 1.4168,
+        "worst_oos_pf": 1.1489,
+        "median_oos_expectancy": 19.323145088099082,
+        "worst_fold_expectancy": 8.378668194293327
+      },
+      "oos": {
+        "trades": 34,
+        "pf": 1.4168,
+        "expectancy": 19.3231,
+        "expectancy_r": 0.19323145088099083,
+        "win_rate_pct": 44.12,
+        "avg_winner": 148.8952,
+        "avg_loser": -82.9706,
+        "payoff_ratio": 1.7946,
+        "max_consecutive_losses": 5,
+        "largest_win": 166.3147,
+        "largest_loss": -100.3709
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.07446610005016502,
+      "benchmark_buy_hold_return_pct": 26.4698,
+      "research_only": false
+    },
+    {
+      "key": "trend_pullback_alt|v1|COIN|15m|short",
+      "family": "trend_pullback_alt",
+      "asset": "COIN",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "rsi_pull": 40
+      },
+      "walk_forward": {
+        "folds": 4,
+        "positive_folds": 4,
+        "negative_folds": 0,
+        "median_oos_pf": 1.1227,
+        "worst_oos_pf": 1.0126,
+        "median_oos_expectancy": 7.0570880054373175,
+        "worst_fold_expectancy": 0.717335817767344
+      },
+      "oos": {
+        "trades": 30,
+        "pf": 1.3264,
+        "expectancy": 17.4545,
+        "expectancy_r": 0.17454531158780692,
+        "win_rate_pct": 46.67,
+        "avg_winner": 151.9943,
+        "avg_loser": -100.2677,
+        "payoff_ratio": 1.5159,
+        "max_consecutive_losses": 8,
+        "largest_win": 166.3858,
+        "largest_loss": -100.3168
+      },
+      "robustness": "ROBUST",
+      "worst_fold_expectancy_r": null,
+      "profit_concentration": 0.0781917559111759,
+      "benchmark_buy_hold_return_pct": 11.9175,
+      "research_only": false
+    }
+  ],
+  "monte_carlo": {
+    "median_return": 60.478614060492426,
+    "p10_return": 59.65524074930843,
+    "p90_return": 61.33006182039158,
+    "median_dd": 0.0,
+    "p95_dd": 0.0,
+    "p95_loss_streak": 0.0
+  },
+  "sim_10k_0_25pct": {
+    "starting_equity": 10000.0,
+    "ending_equity": 11512.41,
+    "pnl": 1512.41,
+    "return_pct": 15.1241,
+    "max_dd": 0.0,
+    "trades": 266,
+    "capital_utilization": 0.665
+  },
+  "robust_edge_found": true,
+  "v3_1_total_jobs": 268,
+  "v3_1_completed": 268,
+  "failed_families": [
+    "mtf_trend",
+    "range_atr_breakout"
+  ],
+  "families_tested": [
+    "atr_trend",
+    "donchian_channel",
+    "momentum_vol_filter",
+    "mtf_trend",
+    "range_atr_breakout",
+    "relative_strength",
+    "session_breakout",
+    "trend_pullback_alt",
+    "vol_expansion",
+    "vwap_mean_reversion"
+  ]
+}

@@ -55,6 +55,7 @@ class BacktestRun:
     completed_at: datetime | None = None
     trades: list[Trade] = field(default_factory=list)
     positions: list = field(default_factory=list)
+    pipeline_decisions: list = field(default_factory=list)
 
 
 class BacktestRunner:
@@ -62,6 +63,8 @@ class BacktestRunner:
         self,
         backtest: BacktestRun,
         store: TradingStore | None = None,
+        *,
+        persist_backtest_record: bool = True,
     ) -> BacktestRun:
         backtest.status = BacktestStatus.RUNNING
         backtest.started_at = datetime.now(timezone.utc)
@@ -72,8 +75,18 @@ class BacktestRunner:
 
             backtest.dataset_fingerprint = compute_dataset_fingerprint(backtest.candles)
             portfolio_id = backtest.id if store else f"bt-{backtest.id}"
+            from quantara_engine.competition.leverage import is_paper_competition_portfolio
+
+            state_portfolio_id = (
+                backtest.strategy_instance.portfolio_id
+                if is_paper_competition_portfolio(backtest.strategy_instance.portfolio_id)
+                else portfolio_id
+            )
 
             if store:
+                store.research_replay_isolation = not persist_backtest_record
+
+            if store and persist_backtest_record:
                 self._ensure_backtest_portfolio(store, backtest, portfolio_id)
                 store.create_backtest_run_record(
                     run_id=backtest.id,
@@ -97,7 +110,7 @@ class BacktestRunner:
                 store.flush()
 
             portfolio = Portfolio(
-                id=portfolio_id,
+                id=state_portfolio_id,
                 name=f"Backtest {backtest.id}",
                 mode=Mode.BACKTEST,
                 initial_capital=backtest.initial_capital,
@@ -119,10 +132,13 @@ class BacktestRunner:
                 clock=BacktestClock(),
                 store=store,
                 mode=Mode.BACKTEST,
-                backtest_run_id=backtest.id if store else None,
+                backtest_run_id=backtest.id if store and persist_backtest_record else None,
+                execute_pending_in_process=True,
+                enforce_catchup_stale_guard=False,
             )
             processor.all_candles = backtest.candles
             processor.run_all()
+            backtest.pipeline_decisions = list(processor.decisions)
 
             # Close remaining positions at last candle
             if backtest.candles:
@@ -140,7 +156,7 @@ class BacktestRunner:
                     trade = state.close_position(
                         position, fill, ExitReason.END_OF_BACKTEST, last.timestamp
                     )
-                    if store:
+                    if store and persist_backtest_record:
                         store.update_position_closed(position.id, last.timestamp, fill.fill_price)
                         store.save_trade(trade)
                         store.update_portfolio(state.portfolio)
@@ -148,7 +164,7 @@ class BacktestRunner:
 
                 state.recalculate_equity(last.close)
                 snap = state.create_snapshot(last.timestamp)
-                if store:
+                if store and persist_backtest_record:
                     store.save_snapshot(snap)
                     store.flush()
 
@@ -179,7 +195,7 @@ class BacktestRunner:
             backtest.status = BacktestStatus.COMPLETED
             backtest.completed_at = datetime.now(timezone.utc)
 
-            if store:
+            if store and persist_backtest_record:
                 store.update_backtest_run_completed(
                     run_id=backtest.id,
                     final_capital=state.portfolio.equity,
@@ -191,7 +207,7 @@ class BacktestRunner:
         except Exception as exc:
             backtest.status = BacktestStatus.FAILED
             backtest.error_message = str(exc)
-            if store:
+            if store and persist_backtest_record:
                 store.session.rollback()
                 store.update_backtest_run_completed(
                     run_id=backtest.id,

@@ -1,0 +1,30 @@
+{
+  "version": "3.2",
+  "selected_portfolio": "P2",
+  "initial_risk_per_trade_pct": 0.25,
+  "strategy_slug": "v32-p2-live-sim",
+  "combinations": [
+    {
+      "key": "rsi_divergence_mr|v1|AMD|15m|long",
+      "family": "rsi_divergence_mr",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {}
+    },
+    {
+      "key": "ema_pullback_continue|v2|NVDA|15m|long",
+      "family": "ema_pullback_continue",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": { "ema_fast": 8, "ema_slow": 21 }
+    }
+  ],
+  "research_only": [
+    {
+      "key": "orb_continuation|v1|AMD|5m|long",
+      "reason": "high_activity_amd_concentration_dd"
+    }
+  ]
+}

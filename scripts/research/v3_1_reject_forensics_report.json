@@ -1,0 +1,362 @@
+{
+  "aggregate": {
+    "signal_count": 5395,
+    "candidate_orders": 17891,
+    "broker_attempts": 1014,
+    "fills": 0,
+    "rejects": 1014,
+    "by_category": {
+      "MIN_QUANTITY": {
+        "count": 0,
+        "pct": 0.0
+      },
+      "QTY_STEP": {
+        "count": 0,
+        "pct": 0.0
+      },
+      "MARGIN": {
+        "count": 7,
+        "pct": 0.69
+      },
+      "INSUFFICIENT_BUYING_POWER": {
+        "count": 0,
+        "pct": 0.0
+      },
+      "ASSET_RISK": {
+        "count": 0,
+        "pct": 0.0
+      },
+      "OWNER_RISK": {
+        "count": 0,
+        "pct": 0.0
+      },
+      "BROKER_RISK": {
+        "count": 0,
+        "pct": 0.0
+      },
+      "SYMBOL_EXPOSURE": {
+        "count": 321,
+        "pct": 31.66
+      },
+      "SESSION": {
+        "count": 0,
+        "pct": 0.0
+      },
+      "STALE": {
+        "count": 137,
+        "pct": 13.51
+      },
+      "PRICE_INVALID": {
+        "count": 0,
+        "pct": 0.0
+      },
+      "STOP_INVALID": {
+        "count": 0,
+        "pct": 0.0
+      },
+      "TP_INVALID": {
+        "count": 0,
+        "pct": 0.0
+      },
+      "NOTIONAL_LIMIT": {
+        "count": 4,
+        "pct": 0.39
+      },
+      "DUPLICATE": {
+        "count": 0,
+        "pct": 0.0
+      },
+      "ORDER_STATE": {
+        "count": 0,
+        "pct": 0.0
+      },
+      "SHORT_NOT_ALLOWED": {
+        "count": 0,
+        "pct": 0.0
+      },
+      "RISK_ENGINE": {
+        "count": 545,
+        "pct": 53.75
+      },
+      "OTHER": {
+        "count": 0,
+        "pct": 0.0
+      }
+    },
+    "top_reject_reasons": [
+      {
+        "category": "RISK_ENGINE",
+        "count": 545,
+        "pct": 53.75
+      },
+      {
+        "category": "SYMBOL_EXPOSURE",
+        "count": 321,
+        "pct": 31.66
+      },
+      {
+        "category": "STALE",
+        "count": 137,
+        "pct": 13.51
+      },
+      {
+        "category": "MARGIN",
+        "count": 7,
+        "pct": 0.69
+      },
+      {
+        "category": "NOTIONAL_LIMIT",
+        "count": 4,
+        "pct": 0.39
+      }
+    ],
+    "representative_examples": [
+      {
+        "asset": "AMD",
+        "strategy": "vwap_mean_reversion|v2|AMD|5m|long",
+        "timestamp": "2026-03-24 15:30:00+02:00",
+        "reject_category": "STALE",
+        "message": "Skipped stale catch-up execution (stale_signal_age (1060.0m))"
+      },
+      {
+        "asset": "AMD",
+        "strategy": "vwap_mean_reversion|v2|AMD|5m|long",
+        "timestamp": "2026-04-29 16:30:00+03:00",
+        "reject_category": "STALE",
+        "message": "Skipped stale catch-up execution (stale_signal_age (1060.0m))"
+      },
+      {
+        "asset": "AMD",
+        "strategy": "vwap_mean_reversion|v2|AMD|5m|long",
+        "timestamp": "2026-05-06 16:30:00+03:00",
+        "reject_category": "STALE",
+        "message": "Skipped stale catch-up execution (stale_signal_age (1060.0m))"
+      },
+      {
+        "asset": "AMD",
+        "strategy": "vwap_mean_reversion|v2|AMD|5m|long",
+        "timestamp": "2026-05-12 16:30:00+03:00",
+        "reject_category": "STALE",
+        "message": "Skipped stale catch-up execution (stale_signal_age (1060.0m))"
+      },
+      {
+        "asset": "AMD",
+        "strategy": "vwap_mean_reversion|v2|AMD|5m|long",
+        "timestamp": "2026-05-12 17:30:00+03:00",
+        "decision": "broker_rejected",
+        "message": "insufficient_margin",
+        "metadata": {
+          "layer": "broker_execution",
+          "broker_decision": "rejected",
+          "broker_reason": "insufficient_margin",
+          "strategy_decision": "approved"
+        },
+        "reject_category": "MARGIN"
+      },
+      {
+        "asset": "AMD",
+        "strategy": "vwap_mean_reversion|v2|AMD|5m|long",
+        "timestamp": "2026-05-14 16:30:00+03:00",
+        "reject_category": "STALE",
+        "message": "Skipped stale catch-up execution (stale_signal_age (1060.0m))"
+      },
+      {
+        "asset": "AMD",
+        "strategy": "vwap_mean_reversion|v2|AMD|5m|long",
+        "timestamp": "2026-05-15 17:00:00+03:00",
+        "decision": "broker_rejected",
+        "message": "insufficient_margin",
+        "metadata": {
+          "layer": "broker_execution",
+          "broker_decision": "rejected",
+          "broker_reason": "insufficient_margin",
+          "strategy_decision": "approved"
+        },
+        "reject_category": "MARGIN"
+      },
+      {
+        "asset": "AMD",
+        "strategy": "vwap_mean_reversion|v2|AMD|5m|long",
+        "timestamp": "2026-05-20 16:30:00+03:00",
+        "reject_category": "STALE",
+        "message": "Skipped stale catch-up execution (stale_signal_age (1060.0m))"
+      },
+      {
+        "asset": "AMD",
+        "strategy": "vwap_mean_reversion|v2|AMD|5m|long",
+        "timestamp": "2026-05-25 16:30:00+03:00",
+        "reject_category": "STALE",
+        "message": "Skipped stale catch-up execution (stale_signal_age (3940.0m))"
+      },
+      {
+        "asset": "AMD",
+        "strategy": "vwap_mean_reversion|v2|AMD|5m|long",
+        "timestamp": "2026-06-09 17:50:00+03:00",
+        "decision": "broker_rejected",
+        "message": "max_order_notional",
+        "metadata": {
+          "layer": "broker_execution",
+          "broker_decision": "rejected",
+          "broker_reason": "max_order_notional",
+          "strategy_decision": "approved"
+        },
+        "reject_category": "NOTIONAL_LIMIT"
+      }
+    ]
+  },
+  "root_cause_by_top_category": {
+    "RISK_ENGINE": "C. SIZING/POLICY DESIGN ISSUE",
+    "SYMBOL_EXPOSURE": "C. SIZING/POLICY DESIGN ISSUE",
+    "STALE": "A. LEGITIMATE MARKET/BROKER CONSTRAINT",
+    "MARGIN": "E. OTHER",
+    "NOTIONAL_LIMIT": "B. STRATEGY GENERATES UNTRADEABLE ORDERS"
+  },
+  "per_finalist": [
+    {
+      "key": "vwap_mean_reversion|v2|AMD|5m|long",
+      "metrics": {
+        "key": "vwap_mean_reversion|v2|AMD|5m|long",
+        "family": "vwap_mean_reversion",
+        "asset": "AMD",
+        "timeframe": "5m",
+        "direction": "long",
+        "parameters": {
+          "dev": 0.005
+        },
+        "broker_path": "BacktestRunner+TradingStore+execute_through_broker (realistic_broker_v1)",
+        "portfolio_id": "00000000-0000-0000-0000-000000017303",
+        "trades": 2212,
+        "wins": 947,
+        "losses": 1265,
+        "win_rate_pct": 42.81,
+        "pf": 1.2526,
+        "expectancy_r": 0.1757,
+        "avg_win_r": 1.9641,
+        "avg_loss_r": -1.1632,
+        "payoff_ratio": 1.6732,
+        "max_dd_r": 162.112,
+        "max_dd_pct": 40.528,
+        "max_losing_streak": 66,
+        "return_pct": 104.9424,
+        "signal_count": 2380,
+        "orders": 8904,
+        "fills": 2212,
+        "rejections": {
+          "min_qty_rejects": 1,
+          "margin_rejects": 1,
+          "session_rejects": 1,
+          "risk_rejects": 144,
+          "stale_rejects": 38,
+          "broker_rejects": 9,
+          "other_rejects": 0
+        },
+        "walk_forward": {
+          "positive_folds": 4,
+          "folds": 4
+        },
+        "classification": "PASS"
+      }
+    },
+    {
+      "key": "atr_trend|v2|NVDA|15m|long",
+      "metrics": {
+        "key": "atr_trend|v2|NVDA|15m|long",
+        "family": "atr_trend",
+        "asset": "NVDA",
+        "timeframe": "15m",
+        "direction": "long",
+        "parameters": {
+          "ema_fast": 20,
+          "ema_slow": 50
+        },
+        "broker_path": "BacktestRunner+TradingStore+execute_through_broker (realistic_broker_v1)",
+        "portfolio_id": "00000000-0000-0000-0000-000000015203",
+        "trades": 871,
+        "wins": 440,
+        "losses": 431,
+        "win_rate_pct": 50.52,
+        "pf": 1.3665,
+        "expectancy_r": 0.2255,
+        "avg_win_r": 1.5833,
+        "avg_loss_r": -1.1606,
+        "payoff_ratio": 1.3385,
+        "max_dd_r": 61.8737,
+        "max_dd_pct": 15.4684,
+        "max_losing_streak": 39,
+        "return_pct": 50.9861,
+        "signal_count": 1438,
+        "orders": 3848,
+        "fills": 871,
+        "rejections": {
+          "min_qty_rejects": 0,
+          "margin_rejects": 0,
+          "session_rejects": 0,
+          "risk_rejects": 242,
+          "stale_rejects": 42,
+          "broker_rejects": 321,
+          "other_rejects": 0
+        },
+        "walk_forward": {
+          "positive_folds": 3,
+          "folds": 4
+        },
+        "classification": "PASS"
+      }
+    },
+    {
+      "key": "atr_trend|v1|AMD|15m|long",
+      "metrics": {
+        "key": "atr_trend|v1|AMD|15m|long",
+        "family": "atr_trend",
+        "asset": "AMD",
+        "timeframe": "15m",
+        "direction": "long",
+        "parameters": {
+          "ema_fast": 15,
+          "ema_slow": 40
+        },
+        "broker_path": "BacktestRunner+TradingStore+execute_through_broker (realistic_broker_v1)",
+        "portfolio_id": "00000000-0000-0000-0000-000000017203",
+        "trades": 1270,
+        "wins": 603,
+        "losses": 667,
+        "win_rate_pct": 47.48,
+        "pf": 1.1521,
+        "expectancy_r": 0.2608,
+        "avg_win_r": 2.1879,
+        "avg_loss_r": -1.4814,
+        "payoff_ratio": 1.2743,
+        "max_dd_r": 289.2851,
+        "max_dd_pct": 72.3213,
+        "max_losing_streak": 39,
+        "return_pct": 74.8418,
+        "signal_count": 1577,
+        "orders": 5139,
+        "fills": 1270,
+        "rejections": {
+          "min_qty_rejects": 1,
+          "margin_rejects": 1,
+          "session_rejects": 0,
+          "risk_rejects": 296,
+          "stale_rejects": 57,
+          "broker_rejects": 2,
+          "other_rejects": 0
+        },
+        "walk_forward": {
+          "positive_folds": 3,
+          "folds": 4
+        },
+        "classification": "PASS"
+      }
+    }
+  ],
+  "broker_path_bug_found": true,
+  "broker_bug_notes": "Research replay was mutating/querying live competition DB (portfolio sync, pending intents, idempotent broker fills). Fixed via research_replay_isolation + in-memory broker execute.",
+  "broker_bug_fixed_locally": true,
+  "broker_fix_summary": [
+    "store.research_replay_isolation skips portfolio ledger sync",
+    "BrokerExecutionService isolation path: evaluate_broker_order only, no DB orders/fills",
+    "BACKTEST skips find_pending_intent_for_signal_candle from live DB",
+    "BACKTEST skips sync_portfolios_financial_state_from_ledger during replay"
+  ]
+}

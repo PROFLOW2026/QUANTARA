@@ -485,9 +485,11 @@ class BrokerExecutionService:
             account_slug=self.account_slug,
             idempotency_key=idempotency_key,
         )
-        existing = self._load_existing_fill(account_id, idempotency_key, client_order_id)
-        if existing:
-            return existing
+        isolation = getattr(self.store, "research_replay_isolation", False)
+        if not isolation:
+            existing = self._load_existing_fill(account_id, idempotency_key, client_order_id)
+            if existing:
+                return existing
 
         market_open = market_open_for_instrument(instrument, execution_at)
         data_fresh, _ = data_fresh_for_instrument(self.store, instrument, timeframe, execution_at)
@@ -539,6 +541,22 @@ class BrokerExecutionService:
         decision = evaluate_broker_order(
             snapshot, self.profile, request, fx_map, product_rules=route.rules
         )
+
+        if isolation:
+            if not decision.accepted:
+                return BrokerExecutionResult(accepted=False, decision=decision)
+            qty = decision.accepted_quantity or intent.quantity
+            return BrokerExecutionResult(
+                accepted=True,
+                decision=decision,
+                fill_price=fill.fill_price,
+                fill_quantity=qty,
+                fees=fill.fees,
+                spread_cost=fill.spread_cost,
+                slippage=fill.slippage,
+                physical_opened_qty=qty if not is_close else Decimal("0"),
+                physical_closed_qty=qty if is_close else Decimal("0"),
+            )
 
         order_id = str(uuid.uuid4())
         db_strategy_intent_id = None if is_liquidation else coerce_uuid(strategy_intent_id)

@@ -1,0 +1,36 @@
+{
+  "candidates": [
+    {
+      "key": "vwap_mean_reversion|v2|AMD|5m|long",
+      "signals": 2380,
+      "broker_attempts": 8904,
+      "fills": 2212,
+      "rejects": 6692,
+      "fill_conversion_pct": 92.94,
+      "pf": 1.2526,
+      "expectancy_r": 0.1757
+    },
+    {
+      "key": "atr_trailing_trend|v1|AMD|15m|long",
+      "signals": 1993,
+      "broker_attempts": 6179,
+      "fills": 1526,
+      "rejects": 4653,
+      "fill_conversion_pct": 76.57,
+      "pf": 1.0437,
+      "expectancy_r": 0.16
+    },
+    {
+      "key": "rsi_divergence_mr|v1|AMD|15m|long",
+      "signals": 55,
+      "broker_attempts": 204,
+      "fills": 51,
+      "rejects": 153,
+      "fill_conversion_pct": 92.73,
+      "pf": 4.2766,
+      "expectancy_r": 1.6036
+    }
+  ],
+  "validation": "PASS",
+  "pass_gate": true
+}

@@ -126,6 +126,10 @@ class CandleProcessor:
         self.decisions: list[DecisionLogEntry] = []
         self._persisted_intents: set[str] = set()
 
+    def _research_replay_isolated(self) -> bool:
+        """Broker research replays (persist_backtest_record=False) must not touch live DB rows."""
+        return self.mode == Mode.BACKTEST and not self.backtest_run_id
+
     def _currency_context(self) -> CurrencyContext:
         if self.store:
             return self.store.build_currency_context_for_instruments([self.instrument])
@@ -158,7 +162,7 @@ class CandleProcessor:
             metadata=metadata or {},
         )
         self.decisions.append(entry)
-        if self.store:
+        if self.store and self.mode != Mode.BACKTEST:
             self.store.save_decision(entry)
             self._flush_store()
         return entry
@@ -177,6 +181,8 @@ class CandleProcessor:
             meta = dict(signal.metadata or {})
             meta.setdefault("opportunity_key", opp)
             signal = replace(signal, metadata=meta)
+        if self.mode == Mode.BACKTEST:
+            return
         self.store.save_signal(
             signal_id=signal_id,
             signal=signal,
@@ -190,7 +196,7 @@ class CandleProcessor:
     def _persist_intent(
         self, intent: OrderIntent, *, opportunity_key: str | None = None
     ) -> OrderIntent | None:
-        if not self.store:
+        if not self.store or self.mode == Mode.BACKTEST:
             return intent
         if intent.id in self._persisted_intents:
             return intent
@@ -209,7 +215,7 @@ class CandleProcessor:
         position: Position | None = None,
         trade=None,
     ) -> None:
-        if not self.store:
+        if not self.store or self.mode == Mode.BACKTEST:
             return
         if intent:
             if intent.id in self._persisted_intents:
@@ -252,7 +258,7 @@ class CandleProcessor:
         self._flush_store()
 
     def _persist_snapshot(self, snap) -> None:
-        if not self.store:
+        if not self.store or self._research_replay_isolated():
             return
         self.store.sync_portfolios_financial_state_from_ledger([self.state.portfolio], flush=False)
         self.store.save_snapshot(snap)
@@ -340,7 +346,7 @@ class CandleProcessor:
         """Fill pending intents on this candle only — no strategy or exit management."""
         candle = self.all_candles[candle_index]
         self._execute_pending(candle)
-        if self.store:
+        if self.store and not self._research_replay_isolated():
             for pos in self.state.open_positions():
                 self.store.update_open_position_mark(
                     pos.id, pos.current_price, pos.unrealized_pnl, flush=False
@@ -355,7 +361,7 @@ class CandleProcessor:
         self._check_sl_tp(candle)
         ctx = self._currency_context()
         self.state.recalculate_equity({self.instrument.id: candle.close}, ctx)
-        if self.store:
+        if self.store and not self._research_replay_isolated():
             for pos in self.state.open_positions():
                 self.store.update_open_position_mark(
                     pos.id, pos.current_price, pos.unrealized_pnl, flush=False
@@ -379,6 +385,10 @@ class CandleProcessor:
 
         if isinstance(self.clock, BacktestClock):
             self.clock.set_candle_time(candle.timestamp)
+            # Simulate processing after each bar closes (matches closed-candle signal semantics).
+            from quantara_engine.market_data.polling import bar_close_timestamp
+
+            self.execution_now = bar_close_timestamp(candle.timestamp, candle.timeframe)
 
         if self.allow_live_execution and self.execute_pending_in_process:
             self._execute_pending(candle)
@@ -390,7 +400,7 @@ class CandleProcessor:
                 self._check_sl_tp(candle)
                 ctx = self._currency_context()
                 self.state.recalculate_equity({self.instrument.id: candle.close}, ctx)
-                if self.store:
+                if self.store and not self._research_replay_isolated():
                     for pos in self.state.open_positions():
                         self.store.update_open_position_mark(
                             pos.id, pos.current_price, pos.unrealized_pnl, flush=False
@@ -476,7 +486,9 @@ class CandleProcessor:
         else:
             order, fill = self.broker.execute_entry(intent, candle)
 
-        opp_key = self.store.resolve_entry_opportunity_key(intent) if self.store else None
+        opp_key = None
+        if self.store and self.mode != Mode.BACKTEST:
+            opp_key = self.store.resolve_entry_opportunity_key(intent)
         result = execute_through_broker(
             self.store,
             portfolio_id=self.state.portfolio.id,
@@ -849,7 +861,7 @@ class CandleProcessor:
             self._log(candle, DecisionType.TRADING_HALTED, "Portfolio halted")
             return
 
-        if self.store:
+        if self.store and self.mode != Mode.BACKTEST:
             from quantara_engine.trading.trading_controls import (
                 allows_new_entries,
                 load_trading_control,
@@ -973,7 +985,7 @@ class CandleProcessor:
         from quantara_engine.broker.capability import check_entry_capability_for_portfolio
         from quantara_engine.broker.integration import should_use_broker_realism
 
-        if should_use_broker_realism(self.state.portfolio.id):
+        if should_use_broker_realism(self.state.portfolio.id) and not self._research_replay_isolated():
             entry_dir = "long" if signal.action == SignalAction.BUY else "short"
             cap = check_entry_capability_for_portfolio(
                 self.state.portfolio.id,
@@ -995,7 +1007,7 @@ class CandleProcessor:
                 )
                 return
 
-        if self.store:
+        if self.store and not self._research_replay_isolated():
             existing = self.store.find_pending_intent_for_signal_candle(
                 self.instance.id, candle.timestamp
             )
@@ -1053,7 +1065,7 @@ class CandleProcessor:
             signal_id,
             metadata=approval_meta,
         )
-        if self.store and signal_id:
+        if self.store and signal_id and not self._research_replay_isolated():
             metadata_patch = {"risk_audit": approval_meta.get("risk_audit", approval_meta)}
             if opportunity_key:
                 metadata_patch["opportunity_key"] = opportunity_key

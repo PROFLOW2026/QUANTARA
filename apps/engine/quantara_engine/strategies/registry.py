@@ -10,6 +10,7 @@ from quantara_engine.strategies.mean_reversion.v1_0_0 import MeanReversionV1
 from quantara_engine.strategies.momentum_continuation.v1_0_0 import MomentumContinuationV1
 from quantara_engine.strategies.opening_range_breakout.v1_0_0 import OpeningRangeBreakoutV1
 from quantara_engine.strategies.volatility_squeeze.v1_0_0 import VolatilitySqueezeV1
+from quantara_engine.strategies.v31_rule_replay.v1_0_0 import V31RuleReplayV1
 
 STRATEGY_REGISTRY: dict[str, dict[str, Type[BaseStrategy]]] = {
     "gold-trend-pullback": {
@@ -26,6 +27,13 @@ STRATEGY_REGISTRY: dict[str, dict[str, Type[BaseStrategy]]] = {
     },
     "momentum-continuation": {
         "1.0.0": MomentumContinuationV1,
+    },
+    "v32-p2-live-sim": {
+        "1.0.0": V31RuleReplayV1,
+    },
+    # Legacy slug — same implementation (pre-V3.2 release instances / replay jobs).
+    "v31-rule-replay": {
+        "1.0.0": V31RuleReplayV1,
     },
 }
 
