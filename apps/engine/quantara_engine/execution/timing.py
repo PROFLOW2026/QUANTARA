@@ -31,7 +31,11 @@ def execution_grace_minutes(timeframe: str) -> int:
 def stale_signal_max_age_minutes(timeframe: str) -> int:
     """Maximum signal age (~3 bars) before live entry is forbidden."""
     bar = timeframe_minutes(timeframe)
-    return 3 * bar
+    base = 3 * bar
+    # 1h+ strategies: allow execution grace so worker cadence lag does not false-stale N+1 entries.
+    if bar >= 60:
+        return base + execution_grace_minutes(timeframe)
+    return base
 
 
 def freshness_max_age_minutes(timeframe: str) -> int:

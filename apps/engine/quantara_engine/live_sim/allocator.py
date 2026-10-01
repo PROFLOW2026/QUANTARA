@@ -124,13 +124,27 @@ def _resolve_live_sim_entry_economics(
             account = dict(routed)
             account_slug = str(routed["slug"])
         broker_equity = Decimal(str(account.get("equity") or account.get("starting_cash")))
-        update_high_water_mark(store, account_id, broker_equity)
+        from quantara_engine.live_sim.execution_routing import is_multi_broker_live_sim_active
+
+        if is_multi_broker_live_sim_active(store):
+            from quantara_engine.live_sim.owner_master_risk import update_owner_high_water_mark
+
+            update_owner_high_water_mark(store, v2.owner_equity)
+        else:
+            update_high_water_mark(store, account_id, broker_equity)
     else:
         settings = broker_limits
         settings = maybe_roll_daily_start(
             store, account_id, settings, v2.risk_equity, execution_now
         )
-        update_high_water_mark(store, account_id, v2.risk_equity)
+        from quantara_engine.live_sim.execution_routing import is_multi_broker_live_sim_active
+
+        if is_multi_broker_live_sim_active(store):
+            from quantara_engine.live_sim.owner_master_risk import update_owner_high_water_mark
+
+            update_owner_high_water_mark(store, v2.owner_equity)
+        else:
+            update_high_water_mark(store, account_id, v2.risk_equity)
 
     target_risk = target_risk_for_equity(v2.risk_equity, settings)
     open_risk = v2.open_risk
@@ -1299,11 +1313,24 @@ def maybe_allocate_live_sim(
     if not gate.allowed:
         return _reject(gate.reason or "GATE", gate.detail or REJECTION_HE.get(gate.reason or "", ""))
 
-    if asset_row:
+    from quantara_engine.live_sim.execution_routing import is_multi_broker_live_sim_active
+
+    if is_multi_broker_live_sim_active(store):
+        from quantara_engine.live_sim.owner_master_risk import evaluate_owner_master_drawdown_gate
+
+        owner_dd = evaluate_owner_master_drawdown_gate(store)
+        if not owner_dd.allowed:
+            return _reject(
+                owner_dd.reason or "DRAWDOWN_GATE",
+                owner_dd.detail or REJECTION_HE.get("DRAWDOWN_GATE", ""),
+            )
+    elif asset_row:
         broker_equity = Decimal(str(account.get("equity") or account.get("starting_cash")))
+        slice_start = Decimal(str(account.get("starting_cash") or broker_equity))
+        slice_hwm = min(broker_limits.high_water_mark, max(broker_equity, slice_start))
         broker_dd = evaluate_drawdown_gate(
             equity=broker_equity,
-            high_water_mark=broker_limits.high_water_mark,
+            high_water_mark=slice_hwm,
             max_drawdown_gate_pct=broker_limits.max_drawdown_gate_pct,
             scope_label="broker drawdown",
         )

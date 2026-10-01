@@ -1,3 +1,3 @@
 """Worker runtime build tag — verifies deployed code after restarts."""
 
-WORKER_RUNTIME_BUILD_TAG = "phase2-universe+discovery-obs-20261001"
+WORKER_RUNTIME_BUILD_TAG = "owner-master-drawdown-gate-20261001"

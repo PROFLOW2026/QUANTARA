@@ -22,7 +22,7 @@ from quantara_engine.execution.timing import (
     [
         ("5m", 5, 8, 15, 15),
         ("15m", 15, 23, 45, 45),
-        ("1h", 60, 68, 180, 180),
+        ("1h", 60, 68, 248, 248),
     ],
 )
 def test_timeframe_scaled_constants(timeframe, tolerance, grace, stale, freshness):
