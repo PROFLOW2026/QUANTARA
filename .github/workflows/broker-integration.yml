@@ -85,6 +85,12 @@ jobs:
           psql -h 127.0.0.1 -p 5433 -U postgres -d quantara_broker_test -v ON_ERROR_STOP=1 -c \
             "GRANT ALL ON SCHEMA public TO quantara; GRANT CREATE ON SCHEMA public TO quantara;"
 
+      - name: Apply broker test migrations
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
+          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
+        run: npm run db:migrate
+
       - name: Bootstrap broker test schema
         working-directory: apps/engine
         env:

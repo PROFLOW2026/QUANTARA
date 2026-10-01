@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 
 import psycopg2
-from sqlalchemy import create_engine, text
 
 BROKER_TEST_DB_NAME = os.environ.get("BROKER_TEST_DB_NAME", "quantara_broker_test")
 
@@ -32,12 +31,22 @@ MIGRATIONS_DIR = _migrations_dir()
 
 
 def _postgres_available(url: str) -> bool:
-    try:
-        conn = psycopg2.connect(url)
-        conn.close()
-        return True
-    except Exception:
-        return False
+    import time
+
+    attempts = 5 if os.environ.get("GITHUB_ACTIONS") == "true" else 1
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            conn = psycopg2.connect(url)
+            conn.close()
+            return True
+        except Exception as exc:
+            last_exc = exc
+            if attempt + 1 < attempts:
+                time.sleep(1)
+    if last_exc is not None and os.environ.get("GITHUB_ACTIONS") == "true":
+        print(f"postgres unavailable after {attempts} tries: {last_exc}", flush=True)
+    return False
 
 
 def _apply_all_migrations_via_node(url: str) -> None:
@@ -87,21 +96,25 @@ def _apply_all_migrations_via_psycopg(url: str) -> None:
 
 def _broker_tables_exist(url: str) -> bool:
     try:
-        engine = create_engine(url, pool_pre_ping=True)
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1 FROM broker_accounts LIMIT 1"))
+        conn = psycopg2.connect(url)
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM broker_accounts LIMIT 1")
+        conn.close()
         return True
     except Exception:
         return False
 
 
 def apply_all_migrations(url: str) -> None:
+    if os.environ.get("GITHUB_ACTIONS") == "true" and _broker_tables_exist(url):
+        return
     node_err: Exception | None = None
     try:
         _apply_all_migrations_via_node(url)
         return
     except Exception as exc:
         node_err = exc
+        print(f"node migrate failed: {exc}", flush=True)
     try:
         _apply_all_migrations_via_psycopg(url)
     except Exception as sql_err:
