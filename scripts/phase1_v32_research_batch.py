@@ -23,8 +23,6 @@ from quantara_engine.research.v3.constants import V3_RESEARCH_START
 from quantara_engine.research.v3.job_registry import claim_job, finish_job, init_registry_jobs, registry_lock
 from quantara_engine.research.v3_2.job_plan import plan_v32_jobs
 from quantara_engine.research.v3_2.run_job import run_v32_stage_a_job
-from quantara_engine.research.v3_2.stage_b import validate_survivor_broker
-
 RESEARCH = ROOT / "scripts" / "research"
 CHECKPOINT_A = RESEARCH / "v3_2_discovery_checkpoint.jsonl"
 CHECKPOINT_B = RESEARCH / "v3_2_stage_b_checkpoint.jsonl"
@@ -121,51 +119,11 @@ def main() -> None:
             finish_job(registry_path=REGISTRY_A, lock_path=REG_LOCK_A, job_key=job.key, pid=pid, status="FAILED")
 
     completed_a = load_completed(CHECKPOINT_A)
-    for job in phase1_jobs:
-        row_a = completed_a.get(job.key)
-        if not row_a or not row_a.get("stage_a_pass"):
-            continue
-        if job.key in completed_b_before:
-            continue
-        instrument = store.get_instrument_by_symbol(job.asset)
-        if not instrument:
-            continue
-        cache_key = (str(instrument.id), job.timeframe)
-        candles = candle_cache.get(cache_key) or [
-            c for c in store.list_candles(instrument.id, job.timeframe) if c.timestamp >= V3_RESEARCH_START
-        ]
-        try:
-            row_b = validate_survivor_broker(job=job, candles=candles, store=store, instrument=instrument)
-            with registry_lock(REG_LOCK_A):
-                append_result(CHECKPOINT_B, row_b)
-            stage_b_new += 1
-        except Exception:
-            traceback.print_exc()
-
-    completed_b = load_completed(CHECKPOINT_B)
-    new_b = {k: v for k, v in completed_b.items() if k not in completed_b_before}
-
     summary = {
         "phase1_assets": sorted(PHASE1_ASSETS),
         "stage_a_jobs_planned_phase1": len(phase1_jobs),
         "stage_a_new_runs": stage_a_new,
-        "stage_b_new_runs": stage_b_new,
-        "new_pass_candidates": sum(
-            1
-            for k, v in new_b.items()
-            if str(v.get("classification") or "").upper() == "PASS" and _job_asset(k, v) in PHASE1_ASSETS
-        ),
-        "new_weak_pass_candidates": sum(
-            1
-            for k, v in new_b.items()
-            if str(v.get("classification") or "").upper() == "WEAK_PASS" and _job_asset(k, v) in PHASE1_ASSETS
-        ),
-        "new_fail_candidates": sum(
-            1
-            for k, v in new_b.items()
-            if str(v.get("classification") or "").upper() == "FAIL" and _job_asset(k, v) in PHASE1_ASSETS
-        ),
-        "phase1_stage_b_totals": _classify_phase1(completed_b),
+        "stage_b_note": "Use scripts/research/v3_2_stage_b_shard_worker.py after Stage A survivors.",
         "timestamp": time.time(),
     }
     SUMMARY_OUT.write_text(json.dumps(summary, indent=2), encoding="utf-8")
