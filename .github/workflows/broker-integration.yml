@@ -40,6 +40,7 @@ jobs:
         run: npm ci
 
       - uses: actions/setup-python@v5
+        id: setup-python
         with:
           python-version: "3.12"
 
@@ -98,11 +99,12 @@ jobs:
           DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
           QUANTARA_CI_BROKER_SEED: "1"
         run: |
-          python scripts/seed.py
-          python scripts/seed_8_assets.py
-          python scripts/seed_competition.py
-          python scripts/seed_orb_strategy.py
-          python scripts/seed_orb_competition.py
+          PY="${{ steps.setup-python.outputs.python-path }}"
+          "$PY" scripts/seed.py
+          "$PY" scripts/seed_8_assets.py
+          "$PY" scripts/seed_competition.py
+          "$PY" scripts/seed_orb_strategy.py
+          "$PY" scripts/seed_orb_competition.py
 
       - name: Bootstrap broker test schema
         working-directory: apps/engine
