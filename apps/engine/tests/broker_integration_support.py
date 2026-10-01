@@ -79,7 +79,27 @@ def _ensure_ci_competition_seed(url: str) -> None:
         return
     if _reference_portfolio_count(url) >= 160:
         return
-    _seed_disposable_competition_data(url)
+    prior_db = os.environ.get("DATABASE_URL")
+    prior_direct = os.environ.get("DIRECT_URL")
+    prior_seed = os.environ.get("QUANTARA_CI_BROKER_SEED")
+    try:
+        os.environ["DATABASE_URL"] = url
+        os.environ["DIRECT_URL"] = url
+        os.environ["QUANTARA_CI_BROKER_SEED"] = "1"
+        _seed_disposable_competition_data(url)
+    finally:
+        if prior_db is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = prior_db
+        if prior_direct is None:
+            os.environ.pop("DIRECT_URL", None)
+        else:
+            os.environ["DIRECT_URL"] = prior_direct
+        if prior_seed is None:
+            os.environ.pop("QUANTARA_CI_BROKER_SEED", None)
+        else:
+            os.environ["QUANTARA_CI_BROKER_SEED"] = prior_seed
 
 
 def _apply_all_migrations(url: str) -> None:
