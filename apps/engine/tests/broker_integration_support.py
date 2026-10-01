@@ -42,7 +42,11 @@ def _repo_root() -> Path:
     raise RuntimeError(f"repo root not found (started from {__file__})")
 
 
-MIGRATIONS_DIR = _repo_root() / "packages" / "db" / "migrations"
+def _migrations_dir() -> Path:
+    return _repo_root() / "packages" / "db" / "migrations"
+
+
+MIGRATIONS_DIR = _migrations_dir()
 
 _broker_db_ready = False
 _embedded_pg = None
@@ -101,12 +105,13 @@ def _apply_all_migrations_via_node(url: str) -> None:
 
 def _apply_all_migrations_via_psycopg(url: str) -> None:
     """Fallback when npm/db:migrate is unavailable (matches scripts/migrate.mjs ordering)."""
-    if not MIGRATIONS_DIR.is_dir():
-        raise RuntimeError(f"migrations dir missing: {MIGRATIONS_DIR}")
+    migrations_dir = _migrations_dir()
+    if not migrations_dir.is_dir():
+        raise RuntimeError(f"migrations dir missing: {migrations_dir}")
     conn = psycopg2.connect(url)
     conn.autocommit = True
     cur = conn.cursor()
-    for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
+    for path in sorted(migrations_dir.glob("*.sql")):
         sql = path.read_text(encoding="utf-8")
         try:
             cur.execute(sql)

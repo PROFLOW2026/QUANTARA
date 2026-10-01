@@ -7,9 +7,12 @@ import traceback
 from pathlib import Path
 
 # `python tests/ci_bootstrap_broker.py` puts `tests/` on sys.path[0], not the engine root.
+# Even when PYTHONPATH=. already includes the engine root, it may not be first.
 _ENGINE_ROOT = Path(__file__).resolve().parents[1]
-if str(_ENGINE_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ENGINE_ROOT))
+_engine_root_str = str(_ENGINE_ROOT)
+while _engine_root_str in sys.path:
+    sys.path.remove(_engine_root_str)
+sys.path.insert(0, _engine_root_str)
 
 from tests.broker_integration_support import bootstrap_broker_test_schema_for_ci
 
