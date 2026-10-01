@@ -971,6 +971,8 @@ def maybe_allocate_live_sim(
         symbol=instrument.symbol,
         timeframe=instance.timeframe,
         parameter_overrides=getattr(instance, "parameter_overrides", None) or {},
+        signal_candle_timestamp=candle.timestamp,
+        execution_now=execution_now,
     )
     if not policy.allowed:
         log_allocation(

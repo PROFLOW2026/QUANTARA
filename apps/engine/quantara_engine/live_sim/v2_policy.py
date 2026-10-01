@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from quantara_engine.competition.robot_registry import ROBOT_LABELS
+from datetime import datetime, timezone
+
 from quantara_engine.live_sim.v32_registry import (
+    FX_LIVE_MAX_5M_AGE_HOURS,
+    V32_FX_LIVE_SYMBOLS,
     V32_LIVE_SIM_STRATEGY_SLUG,
     is_v32_qualified_candidate_key,
     normalize_timeframe,
@@ -45,6 +49,8 @@ def evaluate_live_sim_v2_policy(
     symbol: str,
     timeframe: str | None,
     parameter_overrides: dict[str, Any] | None = None,
+    signal_candle_timestamp: datetime | None = None,
+    execution_now: datetime | None = None,
 ) -> LiveSimPolicyVerdict:
     sym = symbol.upper().replace("/", "")
     tf = normalize_timeframe(timeframe)
@@ -56,6 +62,16 @@ def evaluate_live_sim_v2_policy(
                 reason="V32_CANDIDATE_NOT_QUALIFIED",
                 category="ROBOT_POLICY",
             )
+        if sym in V32_FX_LIVE_SYMBOLS and signal_candle_timestamp and execution_now:
+            sig = signal_candle_timestamp.replace(tzinfo=timezone.utc)
+            now = execution_now.replace(tzinfo=timezone.utc)
+            age_h = (now - sig).total_seconds() / 3600
+            if age_h > FX_LIVE_MAX_5M_AGE_HOURS:
+                return LiveSimPolicyVerdict(
+                    allowed=False,
+                    reason="STALE_FX_MARK",
+                    category="ASSET_POLICY",
+                )
         return LiveSimPolicyVerdict(allowed=True)
     if strategy_slug in LIVE_SIM_PAUSED_STRATEGY_SLUGS:
         return LiveSimPolicyVerdict(

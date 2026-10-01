@@ -75,6 +75,24 @@ def test_robots_a_through_e_live_paused():
         assert v.reason == "ROBOT_LIVE_PAUSED"
 
 
+def test_v32_stale_fx_mark_blocked():
+    from datetime import datetime, timedelta, timezone
+
+    params = _params_for_key("ema_pullback_continue|v1|AMD|15m|long")
+    params["symbol"] = "EURUSD"
+    stale = datetime.now(timezone.utc) - timedelta(hours=72)
+    v = evaluate_live_sim_v2_policy(
+        strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
+        symbol="EURUSD",
+        timeframe="15m",
+        parameter_overrides=params,
+        signal_candle_timestamp=stale,
+        execution_now=datetime.now(timezone.utc),
+    )
+    assert not v.allowed
+    assert v.reason == "STALE_FX_MARK"
+
+
 def test_v32_fail_classification_blocked():
     params = _params_for_key("channel_mean_revert|v1|COIN|15m|short")
     v = evaluate_live_sim_v2_policy(

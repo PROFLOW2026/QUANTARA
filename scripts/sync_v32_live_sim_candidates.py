@@ -19,6 +19,8 @@ from quantara_engine.competition.constants import OWNER_ID
 from quantara_engine.db.sqlalchemy_url import normalize_sqlalchemy_postgres_url
 from quantara_engine.market_data.active_universe import list_active_db_symbols
 from quantara_engine.live_sim.v32_registry import (
+    FX_LIVE_MAX_5M_AGE_HOURS,
+    V32_FX_LIVE_SYMBOLS,
     V32_LIVE_SIM_EXPERIMENT_ID,
     load_v32_live_sim_active_combinations,
     parameter_overrides_for_combination,
@@ -179,6 +181,28 @@ def _risk_profile_id(conn) -> uuid.UUID:
     return row[0]
 
 
+def _fx_5m_fresh(conn, symbol: str) -> bool:
+    row = conn.execute(
+        text(
+            """
+            SELECT MAX(c.timestamp) AS latest
+            FROM candles c
+            JOIN instruments i ON i.id = c.instrument_id
+            WHERE i.symbol = :sym AND c.timeframe = '5m'
+            """
+        ),
+        {"sym": symbol},
+    ).first()
+    latest = row[0] if row else None
+    if latest is None:
+        return False
+    from datetime import datetime, timezone
+
+    ts = latest.replace(tzinfo=timezone.utc) if latest.tzinfo is None else latest
+    age_h = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
+    return age_h <= FX_LIVE_MAX_5M_AGE_HOURS
+
+
 def main() -> None:
     combos = load_v32_live_sim_active_combinations()
     if not combos:
@@ -186,6 +210,16 @@ def main() -> None:
 
     session = sessionmaker(bind=create_engine(normalize_sqlalchemy_postgres_url(db_url())))()
     conn = session.connection()
+    fx_fresh = {sym: _fx_5m_fresh(conn, sym) for sym in V32_FX_LIVE_SYMBOLS}
+    skipped_stale_fx: list[str] = []
+    filtered: list = []
+    for row in combos:
+        sym = str(row["asset"]).upper()
+        if sym in V32_FX_LIVE_SYMBOLS and not fx_fresh.get(sym, False):
+            skipped_stale_fx.append(row["key"])
+            continue
+        filtered.append(row)
+    combos = filtered
     _ensure_experiment(conn)
     sv_id = _ensure_v32_strategy(conn)
     rp_id = _risk_profile_id(conn)
@@ -267,6 +301,8 @@ def main() -> None:
                 "qualified": len(combos),
                 "instances_upserted": created + updated,
                 "missing_instruments": sorted(set(missing_inst)),
+                "fx_5m_fresh": fx_fresh,
+                "skipped_stale_fx": skipped_stale_fx,
                 "keys": active_keys,
             },
             indent=2,

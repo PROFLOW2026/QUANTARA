@@ -2,6 +2,19 @@
   "version": "3.2",
   "qualified": [
     {
+      "key": "atr_trailing_trend|v1|AAPL|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v1",
+      "asset": "AAPL",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 55
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
       "key": "atr_trailing_trend|v1|AMD|15m|long",
       "family": "atr_trailing_trend",
       "variant_id": "v1",
@@ -13,6 +26,279 @@
       },
       "robustness": "PROMISING",
       "classification": "WEAK_PASS"
+    },
+    {
+      "key": "atr_trailing_trend|v1|GOOGL|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v1",
+      "asset": "GOOGL",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 55
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "atr_trailing_trend|v1|META|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v1",
+      "asset": "META",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 55
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "atr_trailing_trend|v1|META|15m|short",
+      "family": "atr_trailing_trend",
+      "variant_id": "v1",
+      "asset": "META",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "ema_slow": 55
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "atr_trailing_trend|v1|MSFT|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v1",
+      "asset": "MSFT",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 55
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "atr_trailing_trend|v1|QQQ|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v1",
+      "asset": "QQQ",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 55
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "atr_trailing_trend|v1|SPY|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v1",
+      "asset": "SPY",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 55
+      },
+      "robustness": "PROMISING",
+      "classification": "FAIL"
+    },
+    {
+      "key": "atr_trailing_trend|v1|TSLA|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v1",
+      "asset": "TSLA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 55
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "atr_trailing_trend|v1|TSLA|15m|short",
+      "family": "atr_trailing_trend",
+      "variant_id": "v1",
+      "asset": "TSLA",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "ema_slow": 55
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "atr_trailing_trend|v2|AAPL|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v2",
+      "asset": "AAPL",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "atr_trailing_trend|v2|AMZN|15m|short",
+      "family": "atr_trailing_trend",
+      "variant_id": "v2",
+      "asset": "AMZN",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "atr_trailing_trend|v2|GOOGL|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v2",
+      "asset": "GOOGL",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "atr_trailing_trend|v2|GOOGL|15m|short",
+      "family": "atr_trailing_trend",
+      "variant_id": "v2",
+      "asset": "GOOGL",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "PROMISING",
+      "classification": "FAIL"
+    },
+    {
+      "key": "atr_trailing_trend|v2|META|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v2",
+      "asset": "META",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "atr_trailing_trend|v2|META|15m|short",
+      "family": "atr_trailing_trend",
+      "variant_id": "v2",
+      "asset": "META",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "atr_trailing_trend|v2|MSFT|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v2",
+      "asset": "MSFT",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "PROMISING",
+      "classification": "FAIL"
+    },
+    {
+      "key": "atr_trailing_trend|v2|QQQ|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v2",
+      "asset": "QQQ",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "PROMISING",
+      "classification": "FAIL"
+    },
+    {
+      "key": "atr_trailing_trend|v2|SPY|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v2",
+      "asset": "SPY",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "atr_trailing_trend|v2|TSLA|15m|long",
+      "family": "atr_trailing_trend",
+      "variant_id": "v2",
+      "asset": "TSLA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "atr_trailing_trend|v2|TSLA|15m|short",
+      "family": "atr_trailing_trend",
+      "variant_id": "v2",
+      "asset": "TSLA",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|AAPL|15m|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "AAPL",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|AAPL|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "AAPL",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
     },
     {
       "key": "channel_mean_revert|v1|AMD|15m|long",
@@ -28,6 +314,71 @@
       "classification": "WEAK_PASS"
     },
     {
+      "key": "channel_mean_revert|v1|AMD|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "AMD",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|AMZN|15m|short",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "AMZN",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|AMZN|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "AMZN",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "channel_mean_revert|v1|AMZN|1h|short",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "AMZN",
+      "timeframe": "1h",
+      "direction": "short",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|COIN|15m|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "COIN",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
       "key": "channel_mean_revert|v1|COIN|15m|short",
       "family": "channel_mean_revert",
       "variant_id": "v1",
@@ -38,6 +389,261 @@
         "channel": 25
       },
       "robustness": "PROMISING",
+      "classification": "FAIL"
+    },
+    {
+      "key": "channel_mean_revert|v1|COIN|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "COIN",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|COIN|1h|short",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "COIN",
+      "timeframe": "1h",
+      "direction": "short",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|GOOGL|15m|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "GOOGL",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "channel_mean_revert|v1|GOOGL|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "GOOGL",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "channel_mean_revert|v1|MSFT|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "MSFT",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "channel_mean_revert|v1|NVDA|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "NVDA",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|QQQ|15m|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "QQQ",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|QQQ|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "QQQ",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|SPY|15m|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "SPY",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "channel_mean_revert|v1|TSLA|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "TSLA",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "PROMISING",
+      "classification": "FAIL"
+    },
+    {
+      "key": "channel_mean_revert|v1|TSLA|1h|short",
+      "family": "channel_mean_revert",
+      "variant_id": "v1",
+      "asset": "TSLA",
+      "timeframe": "1h",
+      "direction": "short",
+      "parameters": {
+        "channel": 25
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "channel_mean_revert|v2|AAPL|15m|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "AAPL",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "PROMISING",
+      "classification": "FAIL"
+    },
+    {
+      "key": "channel_mean_revert|v2|AAPL|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "AAPL",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "ROBUST",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "channel_mean_revert|v2|AMD|15m|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "channel_mean_revert|v2|AMD|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "AMD",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "ROBUST",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "channel_mean_revert|v2|AMZN|15m|short",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "AMZN",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "channel_mean_revert|v2|AMZN|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "AMZN",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "channel_mean_revert|v2|AMZN|1h|short",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "AMZN",
+      "timeframe": "1h",
+      "direction": "short",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "channel_mean_revert|v2|COIN|15m|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "COIN",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "FAIL",
       "classification": "FAIL"
     },
     {
@@ -55,6 +661,492 @@
       "classification": "FAIL"
     },
     {
+      "key": "channel_mean_revert|v2|COIN|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "COIN",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "channel_mean_revert|v2|COIN|1h|short",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "COIN",
+      "timeframe": "1h",
+      "direction": "short",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "channel_mean_revert|v2|GOOGL|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "GOOGL",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "channel_mean_revert|v2|META|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "META",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "channel_mean_revert|v2|MSFT|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "MSFT",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "channel_mean_revert|v2|NVDA|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "NVDA",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "channel_mean_revert|v2|NVDA|1h|short",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "NVDA",
+      "timeframe": "1h",
+      "direction": "short",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "channel_mean_revert|v2|QQQ|15m|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "QQQ",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "ROBUST",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "channel_mean_revert|v2|TSLA|1h|long",
+      "family": "channel_mean_revert",
+      "variant_id": "v2",
+      "asset": "TSLA",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "dev": 0.008,
+        "channel": 30
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|AAPL|1h|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "AAPL",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|AMD|1h|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "AMD",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "PROMISING",
+      "classification": "PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|GOOGL|15m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "GOOGL",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|GOOGL|1h|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "GOOGL",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "RESEARCH_ONLY",
+      "classification": "FAIL"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|META|15m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "META",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|META|15m|short",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "META",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|META|1h|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "META",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "RESEARCH_ONLY",
+      "classification": "FAIL"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|MSFT|15m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "MSFT",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "ROBUST",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|MSFT|15m|short",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "MSFT",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "ROBUST",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|MSFT|1h|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "MSFT",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|NVDA|1h|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "NVDA",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|QQQ|15m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "QQQ",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|QQQ|1h|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "QQQ",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|SPY|15m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "SPY",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|SPY|1h|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "SPY",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|TSLA|15m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "TSLA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|TSLA|15m|short",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "TSLA",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "channel": 30
+      },
+      "robustness": "ROBUST",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v2|AMD|1h|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v2",
+      "asset": "AMD",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 55
+      },
+      "robustness": "RESEARCH_ONLY",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v2|GOOGL|15m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v2",
+      "asset": "GOOGL",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 55
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v2|META|15m|short",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v2",
+      "asset": "META",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "channel": 55
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v2|MSFT|15m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v2",
+      "asset": "MSFT",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 55
+      },
+      "robustness": "ROBUST",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v2|MSFT|15m|short",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v2",
+      "asset": "MSFT",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "channel": 55
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "donchian_breakout_v2|v2|QQQ|15m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v2",
+      "asset": "QQQ",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 55
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v2|SPY|15m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v2",
+      "asset": "SPY",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 55
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v2|TSLA|15m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v2",
+      "asset": "TSLA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 55
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "donchian_breakout_v2|v2|TSLA|15m|short",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v2",
+      "asset": "TSLA",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "channel": 55
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v1|AAPL|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "AAPL",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v1|AAPL|1h|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "AAPL",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
       "key": "ema_pullback_continue|v1|AMD|15m|long",
       "family": "ema_pullback_continue",
       "variant_id": "v1",
@@ -66,6 +1158,94 @@
       "classification": "PASS"
     },
     {
+      "key": "ema_pullback_continue|v1|AMD|15m|short",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "ema_pullback_continue|v1|AMD|1h|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "AMD",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "ROBUST",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v1|AMZN|15m|short",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "AMZN",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v1|COIN|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "COIN",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "ema_pullback_continue|v1|COIN|15m|short",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "COIN",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "ema_pullback_continue|v1|GOOGL|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "GOOGL",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v1|META|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "META",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "ROBUST",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v1|MSFT|1h|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "MSFT",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
       "key": "ema_pullback_continue|v1|NVDA|15m|long",
       "family": "ema_pullback_continue",
       "variant_id": "v1",
@@ -74,6 +1254,89 @@
       "direction": "long",
       "parameters": {},
       "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v1|NVDA|15m|short",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "ema_pullback_continue|v1|QQQ|1h|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "QQQ",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "ema_pullback_continue|v1|SPY|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "SPY",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "ema_pullback_continue|v1|SPY|15m|short",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "SPY",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v1|TSLA|15m|short",
+      "family": "ema_pullback_continue",
+      "variant_id": "v1",
+      "asset": "TSLA",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v2|AAPL|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "AAPL",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v2|AAPL|1h|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "AAPL",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "PROMISING",
       "classification": "PASS"
     },
     {
@@ -91,12 +1354,110 @@
       "classification": "WEAK_PASS"
     },
     {
+      "key": "ema_pullback_continue|v2|AMD|1h|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "AMD",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "ema_pullback_continue|v2|AMZN|15m|short",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "AMZN",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
       "key": "ema_pullback_continue|v2|COIN|15m|short",
       "family": "ema_pullback_continue",
       "variant_id": "v2",
       "asset": "COIN",
       "timeframe": "15m",
       "direction": "short",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v2|GOOGL|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "GOOGL",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v2|META|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "META",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v2|META|15m|short",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "META",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v2|META|1h|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "META",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "PROMISING",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "ema_pullback_continue|v2|MSFT|1h|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "MSFT",
+      "timeframe": "1h",
+      "direction": "long",
       "parameters": {
         "ema_fast": 8,
         "ema_slow": 21
@@ -119,6 +1480,167 @@
       "classification": "PASS"
     },
     {
+      "key": "ema_pullback_continue|v2|QQQ|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "QQQ",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "ema_pullback_continue|v2|QQQ|1h|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "QQQ",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "ema_pullback_continue|v2|SOLUSD|15m|short",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "SOLUSD",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "ema_pullback_continue|v2|TSLA|15m|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "TSLA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "ema_pullback_continue|v2|TSLA|15m|short",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "TSLA",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "PROMISING",
+      "classification": "FAIL"
+    },
+    {
+      "key": "ema_pullback_continue|v2|TSLA|1h|long",
+      "family": "ema_pullback_continue",
+      "variant_id": "v2",
+      "asset": "TSLA",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "ema_fast": 8,
+        "ema_slow": 21
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "momentum_after_base|v1|AAPL|15m|long",
+      "family": "momentum_after_base",
+      "variant_id": "v1",
+      "asset": "AAPL",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "momentum_after_base|v1|GOOGL|15m|long",
+      "family": "momentum_after_base",
+      "variant_id": "v1",
+      "asset": "GOOGL",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "ROBUST",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "momentum_after_base|v1|MSFT|15m|long",
+      "family": "momentum_after_base",
+      "variant_id": "v1",
+      "asset": "MSFT",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "PROMISING",
+      "classification": "PASS"
+    },
+    {
+      "key": "momentum_after_base|v1|MSFT|15m|short",
+      "family": "momentum_after_base",
+      "variant_id": "v1",
+      "asset": "MSFT",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "ROBUST",
+      "classification": "PASS"
+    },
+    {
+      "key": "momentum_after_base|v1|QQQ|15m|long",
+      "family": "momentum_after_base",
+      "variant_id": "v1",
+      "asset": "QQQ",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "momentum_after_base|v1|TSLA|15m|long",
+      "family": "momentum_after_base",
+      "variant_id": "v1",
+      "asset": "TSLA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "momentum_after_base|v1|TSLA|15m|short",
+      "family": "momentum_after_base",
+      "variant_id": "v1",
+      "asset": "TSLA",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "ROBUST",
+      "classification": "WEAK_PASS"
+    },
+    {
       "key": "mtf_trend_ltf_entry|v1|AMD|5m|long",
       "family": "mtf_trend_ltf_entry",
       "variant_id": "v1",
@@ -132,6 +1654,19 @@
       "classification": "WEAK_PASS"
     },
     {
+      "key": "mtf_trend_ltf_entry|v1|AMZN|5m|short",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v1",
+      "asset": "AMZN",
+      "timeframe": "5m",
+      "direction": "short",
+      "parameters": {
+        "ema_slow": 50
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
       "key": "mtf_trend_ltf_entry|v1|COIN|5m|short",
       "family": "mtf_trend_ltf_entry",
       "variant_id": "v1",
@@ -142,6 +1677,147 @@
         "ema_slow": 50
       },
       "robustness": "ROBUST",
+      "classification": "WEAK_PASS"
+    },
+    {
+      "key": "mtf_trend_ltf_entry|v1|GOOGL|5m|long",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v1",
+      "asset": "GOOGL",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 50
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "mtf_trend_ltf_entry|v1|MSFT|5m|long",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v1",
+      "asset": "MSFT",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 50
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "mtf_trend_ltf_entry|v1|NVDA|5m|short",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v1",
+      "asset": "NVDA",
+      "timeframe": "5m",
+      "direction": "short",
+      "parameters": {
+        "ema_slow": 50
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "mtf_trend_ltf_entry|v1|QQQ|5m|long",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v1",
+      "asset": "QQQ",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 50
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "mtf_trend_ltf_entry|v1|SOLUSD|5m|short",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v1",
+      "asset": "SOLUSD",
+      "timeframe": "5m",
+      "direction": "short",
+      "parameters": {
+        "ema_slow": 50
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "mtf_trend_ltf_entry|v2|AMZN|5m|short",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v2",
+      "asset": "AMZN",
+      "timeframe": "5m",
+      "direction": "short",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "mtf_trend_ltf_entry|v2|GOOGL|5m|long",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v2",
+      "asset": "GOOGL",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "mtf_trend_ltf_entry|v2|MSFT|5m|long",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v2",
+      "asset": "MSFT",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "mtf_trend_ltf_entry|v2|QQQ|5m|long",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v2",
+      "asset": "QQQ",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "mtf_trend_ltf_entry|v2|SOLUSD|5m|short",
+      "family": "mtf_trend_ltf_entry",
+      "variant_id": "v2",
+      "asset": "SOLUSD",
+      "timeframe": "5m",
+      "direction": "short",
+      "parameters": {
+        "ema_slow": 80
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "orb_continuation|v1|AAPL|5m|long",
+      "family": "orb_continuation",
+      "variant_id": "v1",
+      "asset": "AAPL",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "PROMISING",
       "classification": "WEAK_PASS"
     },
     {
@@ -167,6 +1843,17 @@
       "classification": "PASS"
     },
     {
+      "key": "orb_continuation|v1|AMZN|5m|short",
+      "family": "orb_continuation",
+      "variant_id": "v1",
+      "asset": "AMZN",
+      "timeframe": "5m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
       "key": "orb_continuation|v1|COIN|5m|short",
       "family": "orb_continuation",
       "variant_id": "v1",
@@ -176,6 +1863,17 @@
       "parameters": {},
       "robustness": "ROBUST",
       "classification": "PASS"
+    },
+    {
+      "key": "orb_continuation|v1|NVDA|15m|long",
+      "family": "orb_continuation",
+      "variant_id": "v1",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
     },
     {
       "key": "orb_continuation|v1|NVDA|5m|long",
@@ -200,6 +1898,17 @@
       "classification": "PASS"
     },
     {
+      "key": "rsi_divergence_mr|v1|COIN|15m|long",
+      "family": "rsi_divergence_mr",
+      "variant_id": "v1",
+      "asset": "COIN",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
       "key": "rsi_divergence_mr|v1|COIN|15m|short",
       "family": "rsi_divergence_mr",
       "variant_id": "v1",
@@ -209,6 +1918,28 @@
       "parameters": {},
       "robustness": "ROBUST",
       "classification": "PASS"
+    },
+    {
+      "key": "rsi_divergence_mr|v1|NVDA|15m|short",
+      "family": "rsi_divergence_mr",
+      "variant_id": "v1",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "short",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "squeeze_release|v1|AMD|15m|long",
+      "family": "squeeze_release",
+      "variant_id": "v1",
+      "asset": "AMD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "FAIL",
+      "classification": "FAIL"
     },
     {
       "key": "squeeze_release|v1|AMD|15m|short",
@@ -246,6 +1977,19 @@
       "classification": "PASS"
     },
     {
+      "key": "vol_expansion_v2|v1|NVDA|15m|long",
+      "family": "vol_expansion_v2",
+      "variant_id": "v1",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "bb_std": 2.2
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
       "key": "vol_expansion_v2|v2|AMD|15m|short",
       "family": "vol_expansion_v2",
       "variant_id": "v2",
@@ -259,6 +2003,19 @@
       "classification": "PASS"
     },
     {
+      "key": "vol_expansion_v2|v2|COIN|15m|long",
+      "family": "vol_expansion_v2",
+      "variant_id": "v2",
+      "asset": "COIN",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "bb_std": 2.6
+      },
+      "robustness": "RESEARCH_ONLY",
+      "classification": "WEAK_PASS"
+    },
+    {
       "key": "vol_expansion_v2|v2|COIN|15m|short",
       "family": "vol_expansion_v2",
       "variant_id": "v2",
@@ -270,6 +2027,45 @@
       },
       "robustness": "PROMISING",
       "classification": "PASS"
+    },
+    {
+      "key": "vol_expansion_v2|v2|NVDA|15m|long",
+      "family": "vol_expansion_v2",
+      "variant_id": "v2",
+      "asset": "NVDA",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "bb_std": 2.6
+      },
+      "robustness": "RESEARCH_ONLY",
+      "classification": "FAIL"
+    },
+    {
+      "key": "vwap_session_revert|v1|COIN|5m|short",
+      "family": "vwap_session_revert",
+      "variant_id": "v1",
+      "asset": "COIN",
+      "timeframe": "5m",
+      "direction": "short",
+      "parameters": {
+        "dev": 0.004
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
+      "key": "vwap_session_revert|v1|NVDA|5m|short",
+      "family": "vwap_session_revert",
+      "variant_id": "v1",
+      "asset": "NVDA",
+      "timeframe": "5m",
+      "direction": "short",
+      "parameters": {
+        "dev": 0.004
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
     },
     {
       "key": "vwap_session_revert|v1|TSLA|5m|short",

@@ -34,6 +34,10 @@ V32_LIVE_SIM_BLOCKED_KEYS: frozenset[str] = frozenset()
 # Stage-B classifications excluded from virtual Live Sim (manifest may retain for research).
 V32_LIVE_SIM_BLOCKED_CLASSIFICATIONS: frozenset[str] = frozenset({"FAIL"})
 
+# FX Live Sim requires fresh 5m marks (Tiingo/Twelve Data); research may use stale history.
+V32_FX_LIVE_SYMBOLS: frozenset[str] = frozenset({"EURUSD", "USDJPY"})
+FX_LIVE_MAX_5M_AGE_HOURS: float = 48.0
+
 
 @lru_cache(maxsize=1)
 def load_v32_qualified_combinations() -> tuple[dict[str, Any], ...]:
