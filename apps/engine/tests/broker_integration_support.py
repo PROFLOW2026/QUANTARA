@@ -46,7 +46,7 @@ def _migrations_dir() -> Path:
     return _repo_root() / "packages" / "db" / "migrations"
 
 
-MIGRATIONS_DIR = _migrations_dir()
+MIGRATIONS_DIR = _migrations_dir()  # module-level for tests; path resolved from __file__
 
 _broker_db_ready = False
 _embedded_pg = None
@@ -80,11 +80,7 @@ def _apply_all_migrations_via_node(url: str) -> None:
     if not migrate_script.is_file():
         raise RuntimeError(f"migrate script missing: {migrate_script}")
     node_bin = shutil.which("node") or "node"
-    env = {
-        k: os.environ[k]
-        for k in ("PATH", "HOME", "SystemRoot", "WINDIR", "NODE_PATH")
-        if k in os.environ
-    }
+    env = os.environ.copy()
     env["DATABASE_URL"] = url
     env["DIRECT_URL"] = url
     proc = subprocess.run(
