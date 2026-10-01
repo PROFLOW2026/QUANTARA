@@ -25,7 +25,9 @@ jobs:
 
     env:
       BROKER_TEST_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5433/postgres
-      BROKER_TEST_DATABASE_URL: postgresql://quantara:quantara@127.0.0.1:5433/quantara_broker_test
+      BROKER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
+      DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
 
     steps:
       - uses: actions/checkout@v4
@@ -91,17 +93,6 @@ jobs:
           DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
         run: npm run db:migrate
 
-      - name: Seed broker test reference data
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
-          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
-        run: |
-          python scripts/seed.py
-          python scripts/seed_8_assets.py
-          python scripts/seed_competition.py
-          python scripts/seed_orb_strategy.py
-          python scripts/seed_orb_competition.py
-
       - name: Bootstrap broker test schema
         working-directory: apps/engine
         env:
@@ -120,4 +111,6 @@ jobs:
         env:
           BROKER_TEST_REUSE: "1"
           BROKER_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
+          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
         run: pytest tests/test_broker_execution_integration.py -v --tb=short

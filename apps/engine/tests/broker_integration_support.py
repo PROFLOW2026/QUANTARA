@@ -62,6 +62,26 @@ def _broker_tables_exist(url: str) -> bool:
     return _ci_migrate._broker_tables_exist(url)
 
 
+def _reference_portfolio_count(url: str) -> int:
+    try:
+        conn = psycopg2.connect(url)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM portfolios")
+        count = int(cur.fetchone()[0])
+        conn.close()
+        return count
+    except Exception:
+        return 0
+
+
+def _ensure_ci_competition_seed(url: str) -> None:
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return
+    if _reference_portfolio_count(url) >= 160:
+        return
+    _seed_disposable_competition_data(url)
+
+
 def _apply_all_migrations(url: str) -> None:
     _ci_migrate.apply_all_migrations(url)
 
@@ -143,6 +163,7 @@ def provision_broker_test_database() -> str:
             )
         except RuntimeError as exc:
             pytest.fail(str(exc))
+        _ensure_ci_competition_seed(BROKER_TEST_DATABASE_URL.strip())
         _patch_session_factory(BROKER_TEST_DATABASE_URL)
         _broker_db_ready = True
         return BROKER_TEST_DATABASE_URL
