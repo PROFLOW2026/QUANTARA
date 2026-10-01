@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import os
+import shutil
 import uuid
 from decimal import Decimal
 from pathlib import Path
 
 import psycopg2
-import pytest
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
@@ -32,7 +32,17 @@ BROKER_TEST_ADMIN_URL = os.environ.get(
     "BROKER_TEST_ADMIN_URL",
     "postgresql://postgres:postgres@localhost:5432/postgres",
 )
-MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "packages" / "db" / "migrations"
+def _repo_root() -> Path:
+    root = Path(__file__).resolve().parents[3]
+    if (root / "packages" / "db" / "migrations").is_dir():
+        return root
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "packages" / "db" / "migrations").is_dir():
+            return parent
+    raise RuntimeError(f"repo root not found (started from {__file__})")
+
+
+MIGRATIONS_DIR = _repo_root() / "packages" / "db" / "migrations"
 
 _broker_db_ready = False
 _embedded_pg = None
@@ -61,12 +71,20 @@ def _apply_all_migrations_via_node(url: str) -> None:
     import subprocess
     import sys
 
-    root = Path(__file__).resolve().parents[3]
-    env = os.environ.copy()
+    root = _repo_root()
+    migrate_script = root / "scripts" / "migrate.mjs"
+    if not migrate_script.is_file():
+        raise RuntimeError(f"migrate script missing: {migrate_script}")
+    node_bin = shutil.which("node") or "node"
+    env = {
+        k: os.environ[k]
+        for k in ("PATH", "HOME", "SystemRoot", "WINDIR", "NODE_PATH")
+        if k in os.environ
+    }
     env["DATABASE_URL"] = url
     env["DIRECT_URL"] = url
     proc = subprocess.run(
-        ["npm", "run", "db:migrate"],
+        [node_bin, str(migrate_script)],
         cwd=str(root),
         env=env,
         capture_output=True,
@@ -226,6 +244,8 @@ def _owner_database_url() -> str | None:
 
 
 def provision_broker_test_database() -> str:
+    import pytest
+
     global _broker_db_ready
     if _broker_db_ready:
         return BROKER_TEST_DATABASE_URL

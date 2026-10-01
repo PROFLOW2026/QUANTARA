@@ -88,6 +88,7 @@ jobs:
       - name: Bootstrap broker test schema
         working-directory: apps/engine
         env:
+          PYTHONPATH: .
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
           DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5433/quantara_broker_test
           BROKER_TEST_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5433/postgres
