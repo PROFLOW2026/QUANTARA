@@ -67,39 +67,12 @@ def _apply_all_migrations(url: str) -> None:
 
 
 def _seed_disposable_competition_data(url: str) -> None:
-    """Minimal reference seed so reset tests can touch 160 competition portfolios."""
-    import subprocess
-    import sys
-
-    root = Path(__file__).resolve().parents[3]
-    env = os.environ.copy()
-    env["DATABASE_URL"] = url
-    scripts = (
-        "seed.py",
-        "seed_8_assets.py",
-        "seed_competition.py",
-        "seed_orb_strategy.py",
-        "seed_orb_competition.py",
-    )
-    for name in scripts:
-        script = root / "scripts" / name
-        if not script.exists():
-            continue
-        subprocess.run(
-            [sys.executable, str(script)],
-            cwd=str(root),
-            check=True,
-            env=env,
-        )
+    _ci_migrate.seed_disposable_competition_data(url)
 
 
 def bootstrap_broker_test_schema_for_ci() -> str:
     """Apply migrations/seeds on an existing disposable DB (GitHub Actions services)."""
-    migrate_url = os.environ.get("BROKER_TEST_MIGRATE_URL", BROKER_TEST_DATABASE_URL).strip()
-    url = _ci_migrate.bootstrap_broker_test_schema_for_ci()
-    if os.environ.get("BROKER_TEST_FULL_SEED") == "1":
-        _seed_disposable_competition_data(migrate_url)
-    return url
+    return _ci_migrate.bootstrap_broker_test_schema_for_ci()
 
 
 def _provision_local_database() -> str | None:

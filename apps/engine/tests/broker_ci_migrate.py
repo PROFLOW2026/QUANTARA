@@ -123,6 +123,36 @@ def apply_all_migrations(url: str) -> None:
         ) from sql_err
 
 
+def seed_disposable_competition_data(url: str) -> None:
+    """Minimal reference seed so reset tests can touch 160 competition portfolios."""
+    root = _repo_root()
+    env = os.environ.copy()
+    env["DATABASE_URL"] = url
+    scripts = (
+        "seed.py",
+        "seed_8_assets.py",
+        "seed_competition.py",
+        "seed_orb_strategy.py",
+        "seed_orb_competition.py",
+    )
+    for name in scripts:
+        script = root / "scripts" / name
+        if not script.is_file():
+            continue
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            cwd=str(root),
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"seed failed: {name}\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+            )
+
+
 def bootstrap_broker_test_schema_for_ci() -> str:
     """Apply migrations on an existing disposable DB (GitHub Actions services)."""
     default_test_url = os.environ.get(
@@ -141,4 +171,6 @@ def bootstrap_broker_test_schema_for_ci() -> str:
         if os.environ.get("BROKER_TEST_ALLOW_MIGRATE_URL") == "1":
             return migrate_url
         raise RuntimeError(f"broker test role database unreachable: {test_url}")
+    if os.environ.get("BROKER_TEST_FULL_SEED") == "1":
+        seed_disposable_competition_data(migrate_url)
     return test_url
