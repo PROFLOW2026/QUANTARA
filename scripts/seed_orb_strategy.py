@@ -4,13 +4,20 @@
 from __future__ import annotations
 
 import json
-import runpy
+import os
 import sys
 import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-runpy.run_path(str(ROOT / "scripts" / "ci_db_env.py"), run_name="__ci_db_env__")
+_ci_db_url = (
+    os.environ.get("DATABASE_URL", "").strip()
+    or os.environ.get("BROKER_TEST_MIGRATE_URL", "").strip()
+    or os.environ.get("BROKER_TEST_DATABASE_URL", "").strip()
+)
+if _ci_db_url:
+    os.environ["DATABASE_URL"] = _ci_db_url
+    os.environ.setdefault("DIRECT_URL", _ci_db_url)
 sys.path.insert(0, str(ROOT / "apps" / "engine"))
 
 from sqlalchemy import text  # noqa: E402

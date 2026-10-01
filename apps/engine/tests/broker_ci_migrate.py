@@ -140,7 +140,7 @@ def seed_disposable_competition_data(url: str) -> None:
     for name in scripts:
         script = root / "scripts" / name
         if not script.is_file():
-            continue
+            raise RuntimeError(f"seed script missing: {script} (repo root {root})")
         proc = subprocess.run(
             [sys.executable, str(script)],
             cwd=str(root),
