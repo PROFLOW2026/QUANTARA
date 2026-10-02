@@ -770,7 +770,7 @@ def run_non_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[s
             for db_sym in sorted(open_fx_symbols):
                 record_protection_source(store, db_sym, "5m_fallback", reason="fast_fx_exhausted")
                 fx_sources[db_sym] = "5m_fallback"
-            protection_mode = "EXHAUSTED"
+            protection_mode = "HARD_GUARD"
     elif open_fx_symbols:
         fx_skipped_session.extend(sorted(open_fx_symbols))
 

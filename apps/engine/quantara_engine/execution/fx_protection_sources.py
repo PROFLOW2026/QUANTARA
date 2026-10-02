@@ -39,7 +39,7 @@ ProtectionSource = Literal[
     "none",
 ]
 
-QuotaMode = Literal["NORMAL", "CONSERVATION", "FALLBACK", "EXHAUSTED"]
+QuotaMode = Literal["NORMAL", "CONSERVATION", "FALLBACK", "HARD_GUARD"]
 
 LAST_FETCH_SETTINGS_KEY = "fx_protection:provider_fetch_state"
 PROTECTION_STATUS_KEY = "fx_protection:last_source"
@@ -318,12 +318,12 @@ def plan_fx_protection_fetch(
     now = _as_utc(now or datetime.now(timezone.utc))
     sym = normalize_db_symbol(symbol)
 
-    if quota_mode == "EXHAUSTED":
+    if quota_mode == "HARD_GUARD":
         return ProtectionFetchPlan(
             symbol=sym,
             source="stored_1m" if has_fresh_stored_1m else "5m_fallback",
             fetch_provider=None,
-            reason="td_exhausted_use_stored_or_5m",
+            reason="hard_guard_use_tiingo_stored_or_5m",
             near_sl=near_sl,
         )
 

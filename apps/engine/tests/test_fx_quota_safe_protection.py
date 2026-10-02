@@ -502,7 +502,7 @@ def test_quota_mode_conservation_and_exhausted():
     with patch("quantara_engine.execution.fx_fast_credit_guard.safe_used_today", return_value=530):
         assert quota_mode(store) == "CONSERVATION"
     with patch("quantara_engine.execution.fx_fast_credit_guard.safe_used_today", return_value=720):
-        assert quota_mode(store) == "EXHAUSTED"
+        assert quota_mode(store) == "HARD_GUARD"
 
 
 def test_1m_minute_boundaries_via_bar_complete():

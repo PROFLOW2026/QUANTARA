@@ -389,7 +389,7 @@ def test_j_td_blocked_uses_5m_failsafe():
     plan = plan_fx_protection_fetch(
         store,
         "XAUUSD",
-        quota_mode="EXHAUSTED",
+        quota_mode="HARD_GUARD",
         tiingo_eligible=False,
         td_eligible=False,
         near_sl=True,

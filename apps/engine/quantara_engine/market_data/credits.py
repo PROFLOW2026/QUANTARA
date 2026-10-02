@@ -505,17 +505,22 @@ def is_blocked(store: TradingStore | None) -> bool:
     return "429" in err or "run out of api credits" in err
 
 
+def is_hard_guard_active(store: TradingStore | None) -> bool:
+    """True when no Twelve Data market-data requests may be made (720 ceiling)."""
+    return safe_used_today(store) >= INTERNAL_GUARD_LIMIT
+
+
 def can_fetch(store: TradingStore | None, priority: FetchPriority) -> bool:
     """Conservative guard — uses max(ledger, provider api_usage).
 
-    When budget is constrained, defer nonessential Twelve Data work first so
-    remaining credits prioritize open-position protection.
+    INTERNAL_GUARD_LIMIT (720) is a hard stop for all priorities including
+    OPEN_POSITION. No calls through 720→800.
     """
     used = safe_used_today(store)
-    if used >= DAILY_HARD_LIMIT:
-        return priority <= FetchPriority.OPEN_POSITION
     if used >= INTERNAL_GUARD_LIMIT:
-        return priority <= FetchPriority.OPEN_POSITION
+        return False
+    if used >= DAILY_HARD_LIMIT:
+        return False
     # Conservation band: stop scheduled / UI / audit enrichment.
     if used >= 520:
         return priority <= FetchPriority.CATCH_UP
@@ -576,12 +581,14 @@ def status_payload(store: TradingStore | None) -> dict[str, Any]:
         "internal_guard_active": used_today >= INTERNAL_GUARD_LIMIT,
         "ledger_used": ledger_used,
         "quota_mode": (
-            "EXHAUSTED"
+            "HARD_GUARD"
             if used_today >= INTERNAL_GUARD_LIMIT
             else "CONSERVATION"
             if used_today >= 520
             else "NORMAL"
         ),
+        "hard_guard_active": used_today >= INTERNAL_GUARD_LIMIT,
+        "twelve_data_requests_allowed": used_today < INTERNAL_GUARD_LIMIT,
         "last_sync": state.get("last_sync"),
         "last_success": state.get("last_health_sync") or state.get("last_sync"),
         "last_error": state.get("last_error"),
@@ -622,12 +629,14 @@ def _status_payload_from_sessions() -> dict[str, Any]:
             "internal_guard_active": used_today >= INTERNAL_GUARD_LIMIT,
             "ledger_used": ledger_used,
             "quota_mode": (
-                "EXHAUSTED"
+                "HARD_GUARD"
                 if used_today >= INTERNAL_GUARD_LIMIT
                 else "CONSERVATION"
                 if used_today >= 520
                 else "NORMAL"
             ),
+            "hard_guard_active": used_today >= INTERNAL_GUARD_LIMIT,
+            "twelve_data_requests_allowed": used_today < INTERNAL_GUARD_LIMIT,
             "last_sync": merged.get("last_sync"),
             "last_success": merged.get("last_health_sync") or merged.get("last_sync"),
             "last_error": merged.get("last_error"),
@@ -640,7 +649,18 @@ def _refresh_twelve_data_health_impl(*, force: bool = False) -> dict[str, Any]:
 
     try:
         with health_session_scope() as session:
+            credits_state = _read_setting_dict(session, SETTINGS_KEY) or _empty_state()
+            if credits_state.get("date") != _today_key():
+                credits_state = _empty_state()
             health_state = _read_setting_dict(session, HEALTH_SETTINGS_KEY) or _empty_health_state()
+            if health_state.get("date") != _today_key():
+                health_state = _empty_health_state()
+            merged = _merge_status_state(credits_state, health_state)
+            ledger_used = int(credits_state.get("used") or 0)
+            provider_usage = merged.get("provider_daily_usage")
+            guard_used = max(ledger_used, int(provider_usage)) if provider_usage is not None else ledger_used
+            if guard_used >= INTERNAL_GUARD_LIMIT:
+                return _status_payload_from_sessions()
             last = health_state.get("last_health_sync")
             if not force and last:
                 try:

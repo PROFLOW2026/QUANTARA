@@ -15,8 +15,10 @@ from quantara_engine.core.config import settings
 from quantara_engine.domain.types import Candle
 from quantara_engine.market_data.credits import (
     FetchPriority,
+    INTERNAL_GUARD_LIMIT,
     can_fetch,
     record_usage,
+    safe_used_today,
     sync_provider_usage,
 )
 from quantara_engine.market_data.polling import (
@@ -109,7 +111,12 @@ class TwelveDataMarketDataProvider:
         return interval
 
     def _request(self, endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
-        if endpoint != "api_usage" and not can_fetch(self._store, self._priority):
+        if safe_used_today(self._store) >= INTERNAL_GUARD_LIMIT:
+            raise TwelveDataError(
+                f"Credit hard guard blocked {endpoint} for caller={self._caller} "
+                f"(used>={INTERNAL_GUARD_LIMIT})"
+            )
+        if not can_fetch(self._store, self._priority):
             raise TwelveDataError(
                 f"Credit guard blocked {endpoint} for caller={self._caller} "
                 f"(priority={self._priority.name})"

@@ -20,9 +20,9 @@ SCHEDULED_INGEST_RESERVE = 200
 FAST_FX_CREDITS_PER_FETCH = 1
 # Prefer normal-day TD burn << internal guard (target ~400–450 used).
 CONSERVATION_USED_FLOOR = 520  # leave ≥200 under guard for OPEN_POSITION + reserve
-EXHAUSTED_USED_FLOOR = INTERNAL_GUARD_LIMIT
+HARD_GUARD_USED_FLOOR = INTERNAL_GUARD_LIMIT
 
-QuotaMode = Literal["NORMAL", "CONSERVATION", "FALLBACK", "EXHAUSTED"]
+QuotaMode = Literal["NORMAL", "CONSERVATION", "FALLBACK", "HARD_GUARD"]
 
 
 def _used_today(store: TradingStore) -> int:
@@ -44,11 +44,11 @@ def quota_mode(store: TradingStore, *, tiingo_primary_ok: bool = True) -> QuotaM
     NORMAL       — Tiingo 1m primary; TD REST not used for heartbeat
     FALLBACK     — Tiingo unavailable; TD used sparsely
     CONSERVATION — TD budget tight; TD only near-SL / no nonessential
-    EXHAUSTED    — at/above internal guard; 5m fail-safe only for TD path
+    HARD_GUARD   — at/above internal guard; no Twelve Data; Tiingo/stored/5m only
     """
     used = _used_today(store)
-    if used >= EXHAUSTED_USED_FLOOR:
-        return "EXHAUSTED"
+    if used >= HARD_GUARD_USED_FLOOR:
+        return "HARD_GUARD"
     if used >= CONSERVATION_USED_FLOOR or remaining_fast_fx_budget(store) <= 0:
         return "CONSERVATION"
     if not tiingo_primary_ok:
@@ -60,10 +60,10 @@ def can_run_fast_fx_fetch(store: TradingStore) -> bool:
     """True when any fast FX path may still protect (Tiingo or TD or stored 1m).
 
     Name kept for callers; 5m PM is skipped while forex session is open and
-    this returns True. When EXHAUSTED, return False so 5m fail-safe runs.
+    this returns True.     When HARD_GUARD, return False so 5m fail-safe runs (no TD heartbeat).
     """
     mode = quota_mode(store)
-    if mode == "EXHAUSTED":
+    if mode == "HARD_GUARD":
         return False
     if mode == "CONSERVATION":
         # Still prefer skipping 5m when we may fetch TD near-SL or reuse stored 1m.
@@ -77,7 +77,7 @@ def can_fetch_twelve_data_1m(store: TradingStore) -> bool:
     if not can_fetch(store, FetchPriority.OPEN_POSITION):
         return False
     mode = quota_mode(store)
-    return mode != "EXHAUSTED"
+    return mode != "HARD_GUARD"
 
 
 def select_fx_symbols_this_cycle(

@@ -58,8 +58,8 @@ def test_persist_health_success_writes_separate_key(mock_scope, mock_read, mock_
     mock_scope.return_value.__enter__.return_value = session
     mock_read.return_value = None
     _persist_health_success({"daily_usage": 18, "plan_daily_limit": 800})
-    mock_upsert.assert_called_once()
-    key, state = mock_upsert.call_args[0][1], mock_upsert.call_args[0][2]
+    assert mock_upsert.call_count == 2
+    key, state = mock_upsert.call_args_list[0][0][1], mock_upsert.call_args_list[0][0][2]
     assert key == HEALTH_SETTINGS_KEY
     assert state["provider_daily_usage"] == 18
     assert state["provider_daily_limit"] == 800
@@ -67,7 +67,8 @@ def test_persist_health_success_writes_separate_key(mock_scope, mock_read, mock_
     assert state.get("last_health_sync")
 
 
-def test_status_healthy_when_synced_with_zero_usage():
+@patch("quantara_engine.market_data.credits._today_key", return_value="2026-09-12")
+def test_status_healthy_when_synced_with_zero_usage(_mock_today):
     store = _store_with_state(
         {"date": "2026-09-12", "used": 0, "events": []},
         {
@@ -85,20 +86,23 @@ def test_status_healthy_when_synced_with_zero_usage():
     assert payload["internal_guard_limit"] == INTERNAL_GUARD_LIMIT
 
 
-def test_status_unknown_without_sync_or_ledger():
+@patch("quantara_engine.market_data.credits._today_key", return_value="2026-09-12")
+def test_status_unknown_without_sync_or_ledger(_mock_today):
     store = _store_with_state({"date": "2026-09-12", "used": 0, "events": []})
     payload = status_payload(store)
     assert payload["status"] == "unknown"
 
 
-def test_status_blocked_on_429():
+@patch("quantara_engine.market_data.credits._today_key", return_value="2026-09-12")
+def test_status_blocked_on_429(_mock_today):
     store = _store_with_state({"date": "2026-09-12", "used": 0, "events": []})
     mark_blocked(store, "HTTP 429: quota exceeded")
     payload = status_payload(store)
     assert payload["status"] == "blocked"
 
 
-def test_internal_guard_separate_from_provider_health():
+@patch("quantara_engine.market_data.credits._today_key", return_value="2026-09-12")
+def test_internal_guard_separate_from_provider_health(_mock_today):
     store = _store_with_state(
         {"date": "2026-09-12", "used": 725, "events": []},
         {
@@ -112,7 +116,8 @@ def test_internal_guard_separate_from_provider_health():
     payload = status_payload(store)
     assert payload["status"] == "healthy"
     assert payload["internal_guard_active"] is True
-    assert payload["used_today"] == 2
+    assert payload["quota_mode"] == "HARD_GUARD"
+    assert payload["used_today"] == 725
     assert payload["provider_plan_limit"] == 800
 
 
