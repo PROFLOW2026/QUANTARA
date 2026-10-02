@@ -57,10 +57,10 @@ function HomeDashboardContent() {
   const competitionReady = Boolean(competition?.active && !competitionUnavailable);
   const portfolios = competitionReady ? (competition?.portfolios ?? []) : [];
   const shadowReferenceCapital = competitionReady
-    ? (competition?.experiment?.shadow_reference_capital ??
-      competition?.combined?.initial_equity ??
-      competition?.experiment?.total_initial_capital ??
-      null)
+    ? (competition?.experiment?.shadow_reference_capital ?? null)
+    : null;
+  const portfolioReferenceCapital = competitionReady
+    ? (competition?.experiment?.portfolio_initial_capital ?? null)
     : null;
   const combinedRealized = competitionReady
     ? portfolios.reduce((sum, row) => sum + row.realized_pnl, 0)
@@ -92,16 +92,16 @@ function HomeDashboardContent() {
       !competitionReady ||
       portfolioCount == null ||
       portfolioCount <= 0 ||
-      shadowReferenceCapital == null
+      shadowReferenceCapital == null ||
+      portfolioReferenceCapital == null
     ) {
       return t("home.shadow_reference_hint_unavailable");
     }
-    const perPortfolio = shadowReferenceCapital / portfolioCount;
     return t("home.shadow_reference_hint", {
       count: portfolioCount,
-      amount: formatCurrency(perPortfolio),
+      amount: formatCurrency(portfolioReferenceCapital),
     });
-  }, [competitionReady, portfolioCount, shadowReferenceCapital]);
+  }, [competitionReady, portfolioCount, shadowReferenceCapital, portfolioReferenceCapital]);
   const restAssetRows = assetAnalytics?.assets ?? [];
   const assetRows = useMemo(
     () => mergeLiveMarksIntoAssets(restAssetRows, liveMarks),

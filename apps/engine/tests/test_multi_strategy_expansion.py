@@ -13,7 +13,7 @@ from quantara_engine.competition.multi_strategy_constants import (
     ALL_MULTI_STRATEGY_PORTFOLIOS,
     MEAN_REVERSION_PORTFOLIOS,
     MOMENTUM_CONTINUATION_PORTFOLIOS,
-    SHADOW_REFERENCE_TOTAL,
+    LEGACY_SHADOW_REFERENCE_TOTAL,
     VOLATILITY_SQUEEZE_PORTFOLIOS,
 )
 from quantara_engine.domain.types import Candle, SignalAction, StrategyContext
@@ -72,8 +72,8 @@ class TestPortfolioConstants:
         ids = [p.portfolio_id for p in ALL_MULTI_STRATEGY_PORTFOLIOS]
         assert len(ids) == len(set(ids))
 
-    def test_shadow_reference_total(self):
-        assert SHADOW_REFERENCE_TOTAL == Decimal("560000")
+    def test_legacy_shadow_reference_total(self):
+        assert LEGACY_SHADOW_REFERENCE_TOTAL == Decimal("560000")
 
 
 class TestMeanReversionStrategy:

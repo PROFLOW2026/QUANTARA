@@ -96,6 +96,7 @@ def test_combined_initial_capital_320000_when_orb_enabled():
     expected = float(COMPETITION_TOTAL_INITIAL + ORB_COMPETITION_TOTAL_INITIAL)
     assert payload["combined"]["initial_equity"] == expected
     assert payload["experiment"]["total_initial_capital"] == expected
+    assert payload["experiment"]["shadow_reference_capital"] == expected
     assert expected == 320000.0
 
 

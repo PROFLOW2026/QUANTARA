@@ -10,7 +10,8 @@ from quantara_engine.market_data.active_universe import list_active_db_symbols
 
 MULTI_STRATEGY_TIMEFRAME = "15m"
 MULTI_STRATEGY_INITIAL_CAPITAL = Decimal("2000")
-SHADOW_REFERENCE_TOTAL = Decimal("560000")
+# Legacy fixed pool (280 × $2k) — do not use in API; shadow reference is derived from live portfolio totals.
+LEGACY_SHADOW_REFERENCE_TOTAL = Decimal("560000")
 
 MEAN_REVERSION_STRATEGY_SLUG = "mean-reversion"
 MEAN_REVERSION_STRATEGY_VERSION = "1.0.0"

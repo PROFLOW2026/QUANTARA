@@ -21,7 +21,6 @@ from quantara_engine.competition.multi_strategy_constants import (
     MEAN_REVERSION_EXPERIMENT_ID,
     MOMENTUM_CONTINUATION_EXPERIMENT_ID,
     PORTFOLIO_DEF_BY_ID as MULTI_PORTFOLIO_DEF_BY_ID,
-    SHADOW_REFERENCE_TOTAL,
     VOLATILITY_SQUEEZE_EXPERIMENT_ID,
 )
 from quantara_engine.competition.orb_constants import (
@@ -444,7 +443,8 @@ def build_competition_response(store: TradingStore) -> dict[str, Any]:
     robot_b_initial = sum(float(e["portfolio"].initial_capital) for e in robot_b_entries)
     cde_initial = sum(float(e["portfolio"].initial_capital) for e in cde_entries)
     total_initial = robot_a_initial + robot_b_initial + cde_initial
-    shadow_reference_total = float(SHADOW_REFERENCE_TOTAL)
+    # Strategy-layer reference capital: sum of each paper portfolio's seeded initial_capital ($2k each).
+    shadow_reference_total = total_initial
     combined_equity = sum(p["equity"] for p in portfolios)
     combined_pnl = combined_equity - total_initial
 
