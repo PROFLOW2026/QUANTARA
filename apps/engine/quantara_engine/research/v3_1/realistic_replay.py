@@ -36,7 +36,7 @@ def _risk_profile_025() -> RiskProfile:
         slug="v31-replay-0.25",
         name="V3.1 replay 0.25%",
         risk_per_trade_pct=Decimal("0.25"),
-        max_open_positions=3,
+        max_open_positions=1,
         max_total_exposure_pct=Decimal("100"),
         daily_loss_limit_pct=Decimal("20"),
         max_drawdown_pct=Decimal("50"),

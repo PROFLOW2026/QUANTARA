@@ -113,6 +113,9 @@ class RiskEngine:
 
         direction = Direction.LONG if signal.action == SignalAction.BUY else Direction.SHORT
         paper_competition = is_paper_competition_portfolio(inp.portfolio.id)
+        # V3.2 isolated broker replay must match Live Sim: one position per symbol, not competition stacking.
+        if inp.store and getattr(inp.store, "research_replay_isolation", False):
+            paper_competition = False
         assumptions = inp.execution_assumptions or execution_assumptions_for(
             inp.instrument, inp.current_candle.close
         )
