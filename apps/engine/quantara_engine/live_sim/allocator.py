@@ -739,7 +739,7 @@ def _resume_pending_allocation(
     spot_raw = Decimal(str(account.get("spot_crypto_cash") or "0"))
     cash_raw = Decimal(str(account.get("cash") or account.get("equity") or account["starting_cash"]))
     accepted, broker_reason = validate_live_sim_broker_pre_trade(
-        equity=equity,
+        equity=leverage_equity,
         cash=cash_raw,
         spot_crypto_cash=spot_raw,
         quantity=sizing.quantity,
