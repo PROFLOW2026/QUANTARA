@@ -72,7 +72,9 @@ def _simulate_n1(
             continue
         risk_amt = 25.0  # 0.25% of 10k reference
         tp_dist = float(atr_s.iloc[i]) * atr_tp
-        cost = entry * (cost_bps / 10000.0) * 2
+        units = risk_amt / risk_dist
+        # Round-trip cost scales with position notional, not per-share entry alone.
+        cost = entry * units * (cost_bps / 10000.0) * 2
         j = i + 2
         exit_px = entry
         closed_at = df.index[j - 1]
@@ -107,7 +109,6 @@ def _simulate_n1(
         if not hit:
             exit_px = float(df["close"].iloc[j - 1])
             closed_at = df.index[j - 1]
-        units = risk_amt / risk_dist
         pnl = (exit_px - entry) * units if direction == "long" else (entry - exit_px) * units
         pnl -= cost
         if hasattr(closed_at, "to_pydatetime"):

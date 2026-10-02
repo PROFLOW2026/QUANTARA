@@ -114,6 +114,23 @@ def test_twelve_data_blocked_fx_still_allows_local_1m_derive():
     assert reason is None
 
 
+def test_eurusd_tiingo_not_deferred_outside_us_rth_when_bootstrapped():
+    store = MagicMock()
+    store.get_settings_dict.return_value = {}
+    eur = next(a for a in list_target_assets() if a.db_symbol == "EURUSD")
+    closed = datetime(2026, 9, 9, 2, 0, tzinfo=timezone.utc)
+    should, reason = _should_poll_asset(
+        store,
+        eur,
+        now=closed,
+        stored=500,
+        force_bootstrap=False,
+        live=True,
+    )
+    assert should is True
+    assert reason is None
+
+
 def test_tiingo_deferred_outside_us_rth_when_bootstrapped():
     store = MagicMock()
     store.get_settings_dict.return_value = {}

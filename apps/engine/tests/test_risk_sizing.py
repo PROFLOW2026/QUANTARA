@@ -248,6 +248,49 @@ def test_global_guard_default_is_two_percent():
     assert DEFAULT_OPEN_RISK_LIMITS.max_global_asset_open_risk_pct == Decimal("2")
 
 
+def test_research_replay_isolation_skips_global_asset_guard():
+    mock_store = MagicMock()
+    mock_store.research_replay_isolation = True
+    portfolio = Portfolio(
+        id="p1",
+        name="bt",
+        mode="backtest",
+        initial_capital=Decimal("10000"),
+        balance=Decimal("10000"),
+        equity=Decimal("10000"),
+        status=PortfolioStatus.ACTIVE,
+        peak_equity=Decimal("10000"),
+    )
+    ok, reason = evaluate_all_open_risk_guards(
+        store=mock_store,
+        portfolio=portfolio,
+        open_positions=[],
+        instrument=Instrument(
+            id="i1",
+            name="ETHUSD",
+            symbol="ETHUSD",
+            asset_class="crypto",
+            quote_currency="USD",
+            min_quantity=Decimal("0.0001"),
+            quantity_step=Decimal("0.0001"),
+        ),
+        strategy_instance=StrategyInstance(
+            id="si",
+            portfolio_id="p1",
+            strategy_version_id="sv",
+            strategy_slug="v32",
+            strategy_version="1",
+            instrument_id="i1",
+            timeframe="1h",
+            risk_profile_id="rp",
+        ),
+        incremental_risk_usd=Decimal("25"),
+    )
+    assert ok is True
+    assert reason is None
+    mock_store.session.scalars.assert_not_called()
+
+
 def test_load_global_risk_context_uses_asset_portfolios(monkeypatch):
     mock_store = MagicMock()
     mock_store._position_to_domain.side_effect = lambda r: _pos("10", pid=str(r))

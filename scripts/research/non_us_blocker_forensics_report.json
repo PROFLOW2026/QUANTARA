@@ -1,0 +1,208 @@
+{
+  "generated_at": "2026-10-02T10:21:42.120956+00:00",
+  "btc_pnl": {
+    "synthetic": [
+      {
+        "case": "long_up",
+        "entry": 100000.0,
+        "exit": 101000.0,
+        "units": 0.05,
+        "gross_pnl": 50.0,
+        "cost_current_formula": 240.0,
+        "net_pnl_current": -190.0,
+        "cost_notional_scaled": 12.0,
+        "net_pnl_if_notional_cost": 38.0,
+        "price_up_positive_gross": true
+      },
+      {
+        "case": "long_down",
+        "entry": 100000.0,
+        "exit": 99000.0,
+        "units": 0.05,
+        "gross_pnl": -50.0,
+        "cost_current_formula": 240.0,
+        "net_pnl_current": -290.0,
+        "cost_notional_scaled": 12.0,
+        "net_pnl_if_notional_cost": -62.0,
+        "price_up_positive_gross": true
+      }
+    ],
+    "real_btc_bar_example": [
+      {
+        "bar_index": 100,
+        "entry": 79631.78,
+        "tp_exit": 79865.83761580552,
+        "atr": 117.02880790275701,
+        "units": 0.15258758229837677,
+        "gross_tp_pnl": 35.7143,
+        "cost_subtracted": 191.1163,
+        "net_with_current_cost": -155.402,
+        "winner_possible": false
+      }
+    ]
+  },
+  "eth": {
+    "key": "donchian_breakout_v2|v1|ETHUSD|1h|long",
+    "symbol": "ETHUSD",
+    "decision_counts": {
+      "hold": 654,
+      "buy_signal": 24,
+      "risk_approved": 67,
+      "sl_triggered": 8,
+      "risk_denied": 4,
+      "tp_triggered": 8,
+      "broker_rejected": 2
+    },
+    "rejections_summary": {
+      "min_qty_rejects": 0,
+      "margin_rejects": 0,
+      "session_rejects": 0,
+      "risk_rejects": 4,
+      "stale_rejects": 0,
+      "broker_rejects": 2,
+      "other_rejects": 0
+    },
+    "risk_denied_messages_sample": [
+      "INVALID_STOP_LOSS (long SL must be below entry)",
+      "TP_INSIDE_EXECUTION_COST",
+      "INVALID_STOP_LOSS (long SL must be below entry)",
+      "INVALID_STOP_LOSS (long SL must be below entry)"
+    ],
+    "risk_denied_unique": [
+      "INVALID_STOP_LOSS (long SL must be below entry)",
+      "TP_INSIDE_EXECUTION_COST"
+    ],
+    "broker_rejected_messages_sample": [
+      "max_gross_leverage",
+      "max_gross_leverage"
+    ],
+    "broker_rejected_unique": [
+      "max_gross_leverage"
+    ],
+    "instrument": {
+      "symbol": "ETHUSD",
+      "min_quantity": "0.0001",
+      "quantity_step": "0.0001",
+      "quote_currency": "USD",
+      "product_id": "ETH-USD"
+    },
+    "signal_count": 24,
+    "orders": 67,
+    "fills": 16
+  },
+  "sol": {
+    "key": "donchian_breakout_v2|v1|SOLUSD|15m|long",
+    "symbol": "SOLUSD",
+    "decision_counts": {
+      "hold": 848,
+      "buy_signal": 37,
+      "risk_approved": 140,
+      "sl_triggered": 20,
+      "tp_triggered": 15,
+      "risk_denied": 2
+    },
+    "rejections_summary": {
+      "min_qty_rejects": 0,
+      "margin_rejects": 0,
+      "session_rejects": 0,
+      "risk_rejects": 2,
+      "stale_rejects": 0,
+      "broker_rejects": 0,
+      "other_rejects": 0
+    },
+    "risk_denied_messages_sample": [
+      "TP_INSIDE_EXECUTION_COST",
+      "TP_INSIDE_EXECUTION_COST"
+    ],
+    "risk_denied_unique": [
+      "TP_INSIDE_EXECUTION_COST"
+    ],
+    "broker_rejected_messages_sample": [],
+    "broker_rejected_unique": [],
+    "instrument": {
+      "symbol": "SOLUSD",
+      "min_quantity": "0.0001",
+      "quantity_step": "0.0001",
+      "quote_currency": "USD",
+      "product_id": "SOL-USD"
+    },
+    "signal_count": 37,
+    "orders": 140,
+    "fills": 35
+  },
+  "xrp": {
+    "key": "donchian_breakout_v2|v1|XRPUSD|15m|long",
+    "symbol": "XRPUSD",
+    "decision_counts": {
+      "hold": 825,
+      "buy_signal": 40,
+      "risk_approved": 38,
+      "broker_rejected": 38,
+      "risk_denied": 2
+    },
+    "rejections_summary": {
+      "min_qty_rejects": 0,
+      "margin_rejects": 0,
+      "session_rejects": 0,
+      "risk_rejects": 2,
+      "stale_rejects": 0,
+      "broker_rejects": 38,
+      "other_rejects": 0
+    },
+    "risk_denied_messages_sample": [
+      "INVALID_STOP_LOSS (long SL must be below entry)",
+      "INVALID_STOP_LOSS (long SL must be below entry)"
+    ],
+    "risk_denied_unique": [
+      "INVALID_STOP_LOSS (long SL must be below entry)"
+    ],
+    "broker_rejected_messages_sample": [
+      "invalid_quantity",
+      "invalid_quantity",
+      "invalid_quantity",
+      "invalid_quantity",
+      "invalid_quantity",
+      "invalid_quantity",
+      "invalid_quantity",
+      "invalid_quantity",
+      "invalid_quantity",
+      "invalid_quantity",
+      "invalid_quantity",
+      "invalid_quantity",
+      "invalid_quantity",
+      "invalid_quantity",
+      "invalid_quantity"
+    ],
+    "broker_rejected_unique": [
+      "invalid_quantity"
+    ],
+    "instrument": {
+      "symbol": "XRPUSD",
+      "min_quantity": "0.0001",
+      "quantity_step": "0.0001",
+      "quote_currency": "USD",
+      "product_id": "XRP-USD"
+    },
+    "signal_count": 40,
+    "orders": 38,
+    "fills": 0
+  },
+  "fx_latest": {
+    "EURUSD_5m": "2026-10-02T13:15:00+03:00",
+    "EURUSD_15m": "2026-10-02T13:00:00+03:00",
+    "EURUSD_1h": "2026-10-02T12:00:00+03:00",
+    "EURUSD_provider": "tiingo",
+    "USDJPY_5m": "2026-10-02T13:15:00+03:00",
+    "USDJPY_15m": "2026-10-02T13:00:00+03:00",
+    "USDJPY_1h": "2026-10-02T12:00:00+03:00",
+    "USDJPY_provider": "tiingo",
+    "GBPJPY_5m": "2026-10-02T13:10:00+03:00",
+    "GBPJPY_15m": "2026-10-02T13:00:00+03:00",
+    "GBPJPY_1h": "2026-10-02T11:00:00+03:00",
+    "GBPJPY_provider": "tiingo",
+    "XAUUSD_5m": "2026-10-02T13:10:00+03:00",
+    "XAUUSD_15m": "2026-10-02T13:00:00+03:00",
+    "XAUUSD_1h": "2026-10-02T12:00:00+03:00",
+    "XAUUSD_provider": "tiingo"
+  }
+}

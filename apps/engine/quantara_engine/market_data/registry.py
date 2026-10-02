@@ -63,7 +63,14 @@ def _equity(db_symbol: str, display: str | None = None) -> AssetDefinition:
     )
 
 
-def _crypto(db_symbol: str, canonical: str, tiingo_ticker: str) -> AssetDefinition:
+def _crypto(
+    db_symbol: str,
+    canonical: str,
+    tiingo_ticker: str,
+    *,
+    quantity_step: str = "0.0001",
+    min_quantity: str = "0.0001",
+) -> AssetDefinition:
     coinbase_product = canonical.replace("/", "-")
     return AssetDefinition(
         canonical_symbol=canonical,
@@ -81,8 +88,8 @@ def _crypto(db_symbol: str, canonical: str, tiingo_ticker: str) -> AssetDefiniti
         trading_sessions={"sessions": ["24x7"]},
         pip_size="0.01",
         price_tick_size="0.01",
-        quantity_step="0.0001",
-        min_quantity="0.0001",
+        quantity_step=quantity_step,
+        min_quantity=min_quantity,
     )
 
 
@@ -156,7 +163,7 @@ TARGET_ASSETS: tuple[AssetDefinition, ...] = (
     _equity("DIA"),
     _forex("GBPUSD", "GBP/USD", pip_size="0.0001", price_tick_size="0.00001"),
     _forex("AUDUSD", "AUD/USD", pip_size="0.0001", price_tick_size="0.00001"),
-    _crypto("XRPUSD", "XRP/USD", "xrpusd"),
+    _crypto("XRPUSD", "XRP/USD", "xrpusd", quantity_step="1", min_quantity="1"),
 )
 
 RESEARCH_EXTENDED_ASSETS: tuple[AssetDefinition, ...] = ()

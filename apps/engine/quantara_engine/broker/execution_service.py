@@ -152,6 +152,22 @@ class BrokerExecutionService:
         return True, ""
 
     def load_account_snapshot(self, account_id: str | None = None):
+        if getattr(self.store, "research_replay_isolation", False):
+            from quantara_engine.broker.types import AccountState
+
+            seed = Decimal("10000")
+            snap = build_account_snapshot(
+                cash=seed,
+                balance=seed,
+                realized_pnl=Decimal("0"),
+                positions={},
+                fx_rates={"USD": Decimal("1"), "JPY": Decimal("150")},
+                profile=self.profile,
+                spot_crypto_cash=seed,
+            )
+            snap.account_state = AccountState.ACTIVE
+            return snap
+
         row = self.get_account_row()
         if not row:
             return build_account_snapshot(

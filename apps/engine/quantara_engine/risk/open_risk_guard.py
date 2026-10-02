@@ -180,6 +180,10 @@ def evaluate_all_open_risk_guards(
     if store is None:
         return True, None
 
+    # Isolated broker replays use a synthetic portfolio; do not load live competition rows.
+    if getattr(store, "research_replay_isolation", False):
+        return True, None
+
     global_positions, asset_equity = load_global_risk_context(
         store, instrument.id, instrument.symbol
     )
