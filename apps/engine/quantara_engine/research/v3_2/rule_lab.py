@@ -25,6 +25,9 @@ SUPPORTED_FAMILIES: frozenset[str] = frozenset(
         "rsi_divergence_mr",
         "momentum_after_base",
         "channel_mean_revert",
+        "fx_asian_london_break",
+        "xau_overlap_momentum",
+        "crypto_atr_expansion_break",
     }
 )
 
@@ -223,6 +226,39 @@ def entry_mask_series(
         dev = (close - mid) / close
         thr = float(parameters.get("dev", 0.006))
         return (dev < -thr) if direction == "long" else (dev > thr)
+
+    if family == "fx_asian_london_break":
+        asian_end = int(parameters.get("asian_end_hour_utc", 7))
+        hours = pd.Series(df.index.hour, index=df.index)
+        day = pd.Series(df.index.date, index=df.index)
+        in_asian = hours < asian_end
+        asian_hi = high.where(in_asian).groupby(day).transform("max")
+        asian_lo = low.where(in_asian).groupby(day).transform("min")
+        london = hours >= asian_end
+        return (london & (close > asian_hi) & asian_hi.notna()) if direction == "long" else (
+            london & (close < asian_lo) & asian_lo.notna()
+        )
+
+    if family == "xau_overlap_momentum":
+        start_h = int(parameters.get("overlap_start_utc", 12))
+        end_h = int(parameters.get("overlap_end_utc", 17))
+        hours = pd.Series(df.index.hour, index=df.index)
+        in_win = (hours >= start_h) & (hours < end_h)
+        slow = ema(close, int(parameters.get("ema_slow", 34)))
+        mom = close.pct_change(3)
+        thr = float(parameters.get("mom_thr", 0.0025))
+        return (in_win & (close > slow) & (mom > thr)) if direction == "long" else (
+            in_win & (close < slow) & (mom < -thr)
+        )
+
+    if family == "crypto_atr_expansion_break":
+        atr_s = atr(df, 14)
+        atr_ma = atr_s.rolling(int(parameters.get("atr_ma", 40))).mean()
+        expansion = atr_s > (atr_ma * float(parameters.get("atr_mult", 1.25)))
+        n = int(parameters.get("breakout", 20))
+        upper = high.rolling(n).max().shift(1)
+        lower = low.rolling(n).min().shift(1)
+        return (expansion & (close > upper)) if direction == "long" else (expansion & (close < lower))
 
     return pd.Series(False, index=df.index)
 

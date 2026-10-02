@@ -1093,6 +1093,21 @@
       "classification": "PASS"
     },
     {
+      "key": "donchian_breakout_v2|v1|ETHUSD|1h|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "ETHUSD",
+      "timeframe": "1h",
+      "direction": "long",
+      "parameters": {
+        "channel": 20,
+        "atr_sl": 1.2,
+        "atr_tp": 2.0
+      },
+      "robustness": "RESEARCH_ONLY",
+      "classification": "FAIL"
+    },
+    {
       "key": "donchian_breakout_v2|v1|GOOGL|15m|long",
       "family": "donchian_breakout_v2",
       "variant_id": "v1",
@@ -1262,6 +1277,36 @@
       "classification": "FAIL"
     },
     {
+      "key": "donchian_breakout_v2|v1|SOLUSD|15m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "SOLUSD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 20,
+        "atr_sl": 1.2,
+        "atr_tp": 2.0
+      },
+      "robustness": "RESEARCH_ONLY",
+      "classification": "FAIL"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|SOLUSD|5m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "SOLUSD",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "channel": 20,
+        "atr_sl": 1.2,
+        "atr_tp": 2.0
+      },
+      "robustness": "FAIL",
+      "classification": "FAIL"
+    },
+    {
       "key": "donchian_breakout_v2|v1|SPY|15m|long",
       "family": "donchian_breakout_v2",
       "variant_id": "v1",
@@ -1312,6 +1357,21 @@
       },
       "robustness": "ROBUST",
       "classification": "WEAK_PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v1|XRPUSD|15m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v1",
+      "asset": "XRPUSD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {
+        "channel": 20,
+        "atr_sl": 1.2,
+        "atr_tp": 2.0
+      },
+      "robustness": "RESEARCH_ONLY",
+      "classification": "FAIL"
     },
     {
       "key": "donchian_breakout_v2|v2|AMD|1h|long",
@@ -1418,6 +1478,21 @@
       "classification": "PASS"
     },
     {
+      "key": "donchian_breakout_v2|v2|SOLUSD|5m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v2",
+      "asset": "SOLUSD",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "channel": 40,
+        "atr_sl": 1.5,
+        "atr_tp": 2.5
+      },
+      "robustness": "RESEARCH_ONLY",
+      "classification": "FAIL"
+    },
+    {
       "key": "donchian_breakout_v2|v2|SPY|15m|long",
       "family": "donchian_breakout_v2",
       "variant_id": "v2",
@@ -1455,6 +1530,21 @@
       },
       "robustness": "PROMISING",
       "classification": "WEAK_PASS"
+    },
+    {
+      "key": "donchian_breakout_v2|v2|XRPUSD|5m|long",
+      "family": "donchian_breakout_v2",
+      "variant_id": "v2",
+      "asset": "XRPUSD",
+      "timeframe": "5m",
+      "direction": "long",
+      "parameters": {
+        "channel": 40,
+        "atr_sl": 1.5,
+        "atr_tp": 2.5
+      },
+      "robustness": "RESEARCH_ONLY",
+      "classification": "FAIL"
     },
     {
       "key": "ema_pullback_continue|v1|AAPL|15m|long",
@@ -2609,6 +2699,17 @@
       "classification": "PASS"
     },
     {
+      "key": "rsi_divergence_mr|v1|ETHUSD|15m|long",
+      "family": "rsi_divergence_mr",
+      "variant_id": "v1",
+      "asset": "ETHUSD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "RESEARCH_ONLY",
+      "classification": "FAIL"
+    },
+    {
       "key": "rsi_divergence_mr|v1|NVDA|15m|short",
       "family": "rsi_divergence_mr",
       "variant_id": "v1",
@@ -2651,6 +2752,17 @@
       "parameters": {},
       "robustness": "PROMISING",
       "classification": "PASS"
+    },
+    {
+      "key": "squeeze_release|v1|ETHUSD|15m|long",
+      "family": "squeeze_release",
+      "variant_id": "v1",
+      "asset": "ETHUSD",
+      "timeframe": "15m",
+      "direction": "long",
+      "parameters": {},
+      "robustness": "RESEARCH_ONLY",
+      "classification": "FAIL"
     },
     {
       "key": "vol_expansion_v2|v1|AMD|15m|short",
