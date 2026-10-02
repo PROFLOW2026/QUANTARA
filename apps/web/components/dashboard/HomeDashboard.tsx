@@ -28,6 +28,10 @@ import {
   mergeLiveMarksIntoAssets,
 } from "@/lib/live-mark-stream";
 import { t } from "@/lib/i18n";
+import {
+  brokerEquitySummaryMode,
+  shadowCapitalSummaryMode,
+} from "@/lib/home-research-summary";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 
 function HomeDashboardContent() {
@@ -87,6 +91,11 @@ function HomeDashboardContent() {
   const portfolioCount = competitionReady
     ? (competition?.experiment?.portfolio_count ?? portfolios.length)
     : null;
+  const shadowCapitalMode = shadowCapitalSummaryMode(
+    competitionUnavailable,
+    shadowReferenceCapital
+  );
+  const brokerEquityMode = brokerEquitySummaryMode(loading, brokerEquity);
   const shadowReferenceHint = useMemo(() => {
     if (
       !competitionReady ||
@@ -181,20 +190,22 @@ function HomeDashboardContent() {
           label={t("home.shadow_reference_capital")}
           hint={shadowReferenceHint}
         >
-          {competitionUnavailable ? (
+          {shadowCapitalMode === "unavailable" ? (
             <p className="text-sm text-muted">{t("common.section_unavailable")}</p>
           ) : (
-            <HomeSummaryValue>{formatCurrency(shadowReferenceCapital ?? 0)}</HomeSummaryValue>
+            <HomeSummaryValue>{formatCurrency(shadowReferenceCapital!)}</HomeSummaryValue>
           )}
         </HomeSummaryCard>
         <HomeSummaryCard
           label={t("home.research_broker_equity")}
           hint={t("home.research_broker_equity_hint")}
         >
-          {loading && brokerEquity == null ? (
+          {brokerEquityMode === "loading" ? (
             <span className="text-sm text-muted">{t("common.loading")}</span>
+          ) : brokerEquityMode === "unavailable" ? (
+            <p className="text-sm text-muted">{t("common.section_unavailable")}</p>
           ) : (
-            <HomeSummaryValue>{formatCurrency(brokerEquity ?? 0)}</HomeSummaryValue>
+            <HomeSummaryValue>{formatCurrency(brokerEquity!)}</HomeSummaryValue>
           )}
         </HomeSummaryCard>
         <HomeSummaryCard

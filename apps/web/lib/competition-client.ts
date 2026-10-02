@@ -142,25 +142,20 @@ function deriveExperimentTotals(items: PortfolioListItem[]) {
   const robotB = items.filter((i) => i.robot_label === "Robot B");
   const robotAInitial = robotA.reduce((sum, row) => sum + row.initial_capital, 0);
   const robotBInitial = robotB.reduce((sum, row) => sum + row.initial_capital, 0);
+  const totalInitial = items.reduce((sum, row) => sum + row.initial_capital, 0);
   return {
     robotACount: robotA.length,
     robotBCount: robotB.length,
-    totalInitial: robotAInitial + robotBInitial,
+    totalInitial,
     robotAInitial,
     robotBInitial,
   };
 }
 
-export async function loadCompetitionView(): Promise<CompetitionResponse> {
-  const items = await api.getPortfolios();
-  const competitionItems = items
-    .filter((item) => item.kind === "competition")
-    .sort((a, b) => (a.sort_order ?? 99) - (b.sort_order ?? 99));
-
-  if (!competitionItems.length) {
-    return { active: false };
-  }
-
+/** Build Home competition view from competition portfolio rows (sum-of-seeds shadow reference). */
+export function buildCompetitionViewFromItems(
+  competitionItems: PortfolioListItem[]
+): CompetitionResponse {
   const portfolios = competitionItems.map(toSummary);
   const totals = deriveExperimentTotals(competitionItems);
   const combinedEquity = portfolios.reduce((sum, row) => sum + row.equity, 0);
@@ -208,6 +203,7 @@ export async function loadCompetitionView(): Promise<CompetitionResponse> {
       instrument: "multi",
       timeframe: "multi",
       total_initial_capital: totals.totalInitial,
+      shadow_reference_capital: totals.totalInitial,
       portfolio_initial_capital: PORTFOLIO_INITIAL,
       portfolio_count: portfolios.length,
       robot_a_portfolio_count: totals.robotACount,
@@ -252,4 +248,17 @@ export async function loadCompetitionView(): Promise<CompetitionResponse> {
     activity: [],
   };
 }
-
+
+export async function loadCompetitionView(): Promise<CompetitionResponse> {
+  const items = await api.getPortfolios();
+  const competitionItems = items
+    .filter((item) => item.kind === "competition")
+    .sort((a, b) => (a.sort_order ?? 99) - (b.sort_order ?? 99));
+
+  if (!competitionItems.length) {
+    return { active: false };
+  }
+
+  return buildCompetitionViewFromItems(competitionItems);
+}
+

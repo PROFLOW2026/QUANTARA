@@ -153,8 +153,6 @@ class BrokerExecutionService:
 
     def load_account_snapshot(self, account_id: str | None = None):
         if getattr(self.store, "research_replay_isolation", False):
-            from quantara_engine.broker.types import AccountState
-
             seed = Decimal("10000")
             snap = build_account_snapshot(
                 cash=seed,
