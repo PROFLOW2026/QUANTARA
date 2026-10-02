@@ -317,15 +317,8 @@ def plan_fx_protection_fetch(
     """
     now = _as_utc(now or datetime.now(timezone.utc))
     sym = normalize_db_symbol(symbol)
-
-    if quota_mode == "HARD_GUARD":
-        return ProtectionFetchPlan(
-            symbol=sym,
-            source="stored_1m" if has_fresh_stored_1m else "5m_fallback",
-            fetch_provider=None,
-            reason="hard_guard_use_tiingo_stored_or_5m",
-            near_sl=near_sl,
-        )
+    # HARD_GUARD forbids Twelve Data only — Tiingo + stored/5m remain available.
+    allow_td = td_eligible and quota_mode != "HARD_GUARD"
 
     # Fresh completed 1m is sufficient for protection (FAR and NEAR).
     # Allow scheduled Tiingo refresh only; never TD while fresh.
@@ -370,13 +363,14 @@ def plan_fx_protection_fetch(
             near_sl=near_sl,
         )
 
-    # Tiingo unavailable — Twelve Data emergency only when data is stale.
-    if not td_eligible:
+    # Tiingo unavailable — Twelve Data emergency only when data is stale (not under HARD_GUARD).
+    if not allow_td:
+        reason = "hard_guard_no_twelve_data" if quota_mode == "HARD_GUARD" else "no_td_budget"
         return ProtectionFetchPlan(
             symbol=sym,
             source="5m_fallback",
             fetch_provider=None,
-            reason="no_td_budget",
+            reason=reason,
             near_sl=near_sl,
         )
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch  # noqa: F401 — patch used in tests
 
 import pytest
 
@@ -90,17 +90,22 @@ def test_health_sync_skipped_at_hard_guard() -> None:
 
 def test_fx_protection_hard_guard_never_selects_twelve_data() -> None:
     store = _store_with_used(720)
-    plan = plan_fx_protection_fetch(
-        store,
-        "XAUUSD",
-        quota_mode="HARD_GUARD",
-        tiingo_eligible=True,
-        td_eligible=True,
-        near_sl=True,
-        has_fresh_stored_1m=False,
-        canonical_5m_stale=True,
-    )
+    with patch(
+        "quantara_engine.execution.fx_protection_sources._interval_elapsed",
+        return_value=False,
+    ):
+        plan = plan_fx_protection_fetch(
+            store,
+            "XAUUSD",
+            quota_mode="HARD_GUARD",
+            tiingo_eligible=False,
+            td_eligible=True,
+            near_sl=True,
+            has_fresh_stored_1m=False,
+            canonical_5m_stale=True,
+        )
     assert plan.fetch_provider is None
+    assert plan.fetch_provider != "twelvedata"
     assert plan.source == "5m_fallback"
 
 

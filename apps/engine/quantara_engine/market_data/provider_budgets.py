@@ -298,6 +298,30 @@ def all_provider_status(store: TradingStore | None) -> dict[str, dict[str, Any]]
     elif tiingo_snap["mode"] == "conservation" and tiingo.get("status") == "healthy":
         tiingo["status"] = "conservation"
 
+    if store is not None and tiingo.get("status") in ("unknown", None, ""):
+        detail = td.get("fx_protection_detail") or {}
+        best: datetime | None = None
+        for entry in detail.values():
+            if not isinstance(entry, dict):
+                continue
+            raw = entry.get("last_tiingo_success_at")
+            if not raw:
+                continue
+            try:
+                dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            if best is None or dt > best:
+                best = dt
+        if best is not None:
+            age_h = (datetime.now(timezone.utc) - best).total_seconds() / 3600
+            if age_h <= 6:
+                tiingo["status"] = "healthy"
+                tiingo["last_success"] = best.isoformat()
+                tiingo["inferred_from"] = "fx_protection"
+
     # Infer from worker payload when budget tracker has not recorded yet.
     if alpaca.get("status") == "unknown" and worker_raw.get("last_run"):
         alpaca["status"] = worker_raw.get("status", "healthy")
