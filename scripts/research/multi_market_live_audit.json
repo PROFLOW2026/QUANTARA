@@ -1,0 +1,692 @@
+{
+  "generated_at": "2026-10-02T09:58:03.801272+00:00",
+  "total_live_candidates": 106,
+  "total_live_assets": 15,
+  "live_asset_classes": {
+    "US equities / ETFs": 15
+  },
+  "per_symbol": {
+    "BTCUSD": {
+      "asset_class": "crypto",
+      "supported_adapter": true,
+      "provider_primary": "coinbase",
+      "instrument_exists": true,
+      "session_24x7_or_fx": true,
+      "candles": {
+        "1m": {
+          "count": 24806,
+          "latest": "2026-10-02T12:56:00+03:00",
+          "age_minutes": 2.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        },
+        "5m": {
+          "count": 8169,
+          "latest": "2026-10-02T12:50:00+03:00",
+          "age_minutes": 8.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        },
+        "15m": {
+          "count": 2719,
+          "latest": "2026-10-02T12:30:00+03:00",
+          "age_minutes": 28.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        },
+        "1h": {
+          "count": 677,
+          "latest": "2026-10-02T11:00:00+03:00",
+          "age_minutes": 118.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        }
+      },
+      "quality_gate": {
+        "5m": "WATCH",
+        "15m": "GOOD",
+        "1h": "GOOD"
+      },
+      "research_pairs_allowed": [
+        "5m",
+        "15m",
+        "1h"
+      ],
+      "stage_a": {
+        "jobs_planned": 26,
+        "checkpoint_rows": 34,
+        "stage_a_pass": 0
+      },
+      "stage_b": {
+        "rows": 0,
+        "classifications": {}
+      },
+      "manifest": {
+        "total": 0,
+        "pass": 0,
+        "weak_pass": 0,
+        "fail": 0,
+        "live_eligible": 0
+      },
+      "execution": {
+        "asset_class": "crypto",
+        "spot_crypto_short_note": "Kraken spot: shorts only via SELL close; new short entries blocked at pre_trade"
+      },
+      "live_status": "BLOCKED: STAGE_A_ZERO_SURVIVORS; NO_PASS_OR_WEAK_PASS_IN_MANIFEST"
+    },
+    "ETHUSD": {
+      "asset_class": "crypto",
+      "supported_adapter": true,
+      "provider_primary": "coinbase",
+      "instrument_exists": true,
+      "session_24x7_or_fx": true,
+      "candles": {
+        "1m": {
+          "count": 24806,
+          "latest": "2026-10-02T12:56:00+03:00",
+          "age_minutes": 2.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        },
+        "5m": {
+          "count": 8169,
+          "latest": "2026-10-02T12:50:00+03:00",
+          "age_minutes": 8.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        },
+        "15m": {
+          "count": 2719,
+          "latest": "2026-10-02T12:30:00+03:00",
+          "age_minutes": 28.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        },
+        "1h": {
+          "count": 677,
+          "latest": "2026-10-02T11:00:00+03:00",
+          "age_minutes": 118.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        }
+      },
+      "quality_gate": {
+        "5m": "WATCH",
+        "15m": "GOOD",
+        "1h": "GOOD"
+      },
+      "research_pairs_allowed": [
+        "5m",
+        "15m",
+        "1h"
+      ],
+      "stage_a": {
+        "jobs_planned": 26,
+        "checkpoint_rows": 34,
+        "stage_a_pass": 0
+      },
+      "stage_b": {
+        "rows": 0,
+        "classifications": {}
+      },
+      "manifest": {
+        "total": 0,
+        "pass": 0,
+        "weak_pass": 0,
+        "fail": 0,
+        "live_eligible": 0
+      },
+      "execution": {
+        "asset_class": "crypto",
+        "spot_crypto_short_note": "Kraken spot: shorts only via SELL close; new short entries blocked at pre_trade"
+      },
+      "live_status": "BLOCKED: STAGE_A_ZERO_SURVIVORS; NO_PASS_OR_WEAK_PASS_IN_MANIFEST"
+    },
+    "XAUUSD": {
+      "asset_class": "gold",
+      "supported_adapter": true,
+      "provider_primary": "tiingo",
+      "instrument_exists": true,
+      "session_24x7_or_fx": true,
+      "candles": {
+        "1m": {
+          "count": 20050,
+          "latest": "2026-10-02T12:54:00+03:00",
+          "age_minutes": 4.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        },
+        "5m": {
+          "count": 8708,
+          "latest": "2026-10-02T12:50:00+03:00",
+          "age_minutes": 8.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        },
+        "15m": {
+          "count": 2264,
+          "latest": "2026-10-02T12:30:00+03:00",
+          "age_minutes": 28.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        },
+        "1h": {
+          "count": 561,
+          "latest": "2026-10-02T11:00:00+03:00",
+          "age_minutes": 118.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        }
+      },
+      "quality_gate": {
+        "5m": "GOOD",
+        "15m": "GOOD",
+        "1h": "GOOD"
+      },
+      "research_pairs_allowed": [
+        "5m",
+        "15m",
+        "1h"
+      ],
+      "stage_a": {
+        "jobs_planned": 20,
+        "checkpoint_rows": 26,
+        "stage_a_pass": 0
+      },
+      "stage_b": {
+        "rows": 0,
+        "classifications": {}
+      },
+      "manifest": {
+        "total": 0,
+        "pass": 0,
+        "weak_pass": 0,
+        "fail": 0,
+        "live_eligible": 0
+      },
+      "execution": {
+        "asset_class": "commodity",
+        "spot_crypto_short_note": null
+      },
+      "live_status": "BLOCKED: STAGE_A_ZERO_SURVIVORS; NO_PASS_OR_WEAK_PASS_IN_MANIFEST"
+    },
+    "GBPJPY": {
+      "asset_class": "FX",
+      "supported_adapter": true,
+      "provider_primary": "tiingo",
+      "instrument_exists": true,
+      "session_24x7_or_fx": true,
+      "candles": {
+        "1m": {
+          "count": 21167,
+          "latest": "2026-10-02T12:54:00+03:00",
+          "age_minutes": 4.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        },
+        "5m": {
+          "count": 8829,
+          "latest": "2026-10-02T12:50:00+03:00",
+          "age_minutes": 8.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        },
+        "15m": {
+          "count": 2252,
+          "latest": "2026-10-02T12:15:00+03:00",
+          "age_minutes": 43.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        },
+        "1h": {
+          "count": 536,
+          "latest": "2026-10-02T11:00:00+03:00",
+          "age_minutes": 118.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        }
+      },
+      "quality_gate": {
+        "5m": "WATCH",
+        "15m": "GOOD",
+        "1h": "GOOD"
+      },
+      "research_pairs_allowed": [
+        "5m",
+        "15m",
+        "1h"
+      ],
+      "stage_a": {
+        "jobs_planned": 24,
+        "checkpoint_rows": 26,
+        "stage_a_pass": 0
+      },
+      "stage_b": {
+        "rows": 0,
+        "classifications": {}
+      },
+      "manifest": {
+        "total": 0,
+        "pass": 0,
+        "weak_pass": 0,
+        "fail": 0,
+        "live_eligible": 0
+      },
+      "execution": {
+        "asset_class": "forex",
+        "spot_crypto_short_note": null
+      },
+      "live_status": "BLOCKED: STAGE_A_ZERO_SURVIVORS; NO_PASS_OR_WEAK_PASS_IN_MANIFEST"
+    },
+    "SOLUSD": {
+      "asset_class": "crypto",
+      "supported_adapter": true,
+      "provider_primary": "coinbase",
+      "instrument_exists": true,
+      "session_24x7_or_fx": true,
+      "candles": {
+        "1m": {
+          "count": 0,
+          "latest": null,
+          "age_minutes": null,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "no_data"
+        },
+        "5m": {
+          "count": 2652,
+          "latest": "2026-10-02T12:50:00+03:00",
+          "age_minutes": 8.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        },
+        "15m": {
+          "count": 883,
+          "latest": "2026-10-02T12:30:00+03:00",
+          "age_minutes": 28.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        },
+        "1h": {
+          "count": 220,
+          "latest": "2026-10-02T11:00:00+03:00",
+          "age_minutes": 118.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        }
+      },
+      "quality_gate": {
+        "5m": "GOOD",
+        "15m": "GOOD",
+        "1h": "GOOD"
+      },
+      "research_pairs_allowed": [
+        "5m",
+        "15m",
+        "1h"
+      ],
+      "stage_a": {
+        "jobs_planned": 18,
+        "checkpoint_rows": 18,
+        "stage_a_pass": 3
+      },
+      "stage_b": {
+        "rows": 3,
+        "classifications": {
+          "FAIL": 3
+        }
+      },
+      "manifest": {
+        "total": 3,
+        "pass": 0,
+        "weak_pass": 0,
+        "fail": 3,
+        "live_eligible": 0
+      },
+      "execution": {
+        "asset_class": "crypto",
+        "spot_crypto_short_note": "Kraken spot: shorts only via SELL close; new short entries blocked at pre_trade"
+      },
+      "live_status": "BLOCKED: NO_PASS_OR_WEAK_PASS_IN_MANIFEST"
+    },
+    "XRPUSD": {
+      "asset_class": "crypto",
+      "supported_adapter": true,
+      "provider_primary": "coinbase",
+      "instrument_exists": true,
+      "session_24x7_or_fx": true,
+      "candles": {
+        "1m": {
+          "count": 0,
+          "latest": null,
+          "age_minutes": null,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "no_data"
+        },
+        "5m": {
+          "count": 2592,
+          "latest": "2026-10-02T12:50:00+03:00",
+          "age_minutes": 8.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        },
+        "15m": {
+          "count": 863,
+          "latest": "2026-10-02T12:30:00+03:00",
+          "age_minutes": 28.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        },
+        "1h": {
+          "count": 215,
+          "latest": "2026-10-02T11:00:00+03:00",
+          "age_minutes": 118.1,
+          "strategy_eligible_now": true,
+          "eligibility_reason": "eligible"
+        }
+      },
+      "quality_gate": {
+        "5m": "GOOD",
+        "15m": "GOOD",
+        "1h": "GOOD"
+      },
+      "research_pairs_allowed": [
+        "5m",
+        "15m",
+        "1h"
+      ],
+      "stage_a": {
+        "jobs_planned": 18,
+        "checkpoint_rows": 18,
+        "stage_a_pass": 1
+      },
+      "stage_b": {
+        "rows": 1,
+        "classifications": {
+          "FAIL": 1
+        }
+      },
+      "manifest": {
+        "total": 1,
+        "pass": 0,
+        "weak_pass": 0,
+        "fail": 1,
+        "live_eligible": 0
+      },
+      "execution": {
+        "asset_class": "crypto",
+        "spot_crypto_short_note": "Kraken spot: shorts only via SELL close; new short entries blocked at pre_trade"
+      },
+      "live_status": "BLOCKED: NO_PASS_OR_WEAK_PASS_IN_MANIFEST"
+    },
+    "EURUSD": {
+      "asset_class": "FX",
+      "supported_adapter": true,
+      "provider_primary": "tiingo",
+      "instrument_exists": true,
+      "session_24x7_or_fx": true,
+      "candles": {
+        "1m": {
+          "count": 0,
+          "latest": null,
+          "age_minutes": null,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "no_data"
+        },
+        "5m": {
+          "count": 8390,
+          "latest": "2026-10-01T22:50:00+03:00",
+          "age_minutes": 848.1,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "stale_data (843.1m since close, limit 20m)"
+        },
+        "15m": {
+          "count": 1180,
+          "latest": "2026-10-01T22:30:00+03:00",
+          "age_minutes": 868.1,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "stale_data (853.1m since close, limit 30m)"
+        },
+        "1h": {
+          "count": 284,
+          "latest": "2026-10-01T21:00:00+03:00",
+          "age_minutes": 958.1,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "stale_data (898.1m since close, limit 75m)"
+        }
+      },
+      "quality_gate": {
+        "5m": "REJECT",
+        "15m": "REJECT",
+        "1h": "REJECT"
+      },
+      "research_pairs_allowed": [],
+      "stage_a": {
+        "jobs_planned": 0,
+        "checkpoint_rows": 0,
+        "stage_a_pass": 0
+      },
+      "stage_b": {
+        "rows": 0,
+        "classifications": {}
+      },
+      "manifest": {
+        "total": 0,
+        "pass": 0,
+        "weak_pass": 0,
+        "fail": 0,
+        "live_eligible": 0
+      },
+      "execution": {
+        "asset_class": "forex",
+        "spot_crypto_short_note": null
+      },
+      "live_status": "BLOCKED: DATA_QUALITY_OR_HISTORY_BLOCKS_RESEARCH; NO_PASS_OR_WEAK_PASS_IN_MANIFEST"
+    },
+    "USDJPY": {
+      "asset_class": "FX",
+      "supported_adapter": true,
+      "provider_primary": "tiingo",
+      "instrument_exists": true,
+      "session_24x7_or_fx": true,
+      "candles": {
+        "1m": {
+          "count": 0,
+          "latest": null,
+          "age_minutes": null,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "no_data"
+        },
+        "5m": {
+          "count": 8378,
+          "latest": "2026-10-01T22:50:00+03:00",
+          "age_minutes": 848.1,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "stale_data (843.1m since close, limit 20m)"
+        },
+        "15m": {
+          "count": 1182,
+          "latest": "2026-10-01T22:30:00+03:00",
+          "age_minutes": 868.1,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "stale_data (853.1m since close, limit 30m)"
+        },
+        "1h": {
+          "count": 282,
+          "latest": "2026-10-01T21:00:00+03:00",
+          "age_minutes": 958.1,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "stale_data (898.1m since close, limit 75m)"
+        }
+      },
+      "quality_gate": {
+        "5m": "REJECT",
+        "15m": "REJECT",
+        "1h": "REJECT"
+      },
+      "research_pairs_allowed": [],
+      "stage_a": {
+        "jobs_planned": 0,
+        "checkpoint_rows": 0,
+        "stage_a_pass": 0
+      },
+      "stage_b": {
+        "rows": 0,
+        "classifications": {}
+      },
+      "manifest": {
+        "total": 0,
+        "pass": 0,
+        "weak_pass": 0,
+        "fail": 0,
+        "live_eligible": 0
+      },
+      "execution": {
+        "asset_class": "forex",
+        "spot_crypto_short_note": null
+      },
+      "live_status": "BLOCKED: DATA_QUALITY_OR_HISTORY_BLOCKS_RESEARCH; NO_PASS_OR_WEAK_PASS_IN_MANIFEST"
+    },
+    "GBPUSD": {
+      "asset_class": "FX",
+      "supported_adapter": true,
+      "provider_primary": "tiingo",
+      "instrument_exists": true,
+      "session_24x7_or_fx": true,
+      "candles": {
+        "1m": {
+          "count": 0,
+          "latest": null,
+          "age_minutes": null,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "no_data"
+        },
+        "5m": {
+          "count": 7431,
+          "latest": "2025-11-06T01:55:00+02:00",
+          "age_minutes": 475803.1,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "stale_data (475798.1m since close, limit 20m)"
+        },
+        "15m": {
+          "count": 801,
+          "latest": "2025-11-05T01:45:00+02:00",
+          "age_minutes": 477253.1,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "stale_data (477238.1m since close, limit 30m)"
+        },
+        "1h": {
+          "count": 218,
+          "latest": "2025-11-06T01:00:00+02:00",
+          "age_minutes": 475858.1,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "stale_data (475798.1m since close, limit 75m)"
+        }
+      },
+      "quality_gate": {
+        "5m": "REJECT",
+        "15m": "REJECT",
+        "1h": "REJECT"
+      },
+      "research_pairs_allowed": [],
+      "stage_a": {
+        "jobs_planned": 0,
+        "checkpoint_rows": 0,
+        "stage_a_pass": 0
+      },
+      "stage_b": {
+        "rows": 0,
+        "classifications": {}
+      },
+      "manifest": {
+        "total": 0,
+        "pass": 0,
+        "weak_pass": 0,
+        "fail": 0,
+        "live_eligible": 0
+      },
+      "execution": {
+        "asset_class": "forex",
+        "spot_crypto_short_note": null
+      },
+      "live_status": "BLOCKED: DATA_QUALITY_OR_HISTORY_BLOCKS_RESEARCH; NO_PASS_OR_WEAK_PASS_IN_MANIFEST; STALE_FX_5M_MARK"
+    },
+    "AUDUSD": {
+      "asset_class": "FX",
+      "supported_adapter": true,
+      "provider_primary": "tiingo",
+      "instrument_exists": true,
+      "session_24x7_or_fx": true,
+      "candles": {
+        "1m": {
+          "count": 0,
+          "latest": null,
+          "age_minutes": null,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "no_data"
+        },
+        "5m": {
+          "count": 7429,
+          "latest": "2025-11-06T01:55:00+02:00",
+          "age_minutes": 475803.1,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "stale_data (475798.1m since close, limit 20m)"
+        },
+        "15m": {
+          "count": 801,
+          "latest": "2025-11-05T01:45:00+02:00",
+          "age_minutes": 477253.1,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "stale_data (477238.1m since close, limit 30m)"
+        },
+        "1h": {
+          "count": 218,
+          "latest": "2025-11-06T01:00:00+02:00",
+          "age_minutes": 475858.1,
+          "strategy_eligible_now": false,
+          "eligibility_reason": "stale_data (475798.1m since close, limit 75m)"
+        }
+      },
+      "quality_gate": {
+        "5m": "REJECT",
+        "15m": "REJECT",
+        "1h": "REJECT"
+      },
+      "research_pairs_allowed": [],
+      "stage_a": {
+        "jobs_planned": 0,
+        "checkpoint_rows": 0,
+        "stage_a_pass": 0
+      },
+      "stage_b": {
+        "rows": 0,
+        "classifications": {}
+      },
+      "manifest": {
+        "total": 0,
+        "pass": 0,
+        "weak_pass": 0,
+        "fail": 0,
+        "live_eligible": 0
+      },
+      "execution": {
+        "asset_class": "forex",
+        "spot_crypto_short_note": null
+      },
+      "live_status": "BLOCKED: DATA_QUALITY_OR_HISTORY_BLOCKS_RESEARCH; NO_PASS_OR_WEAK_PASS_IN_MANIFEST; STALE_FX_5M_MARK"
+    }
+  },
+  "us_rth_global_block_found": false,
+  "crypto_eval_outside_us_rth": {
+    "BTCUSD": {
+      "us_rth_now": false,
+      "eligible": true,
+      "reason": "eligible"
+    },
+    "ETHUSD": {
+      "us_rth_now": false,
+      "eligible": true,
+      "reason": "eligible"
+    }
+  },
+  "why_live_us_only": "All 106 active Live rows are PASS/WEAK_PASS on US equities only; non-US symbols have zero Stage-B PASS/WEAK_PASS (crypto/metals/FX Stage A had no survivors or FX excluded from research)."
+}

@@ -58,7 +58,20 @@ def v32_row_live_sim_eligible(row: dict[str, Any]) -> bool:
     if not key or key in V32_LIVE_SIM_BLOCKED_KEYS:
         return False
     cls = str(row.get("classification") or "").upper()
-    return cls not in V32_LIVE_SIM_BLOCKED_CLASSIFICATIONS
+    if cls in V32_LIVE_SIM_BLOCKED_CLASSIFICATIONS:
+        return False
+    direction = str(row.get("direction") or "").lower()
+    asset_sym = str(row.get("asset") or "").upper()
+    if direction == "short" and asset_sym:
+        try:
+            from quantara_engine.market_data.registry import AssetClass, get_asset
+
+            asset = get_asset(asset_sym)
+            if asset and asset.asset_class == AssetClass.CRYPTO:
+                return False
+        except Exception:
+            pass
+    return True
 
 
 def load_v32_live_sim_active_combinations() -> tuple[dict[str, Any], ...]:
