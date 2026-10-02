@@ -1,0 +1,7 @@
+{
+  "checked": 5,
+  "total_active_us": 106,
+  "reclassified": [],
+  "stage_a_cost_affects_stage_b": false,
+  "note": "Stage-B replay uses BacktestRunner, not rule_lab Stage-A costs. Isolation fix did not change US classifications in 5-sample spot check."
+}

@@ -156,6 +156,58 @@ WAVE2_SPECS: list[dict[str, Any]] = [
     },
 ]
 
+WAVE3_SPECS: list[dict[str, Any]] = [
+    {
+        "track": "crypto",
+        "family": "mtf_trend_ltf_entry",
+        "assets": frozenset({"BTCUSD", "ETHUSD"}),
+        "timeframes": ("15m",),
+        "variants": [{"ema_slow": 50}, {"ema_slow": 80}],
+    },
+    {
+        "track": "crypto",
+        "family": "crypto_atr_expansion_break",
+        "assets": CRYPTO,
+        "timeframes": ("1h",),
+        "variants": [{"breakout": 20, "atr_mult": 1.25}, {"breakout": 30, "atr_mult": 1.35}],
+    },
+    {
+        "track": "crypto",
+        "family": "momentum_after_base",
+        "assets": frozenset({"BTCUSD", "ETHUSD"}),
+        "timeframes": ("1h",),
+        "variants": [{}],
+    },
+    {
+        "track": "gold",
+        "family": "fx_asian_london_break",
+        "assets": GOLD,
+        "timeframes": ("5m",),
+        "variants": [{"asian_end_hour_utc": 7}, {"asian_end_hour_utc": 8}],
+    },
+    {
+        "track": "gold",
+        "family": "squeeze_release",
+        "assets": GOLD,
+        "timeframes": ("15m", "1h"),
+        "variants": [{}],
+    },
+    {
+        "track": "fx",
+        "family": "prev_day_hl_break",
+        "assets": FX_CORE,
+        "timeframes": ("5m", "15m"),
+        "variants": [{"atr_sl": 1.4, "atr_tp": 2.2}],
+    },
+    {
+        "track": "fx",
+        "family": "channel_mean_revert",
+        "assets": FX_CORE,
+        "timeframes": ("1h",),
+        "variants": [{"channel": 25, "dev": 0.004}, {"channel": 30, "dev": 0.006}],
+    },
+]
+
 
 def _fx_research_allowed(store: TradingStore, symbol: str) -> bool:
     if symbol not in FX_CORE:
@@ -182,7 +234,15 @@ def _fx_research_allowed(store: TradingStore, symbol: str) -> bool:
 
 
 def plan_non_us_jobs(store: TradingStore, *, wave: int = 1) -> list[V32Job]:
-    specs = WAVE1_SPECS if wave == 1 else WAVE2_SPECS if wave == 2 else []
+    specs = (
+        WAVE1_SPECS
+        if wave == 1
+        else WAVE2_SPECS
+        if wave == 2
+        else WAVE3_SPECS
+        if wave == 3
+        else []
+    )
     quality = build_data_quality_matrix(store)
     allowed = set(_test_pairs(quality))
     raw: list[V32Job] = []

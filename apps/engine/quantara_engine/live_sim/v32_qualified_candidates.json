@@ -1105,7 +1105,7 @@
         "atr_tp": 2.0
       },
       "robustness": "RESEARCH_ONLY",
-      "classification": "FAIL"
+      "classification": "WEAK_PASS"
     },
     {
       "key": "donchian_breakout_v2|v1|GOOGL|15m|long",

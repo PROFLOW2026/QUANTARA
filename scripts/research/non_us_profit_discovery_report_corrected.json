@@ -1,0 +1,97 @@
+{
+  "generated_at": "2026-10-02T10:36:26.934101+00:00",
+  "namespace": "corrected",
+  "code_commit": "f7b406c",
+  "waves": {
+    "wave1_new": [
+      176,
+      1
+    ],
+    "wave2_new": [
+      48,
+      0
+    ],
+    "wave3_new": [
+      26,
+      0
+    ]
+  },
+  "manifest_keys_merged": 1,
+  "live_candidates_before": 107,
+  "live_candidates_after_sync": 107,
+  "per_symbol": {
+    "BTCUSD": {
+      "stage_a_jobs": 58,
+      "survivors": 0,
+      "stage_b": 0,
+      "pass": 0,
+      "weak_pass": 0,
+      "fail": 0,
+      "live_candidates": 0
+    },
+    "ETHUSD": {
+      "stage_a_jobs": 58,
+      "survivors": 1,
+      "stage_b": 1,
+      "pass": 0,
+      "weak_pass": 1,
+      "fail": 0,
+      "live_candidates": 1
+    },
+    "XAUUSD": {
+      "stage_a_jobs": 44,
+      "survivors": 0,
+      "stage_b": 0,
+      "pass": 0,
+      "weak_pass": 0,
+      "fail": 0,
+      "live_candidates": 0
+    },
+    "GBPJPY": {
+      "stage_a_jobs": 38,
+      "survivors": 0,
+      "stage_b": 0,
+      "pass": 0,
+      "weak_pass": 0,
+      "fail": 0,
+      "live_candidates": 0
+    },
+    "SOLUSD": {
+      "stage_a_jobs": 26,
+      "survivors": 0,
+      "stage_b": 0,
+      "pass": 0,
+      "weak_pass": 0,
+      "fail": 0,
+      "live_candidates": 0
+    },
+    "XRPUSD": {
+      "stage_a_jobs": 26,
+      "survivors": 0,
+      "stage_b": 0,
+      "pass": 0,
+      "weak_pass": 0,
+      "fail": 0,
+      "live_candidates": 0
+    },
+    "EURUSD": {
+      "stage_a_jobs": 0,
+      "survivors": 0,
+      "stage_b": 0,
+      "pass": 0,
+      "weak_pass": 0,
+      "fail": 0,
+      "live_candidates": 0
+    },
+    "USDJPY": {
+      "stage_a_jobs": 0,
+      "survivors": 0,
+      "stage_b": 0,
+      "pass": 0,
+      "weak_pass": 0,
+      "fail": 0,
+      "live_candidates": 0
+    }
+  },
+  "new_non_us_live": 0
+}
