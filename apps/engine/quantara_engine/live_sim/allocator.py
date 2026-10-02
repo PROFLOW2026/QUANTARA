@@ -790,7 +790,7 @@ def _resume_pending_allocation(
         target_risk=target_risk,
         exec_candle=exec_candle,
         open_risk=open_risk,
-        equity=equity,
+        equity=leverage_equity,
         sizing_reason=sizing.sizing_reason or (existing.get("metadata") or {}).get("sizing_reason"),
     )
 

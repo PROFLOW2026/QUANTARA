@@ -234,14 +234,6 @@ def test_resume_pending_consumes_four_tuple_equal_asset_context():
         "is_active": True,
         "risk_settings": {},
     }
-    asset_row = {
-        "id": "asset-eth",
-        "enabled": True,
-        "broker_account_id": "acct-kraken",
-        "equity": Decimal("1250"),
-        "cash": Decimal("1250"),
-        "risk_settings": {},
-    }
     entry = {
         "instance": type(
             "Inst",
@@ -250,12 +242,37 @@ def test_resume_pending_consumes_four_tuple_equal_asset_context():
         )()
     }
 
-    four_tuple = (
-        Decimal("1250"),
-        Decimal("1250"),
-        "acct-kraken",
-        asset_row,
+    from quantara_engine.live_sim.risk_policy import LiveSimRiskSettings, OpenRiskSnapshot
+
+    leverage_equity = Decimal("1250")
+    settings = LiveSimRiskSettings(
+        risk_per_trade_pct=Decimal("1"),
+        max_total_open_sl_risk_pct=Decimal("3"),
+        max_symbol_sl_risk_pct=Decimal("1"),
+        max_group_sl_risk_pct=Decimal("2"),
+        daily_loss_gate_pct=Decimal("2"),
+        max_drawdown_gate_pct=Decimal("10"),
+        concentration_mode="ENFORCE",
+        high_water_mark=leverage_equity,
+        daily_start_equity=leverage_equity,
+        daily_start_date="2026-09-14",
     )
+    econ = {
+        "account": account,
+        "account_id": "acct-kraken",
+        "account_slug": LIVE_SIM_KRAKEN_LIKE_SLUG,
+        "settings": settings,
+        "risk_equity": leverage_equity,
+        "leverage_equity": leverage_equity,
+        "target_risk": Decimal("12.50"),
+        "open_risk": OpenRiskSnapshot(
+            total_sl_risk_usd=Decimal("0"),
+            by_symbol={},
+            by_group={},
+        ),
+        "hard_max_risk": Decimal("12.50"),
+        "buying_power": leverage_equity,
+    }
 
     with patch(
         "quantara_engine.live_sim.allocator.allocation_lifecycle_state",
@@ -271,28 +288,15 @@ def test_resume_pending_consumes_four_tuple_equal_asset_context():
     ) as runtime_ctx, patch(
         "quantara_engine.broker.capability.check_entry_capability_for_account",
     ) as cap, patch(
-        "quantara_engine.live_sim.allocator._equal_asset_sizing_context",
-        return_value=four_tuple,
+        "quantara_engine.live_sim.allocator._resolve_live_sim_entry_economics",
+        return_value=econ,
     ), patch(
-        "quantara_engine.live_sim.allocator.broker_account_row_by_id",
-        return_value=account,
-    ), patch(
-        "quantara_engine.live_sim.allocator.load_asset_gate_settings",
-    ) as load_asset, patch(
-        "quantara_engine.live_sim.allocator.maybe_roll_asset_daily_start",
-    ) as roll, patch(
-        "quantara_engine.live_sim.allocator.update_asset_high_water_mark",
-    ), patch(
-        "quantara_engine.live_sim.allocator.compute_open_sl_risk",
-    ) as open_risk, patch(
         "quantara_engine.live_sim.allocator._current_asset_notional_usd",
         return_value=Decimal("0"),
     ), patch(
         "quantara_engine.live_sim.allocator._execute_accepted_allocation",
         return_value={"status": "accepted", "log_id": "log-1", "position_id": "pos-1"},
     ) as execute:
-        from quantara_engine.live_sim.risk_policy import LiveSimRiskSettings, OpenRiskSnapshot
-
         runtime = MagicMock()
         runtime.legacy_blocked = False
         runtime.account = account
@@ -300,25 +304,6 @@ def test_resume_pending_consumes_four_tuple_equal_asset_context():
         runtime.account_slug = LIVE_SIM_KRAKEN_LIKE_SLUG
         runtime_ctx.return_value = runtime
         cap.return_value = MagicMock(allowed=True, reason=None)
-        settings = LiveSimRiskSettings(
-            risk_per_trade_pct=Decimal("1"),
-            max_total_open_sl_risk_pct=Decimal("3"),
-            max_symbol_sl_risk_pct=Decimal("1"),
-            max_group_sl_risk_pct=Decimal("2"),
-            daily_loss_gate_pct=Decimal("2"),
-            max_drawdown_gate_pct=Decimal("10"),
-            concentration_mode="ENFORCE",
-            high_water_mark=Decimal("1250"),
-            daily_start_equity=Decimal("1250"),
-            daily_start_date="2026-09-14",
-        )
-        load_asset.return_value = settings
-        roll.return_value = settings
-        open_risk.return_value = OpenRiskSnapshot(
-            total_sl_risk_usd=Decimal("0"),
-            by_symbol={},
-            by_group={},
-        )
         store.build_currency_context_for_instruments.return_value = MagicMock(
             fx_rates=FxRateTable.usd_only()
         )
@@ -343,3 +328,167 @@ def test_old_three_unpack_would_fail_on_four_tuple():
     asset_ctx = (Decimal("1250"), Decimal("1250"), "acct", {"id": "a"})
     with pytest.raises(ValueError, match="too many values to unpack"):
         equity, cash, broker_id = asset_ctx  # noqa: F841
+
+
+def test_resume_pending_execution_attempts_broker_after_pre_trade():
+    """End-to-end resume path: pre_trade passes, execute runs, broker order is attempted (no NameError)."""
+    from quantara_engine.live_sim.allocator import _execute_accepted_allocation, _resume_pending_allocation
+    from quantara_engine.live_sim.risk_policy import LiveSimRiskSettings, OpenRiskSnapshot
+
+    store = MagicMock()
+    instrument = _eth()
+    signal_ts = datetime(2026, 9, 14, 1, 0, tzinfo=TZ3)
+    exec_ts = datetime(2026, 9, 14, 1, 15, tzinfo=TZ3)
+    now = datetime(2026, 9, 14, 1, 30, 5, tzinfo=TZ3)
+    exec_candle = MagicMock()
+    exec_candle.close = Decimal("2500")
+    exec_candle.timestamp = exec_ts
+    exec_candle.open = Decimal("2500")
+
+    leverage_equity = Decimal("1250")
+    existing = {
+        "id": "log-resume-broker",
+        "canonical_opportunity_key": "canon-resume",
+        "opportunity_key": "opp-resume",
+        "strategy_slug": "btc-rsi-mean-reversion",
+        "strategy_version": "1.0.0",
+        "robot_label": "Robot A",
+        "symbol": "ETHUSD",
+        "timeframe": "15m",
+        "direction": "long",
+        "signal_candle_timestamp": signal_ts,
+        "proposed_entry": Decimal("2500"),
+        "stop_loss": Decimal("2475"),
+        "take_profit": Decimal("2550"),
+        "metadata": {
+            "pending_execution": True,
+            "lifecycle_state": "pending_execution",
+            "execution_candle_timestamp": exec_ts.isoformat(),
+        },
+    }
+    account = {
+        "id": "acct-kraken",
+        "slug": LIVE_SIM_KRAKEN_LIKE_SLUG,
+        "equity": Decimal("2500"),
+        "starting_cash": Decimal("2500"),
+        "cash": Decimal("2500"),
+        "spot_crypto_cash": Decimal("2500"),
+        "is_active": True,
+        "risk_settings": {},
+    }
+    entry = {
+        "instance": type(
+            "Inst",
+            (),
+            {"id": "pf", "strategy_slug": "btc-rsi-mean-reversion", "timeframe": "15m"},
+        )()
+    }
+    settings = LiveSimRiskSettings(
+        risk_per_trade_pct=Decimal("1"),
+        max_total_open_sl_risk_pct=Decimal("3"),
+        max_symbol_sl_risk_pct=Decimal("1"),
+        max_group_sl_risk_pct=Decimal("2"),
+        daily_loss_gate_pct=Decimal("2"),
+        max_drawdown_gate_pct=Decimal("10"),
+        concentration_mode="ENFORCE",
+        high_water_mark=leverage_equity,
+        daily_start_equity=leverage_equity,
+        daily_start_date="2026-09-14",
+    )
+    open_risk = OpenRiskSnapshot(
+        total_sl_risk_usd=Decimal("0"),
+        by_symbol={},
+        by_group={},
+    )
+    econ = {
+        "account": account,
+        "account_id": "acct-kraken",
+        "account_slug": LIVE_SIM_KRAKEN_LIKE_SLUG,
+        "settings": settings,
+        "risk_equity": leverage_equity,
+        "leverage_equity": leverage_equity,
+        "target_risk": Decimal("12.50"),
+        "open_risk": open_risk,
+        "hard_max_risk": Decimal("12.50"),
+        "buying_power": leverage_equity,
+    }
+
+    broker_res = MagicMock(
+        accepted=True,
+        broker_order_id="ord-resume-1",
+        broker_fill_id="fill-resume-1",
+        physical_opened_qty=Decimal("0.05"),
+        shadow_only=False,
+        decision=None,
+    )
+    execute_calls: list[dict] = []
+
+    def capture_execute(*args, **kwargs):
+        execute_calls.append(kwargs)
+        return _execute_accepted_allocation(*args, **kwargs)
+
+    with patch(
+        "quantara_engine.live_sim.allocator.allocation_lifecycle_state",
+        return_value="pending_execution",
+    ), patch(
+        "quantara_engine.live_sim.allocator.resolve_execution_candle",
+        return_value=(exec_candle, exec_ts),
+    ), patch(
+        "quantara_engine.live_sim.allocator.is_execution_candle_ready",
+        return_value=(True, None),
+    ), patch(
+        "quantara_engine.live_sim.allocator.resolve_live_sim_runtime_context",
+    ) as runtime_ctx, patch(
+        "quantara_engine.broker.capability.check_entry_capability_for_account",
+    ) as cap, patch(
+        "quantara_engine.live_sim.allocator._resolve_live_sim_entry_economics",
+        return_value=econ,
+    ), patch(
+        "quantara_engine.live_sim.allocator._current_asset_notional_usd",
+        return_value=Decimal("0"),
+    ), patch(
+        "quantara_engine.live_sim.allocator._execute_accepted_allocation",
+        side_effect=capture_execute,
+    ), patch(
+        "quantara_engine.live_sim.allocator.execute_through_broker",
+        return_value=broker_res,
+    ) as broker_exec, patch(
+        "quantara_engine.live_sim.entry_authority.live_sim_entry_broker_exposure_ok",
+        return_value=True,
+    ), patch(
+        "quantara_engine.live_sim.entry_authority.resolve_live_sim_entry_quantity",
+        side_effect=lambda _store, broker_res, strategy_position_id, requested_qty: requested_qty,
+    ), patch(
+        "quantara_engine.live_sim.entry_authority.create_live_sim_position_after_physical_entry",
+    ), patch(
+        "quantara_engine.live_sim.allocator.BrokerExecutionService",
+    ) as broker_svc_cls:
+        runtime = MagicMock()
+        runtime.legacy_blocked = False
+        runtime.account = account
+        runtime.account_id = "acct-kraken"
+        runtime.account_slug = LIVE_SIM_KRAKEN_LIKE_SLUG
+        runtime_ctx.return_value = runtime
+        cap.return_value = MagicMock(allowed=True, reason=None)
+        store.build_currency_context_for_instruments.return_value = MagicMock(
+            fx_rates=FxRateTable.usd_only()
+        )
+        store.session.execute.return_value.mappings.return_value.first.return_value = None
+        store.session.execute.return_value.scalars.return_value.all.return_value = []
+        broker_svc_cls.return_value.mark_to_market = MagicMock()
+
+        result = _resume_pending_allocation(
+            store,
+            existing=existing,
+            account_id="acct-kraken",
+            account=account,
+            entry=entry,
+            instrument=instrument,
+            candles=[exec_candle],
+            execution_now=now,
+        )
+
+    assert result["status"] == "accepted"
+    assert len(execute_calls) == 1
+    assert execute_calls[0]["equity"] == leverage_equity
+    broker_exec.assert_called_once()
