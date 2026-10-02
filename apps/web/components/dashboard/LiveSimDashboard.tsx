@@ -35,6 +35,7 @@ function liveSimAllocationStatusLabel(row: NonNullable<LiveSimAccountSummary["re
 
 export function LiveSimDashboard({ data, loading }: Props) {
   const [decisionsExpanded, setDecisionsExpanded] = useState(false);
+  const [v32CandidatesExpanded, setV32CandidatesExpanded] = useState(false);
 
   if (loading && !data) {
     return <p className="text-muted">{t("common.loading")}</p>;
@@ -90,20 +91,41 @@ export function LiveSimDashboard({ data, loading }: Props) {
               {t("home.live_sim_v32_starting_model")}:{" "}
               {formatCurrency(v32.starting_model_equity_usd ?? data.starting_capital ?? 10000)}
             </p>
-            {v32.observation_anchor ? (
-              <p className="text-xs text-muted">
-                {t("home.live_sim_v32_anchor")}: {v32.observation_anchor}
-              </p>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2 text-right hover:bg-surface-inner-hover-soft"
+              onClick={() => setV32CandidatesExpanded((open) => !open)}
+              aria-expanded={v32CandidatesExpanded}
+            >
+              <span className="font-medium">
+                {v32CandidatesExpanded
+                  ? t("home.live_sim_v32_hide_active_candidates")
+                  : t("home.live_sim_v32_show_active_candidates")}
+              </span>
+              <span className="shrink-0 text-xs text-accent">
+                {v32CandidatesExpanded
+                  ? t("home.live_sim_collapse_decisions")
+                  : t("home.live_sim_expand_decisions")}
+              </span>
+            </button>
+            {v32CandidatesExpanded ? (
+              <>
+                {v32.observation_anchor ? (
+                  <p className="text-xs text-muted">
+                    {t("home.live_sim_v32_anchor")}: {v32.observation_anchor}
+                  </p>
+                ) : null}
+                <ul className="list-disc ps-5 text-muted">
+                  {v32.active_strategies?.map((s) => (
+                    <li key={`${s.symbol}-${s.timeframe}-${s.family}`}>
+                      {s.display ?? s.family} · {s.symbol} · {s.timeframe} · {s.direction}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs text-muted">{t("home.live_sim_v32_ae_note")}</p>
+                <p className="text-xs font-medium text-muted">{t("home.live_sim_v32_metrics_scope")}</p>
+              </>
             ) : null}
-            <ul className="list-disc ps-5 text-muted">
-              {v32.active_strategies?.map((s) => (
-                <li key={`${s.symbol}-${s.timeframe}-${s.family}`}>
-                  {s.display ?? s.family} · {s.symbol} · {s.timeframe} · {s.direction}
-                </li>
-              ))}
-            </ul>
-            <p className="text-xs text-muted">{t("home.live_sim_v32_ae_note")}</p>
-            <p className="text-xs font-medium text-muted">{t("home.live_sim_v32_metrics_scope")}</p>
           </CardContent>
         </Card>
       ) : null}

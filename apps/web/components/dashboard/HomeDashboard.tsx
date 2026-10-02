@@ -87,6 +87,21 @@ function HomeDashboardContent() {
   const portfolioCount = competitionReady
     ? (competition?.experiment?.portfolio_count ?? portfolios.length)
     : null;
+  const shadowReferenceHint = useMemo(() => {
+    if (
+      !competitionReady ||
+      portfolioCount == null ||
+      portfolioCount <= 0 ||
+      shadowReferenceCapital == null
+    ) {
+      return t("home.shadow_reference_hint_unavailable");
+    }
+    const perPortfolio = shadowReferenceCapital / portfolioCount;
+    return t("home.shadow_reference_hint", {
+      count: portfolioCount,
+      amount: formatCurrency(perPortfolio),
+    });
+  }, [competitionReady, portfolioCount, shadowReferenceCapital]);
   const restAssetRows = assetAnalytics?.assets ?? [];
   const assetRows = useMemo(
     () => mergeLiveMarksIntoAssets(restAssetRows, liveMarks),
@@ -164,7 +179,7 @@ function HomeDashboardContent() {
         </HomeSummaryCard>
         <HomeSummaryCard
           label={t("home.shadow_reference_capital")}
-          hint={t("home.shadow_reference_hint")}
+          hint={shadowReferenceHint}
         >
           {competitionUnavailable ? (
             <p className="text-sm text-muted">{t("common.section_unavailable")}</p>
