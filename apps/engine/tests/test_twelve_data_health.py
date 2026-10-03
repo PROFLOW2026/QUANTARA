@@ -197,6 +197,33 @@ def test_http_timeout_does_not_hang_worker_path(mock_scope, mock_provider_cls, m
     assert time.monotonic() - start < 5
 
 
+def test_status_healthy_after_utc_reset_despite_stale_429_error_text():
+    from quantara_engine.market_data.credits import _today_key
+
+    today = _today_key()
+    sync_at = f"{today}T05:00:00+00:00"
+    store = _store_with_state(
+        {
+            "date": today,
+            "used": 2,
+            "events": [],
+            "provider_daily_usage": 2,
+            "last_sync": sync_at,
+        },
+        {
+            "date": today,
+            "health_status": "healthy",
+            "last_health_sync": sync_at,
+            "last_error": "HTTP 429: You have run out of API credits for the day.",
+            "provider_daily_usage": 2,
+        },
+    )
+    payload = status_payload(store)
+    assert payload["status"] == "healthy"
+    assert payload["quota_mode"] == "NORMAL"
+    assert payload["twelve_data_requests_allowed"] is True
+
+
 def test_startup_does_not_block_on_health_sync():
     ws = WorkerScheduler()
     with patch.object(ws.scheduler, "start"):

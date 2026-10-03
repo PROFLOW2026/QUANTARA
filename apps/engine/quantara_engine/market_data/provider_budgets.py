@@ -332,8 +332,15 @@ def all_provider_status(store: TradingStore | None) -> dict[str, dict[str, Any]]
 
     errors = worker_raw.get("errors") or []
     if isinstance(errors, list) and any("429" in str(item) for item in errors):
-        td["status"] = "blocked"
-        td["last_error"] = next((str(item) for item in errors if "429" in str(item)), td.get("last_error"))
+        from quantara_engine.market_data.credits import INTERNAL_GUARD_LIMIT
+
+        used_td = int(td.get("used_today") or 0)
+        if used_td >= INTERNAL_GUARD_LIMIT or td.get("quota_mode") == "HARD_GUARD":
+            td["status"] = "blocked"
+            td["last_error"] = next(
+                (str(item) for item in errors if "429" in str(item)),
+                td.get("last_error"),
+            )
 
     from quantara_engine.market_data.adapters.finnhub import finnhub_configured, quota_snapshot
 

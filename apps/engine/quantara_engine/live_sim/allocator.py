@@ -995,6 +995,8 @@ def maybe_allocate_live_sim(
         execution_now=execution_now,
     )
     if not policy.allowed:
+        if policy.reason == "ROBOT_LIVE_PAUSED":
+            return {"status": "skipped", "reason": policy.reason}
         log_allocation(
             store,
             account_id=account_id,

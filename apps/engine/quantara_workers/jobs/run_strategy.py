@@ -231,7 +231,13 @@ def _live_sim_forward_representatives(group: list[dict]) -> list[dict]:
             seen_keys.add(dedupe)
             reps.append(entry)
         return reps
-    return _canonical_strategy_representatives(group)
+    from quantara_engine.live_sim.v2_policy import LIVE_SIM_PAUSED_STRATEGY_SLUGS
+
+    return [
+        e
+        for e in _canonical_strategy_representatives(group)
+        if e["instance"].strategy_slug not in LIVE_SIM_PAUSED_STRATEGY_SLUGS
+    ]
 
 
 def _process_candle_batch(
@@ -279,7 +285,10 @@ def _process_candle_batch(
         eval_processor.all_candles = candles
         shared_signal, _ = eval_processor.evaluate_signal(candle_index)
         if allow_live_execution and shared_signal is not None:
-            live_sim_forwards.append((template, shared_signal))
+            from quantara_engine.live_sim.v2_policy import LIVE_SIM_PAUSED_STRATEGY_SLUGS
+
+            if template["instance"].strategy_slug not in LIVE_SIM_PAUSED_STRATEGY_SLUGS:
+                live_sim_forwards.append((template, shared_signal))
             try:
                 from quantara_engine.learning.hooks import observe_generic_eval, observe_robot_a_candle
 

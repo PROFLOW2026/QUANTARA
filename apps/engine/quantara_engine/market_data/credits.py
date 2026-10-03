@@ -412,9 +412,8 @@ def _persist_health_success(provider_usage: dict[str, Any]) -> None:
         state["last_sync"] = now
         state["last_health_sync"] = now
         state["health_status"] = "healthy"
-        err = str(state.get("last_error") or "").lower()
-        if "429" not in err and "run out of api credits" not in err:
-            state.pop("last_error", None)
+        # Provider confirmed usage after UTC reset — prior-day 429 text must not linger.
+        state.pop("last_error", None)
         _upsert_setting_dict(
             session,
             HEALTH_SETTINGS_KEY,
@@ -543,7 +542,15 @@ def estimate_run_rate_per_hour(store: TradingStore | None) -> float:
 def _provider_health_status(state: dict[str, Any]) -> str:
     """Health is independent from credit usage — sync success means healthy."""
     err = str(state.get("last_error") or "").lower()
+    ledger_used = int(state.get("used") or 0)
+    provider_usage = state.get("provider_daily_usage")
+    used_today = max(ledger_used, int(provider_usage)) if provider_usage is not None else ledger_used
+    synced_today = bool(state.get("last_health_sync") or state.get("last_sync"))
+    if synced_today and used_today < DAILY_HARD_LIMIT and state.get("health_status") == "healthy":
+        return "healthy"
     if state.get("health_status") == "blocked" or "429" in err or "run out of api credits" in err:
+        if synced_today and used_today < DAILY_HARD_LIMIT:
+            return "healthy"
         return "blocked"
     if state.get("health_status") == "error":
         return "error"
