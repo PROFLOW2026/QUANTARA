@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import datetime
 from pathlib import Path
 from typing import Optional
@@ -47,13 +49,32 @@ def _read_json(filepath: Path) -> dict:
 
 
 def _is_runner_alive(pid_file: Path) -> bool:
-    """Check if paper_runner.py process is alive (does NOT send a signal)."""
+    """Check if paper_runner.py process is alive (read-only probe, no signals)."""
     try:
         pid = int(pid_file.read_text(encoding="utf-8").strip())
-        os.kill(pid, 0)   # signal 0 = existence probe only
-        return True
     except (FileNotFoundError, ValueError, OSError):
         return False
+
+    if sys.platform == "win32":
+        # os.kill(pid, 0) on Windows == CTRL_C_EVENT (signal 0), NOT a probe.
+        # Use tasklist /FI instead — completely non-destructive.
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=5,
+            )
+            return str(pid) in result.stdout
+        except Exception:
+            return False
+    else:
+        # Unix: signal 0 is a safe existence probe
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
 
 
 def _staleness_minutes(timestamp_str: str | None) -> Optional[float]:
