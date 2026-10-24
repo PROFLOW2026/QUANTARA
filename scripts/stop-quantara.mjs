@@ -6,6 +6,7 @@
 import { spawnSync } from "child_process";
 import path from "path";
 import { getRepoRoot, loadRepoEnv } from "./load-env.cjs";
+import { stopAITrader } from "./ai-trader-manager.mjs";
 import {
   isEnginePortListening,
   isEngineRunning,
@@ -176,6 +177,14 @@ async function main() {
   stopTailscaleFunnel();
   console.log("");
   stopLegacyCloudflaredTunnel();
+
+  // ── AI Trader (paper runner) — graceful stop via stop-flag file ────────────
+  console.log("");
+  try {
+    await stopAITrader();
+  } catch (e) {
+    console.error(`[AI TRADER] Stop error: ${e.message}`);
+  }
 
   console.log("");
   console.log("Done. Trading state was not modified.");

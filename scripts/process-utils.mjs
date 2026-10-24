@@ -19,6 +19,7 @@ export function isProcessAlive(pid) {
   if (process.platform === "win32") {
     const result = spawnSync("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], {
       encoding: "utf8",
+      windowsHide: true,   // prevent a visible cmd.exe window on every call
     });
     const line = String(result.stdout || "").trim();
     if (!line || /No tasks are running/i.test(line)) return false;
@@ -216,9 +217,8 @@ export function removeWorkerLockFile(lockPath) {
       return !fs.existsSync(lockPath);
     } catch (err) {
       if (err && typeof err === "object" && "code" in err && err.code === "EBUSY") {
-        spawnSync("powershell", ["-NoProfile", "-Command", "Start-Sleep -Milliseconds 400"], {
-          shell: true,
-        });
+        // Use Atomics.wait for a silent synchronous sleep — avoids a visible PowerShell window
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 400);
         continue;
       }
       return false;
@@ -310,11 +310,11 @@ export function recoverStaleWorkerLock(lockPath) {
 
 export function waitForProcessExit(pid, maxMs = 10000) {
   const start = Date.now();
+  // Use Atomics.wait for silent synchronous sleep — avoids a visible PowerShell window
+  const _sab = new Int32Array(new SharedArrayBuffer(4));
   while (Date.now() - start < maxMs) {
     if (!isProcessAlive(pid)) return true;
-    spawnSync("powershell", ["-NoProfile", "-Command", "Start-Sleep -Milliseconds 250"], {
-      shell: true,
-    });
+    Atomics.wait(_sab, 0, 0, 250);
   }
   return !isProcessAlive(pid);
 }
@@ -322,7 +322,7 @@ export function waitForProcessExit(pid, maxMs = 10000) {
 export function killProcessTree(pid) {
   if (!Number.isFinite(pid) || pid <= 0) return false;
   if (process.platform === "win32") {
-    spawnSync("taskkill", ["/PID", String(pid), "/F", "/T"], { stdio: "ignore" });
+    spawnSync("taskkill", ["/PID", String(pid), "/F", "/T"], { stdio: "ignore", windowsHide: true });
     return true;
   }
   try {

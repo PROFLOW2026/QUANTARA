@@ -39,6 +39,11 @@ import {
   startFunnel,
   waitForPublicEngineHealth,
 } from "./tailscale-transport.mjs";
+import {
+  launchAITrader,
+  isAITraderRunning,
+  readAITraderPid,
+} from "./ai-trader-manager.mjs";
 
 const { ROOT, ENGINE } = prepareDevEnv();
 const python = process.platform === "win32" ? "python" : "python3";
@@ -258,6 +263,25 @@ async function main() {
     publicHealth.ok,
     publicHealth.ok ? stableUrl : publicHealth.reason
   );
+
+  // ── AI Trader (paper runner) — independent, failure won't block Quantara ──
+  let aiTraderResult = { ok: false, started: false, pid: null };
+  try {
+    aiTraderResult = launchAITrader();
+    const aiRunning = isAITraderRunning();
+    const aiPid     = readAITraderPid();
+    statusLine(
+      "AI Trader (paper)",
+      aiRunning,
+      aiRunning
+        ? `PID=${aiPid} — logs: day-trader-skill-trial\\trader\\paper-runner.log`
+        : aiTraderResult.error
+          ? `not started — ${aiTraderResult.error}`
+          : "not started"
+    );
+  } catch (e) {
+    statusLine("AI Trader (paper)", false, `error: ${e.message}`);
+  }
 
   log("");
   const allCore = engineUp && workerUp && transportUp && publicHealth.ok;

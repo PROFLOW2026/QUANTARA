@@ -1154,6 +1154,7 @@ export interface LiveSimAccountSummary {
     starting_model_equity_usd?: number;
     observation_anchor?: string | null;
     legacy_ae_live_disabled?: boolean;
+    v32_new_entries_blocked?: boolean;
     active_strategies?: Array<{
       display?: string;
       family?: string;
@@ -1289,10 +1290,78 @@ export interface LiveSimCompareSummary {
   };
 }
 
+// ── AI Trader paper runner types ──────────────────────────────────────────────
+
+export interface AiTraderFill {
+  symbol: string;
+  shares: number;
+  entry_price_fill: number;
+  stop: number;
+  target: number;
+  status: "open" | "closed";
+  exit_price?: number | null;
+  exit_reason?: string | null;
+  pnl?: number | null;
+  r?: number | null;
+  filled_at?: string | null;
+  closed_at?: string | null;
+}
+
+export interface AiTraderEquityPoint {
+  date: string;
+  equity: number;
+}
+
+export interface AiTraderSummary {
+  // Runner status
+  runner_alive: boolean;
+  data_stale: boolean;
+  staleness_minutes?: number | null;
+  last_updated?: string | null;
+  // Account
+  starting_capital: number;
+  capital: number;
+  cash: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  peak_equity: number;
+  max_drawdown_usd: number;
+  max_drawdown_pct: number;
+  return_pct: number;
+  daily_loss_at_risk: number;
+  trades_today: number;
+  // Positions
+  open_fills: AiTraderFill[];
+  closed_fills: AiTraderFill[];
+  // Performance metrics
+  closed_count: number;
+  win_count: number;
+  loss_count: number;
+  flat_count: number;
+  win_rate_pct?: number | null;
+  profit_factor?: number | null;
+  gross_wins: number;
+  gross_losses: number;
+  // Equity history
+  equity_history: AiTraderEquityPoint[];
+  // Strategy config
+  strategy: string;
+  target_stocks: string[];
+  max_risk_per_trade_usd: number;
+  max_daily_loss_usd: number;
+  max_trades_per_day: number;
+  // Signals
+  signals_seen: string[];
+  // Source
+  source?: string;
+  data_dir_accessible?: boolean;
+}
+
 export const api = {
   getBrokerAccount: () => apiFetch<BrokerAccountSummary>("/broker/account"),
   getLiveSimAccount: () => apiFetch<LiveSimAccountSummary>("/live-sim/account"),
   getLiveSimCompare: () => apiFetch<LiveSimCompareSummary>("/live-sim/compare"),
+  getAiTraderSummary: () => apiFetch<AiTraderSummary>("/ai-trader/summary"),
   getLiveSimAllocationSettings: () =>
     apiFetch<LiveSimAllocationSettings>("/live-sim/allocation-settings"),
   updateLiveSimAllocationSettings: (body: {

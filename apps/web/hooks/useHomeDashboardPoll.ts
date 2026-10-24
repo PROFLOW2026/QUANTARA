@@ -5,6 +5,7 @@ import {
   api,
   isEngineConnectionError,
   type AssetAnalyticsResponse,
+  type AiTraderSummary,
   type BrokerAccountSummary,
   type LiveSimAccountSummary,
   type LiveSimCompareSummary,
@@ -96,6 +97,7 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
   const [brokerAccount, setBrokerAccount] = useState<BrokerAccountSummary | null>(null);
   const [liveSimAccount, setLiveSimAccount] = useState<LiveSimAccountSummary | null>(null);
   const [liveSimCompare, setLiveSimCompare] = useState<LiveSimCompareSummary | null>(null);
+  const [aiTraderSummary, setAiTraderSummary] = useState<AiTraderSummary | null>(null);
   const [riskConcentration, setRiskConcentration] = useState<RiskConcentrationResponse | null>(
     null
   );
@@ -197,6 +199,12 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
       setLiveSimAccount(liveSimResult.value);
     } else {
       partialFailure = true;
+    }
+
+    // AI Trader paper data — non-critical, failure is silently ignored
+    const aiTraderResult = await settle(api.getAiTraderSummary());
+    if (aiTraderResult.ok) {
+      setAiTraderSummary(aiTraderResult.value);
     }
 
     const concentrationResult = await settle(api.getRiskConcentration());
@@ -377,6 +385,7 @@ export function useHomeDashboardPoll(options: PollOptions = {}) {
     brokerAccount,
     liveSimAccount,
     liveSimCompare,
+    aiTraderSummary,
     riskConcentration,
     marketStatus,
     engineHealthy,

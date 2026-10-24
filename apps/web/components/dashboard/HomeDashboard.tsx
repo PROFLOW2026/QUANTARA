@@ -3,8 +3,15 @@
 import { Suspense, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { PageHeader, EngineConnectionError } from "@/components/layout/PageHeader";
+import { AiCompareDashboard } from "@/components/dashboard/AiCompareDashboard";
+import { AiTraderDashboard } from "@/components/dashboard/AiTraderDashboard";
 import { CompareDashboard } from "@/components/dashboard/CompareDashboard";
-import { HomeViewSwitcher, parseHomeView } from "@/components/dashboard/HomeViewSwitcher";
+import {
+  HomeViewSwitcher,
+  LiveSimSubViewSwitcher,
+  parseHomeView,
+  parseLiveSimSubView,
+} from "@/components/dashboard/HomeViewSwitcher";
 import { LiveSimDashboard } from "@/components/dashboard/LiveSimDashboard";
 import { HomeSummaryCard, HomeSummaryValue } from "@/components/dashboard/HomeSummaryCard";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
@@ -36,7 +43,8 @@ import { formatCurrency, formatPercent } from "@/lib/utils";
 
 function HomeDashboardContent() {
   const searchParams = useSearchParams();
-  const view = parseHomeView(searchParams.get("view"));
+  const view    = parseHomeView(searchParams.get("view"));
+  const subview = parseLiveSimSubView(searchParams.get("subview"));
   const { liveMarks, connected: liveStreamConnected } = useLiveMarkStream();
   const {
     assetDecisions,
@@ -47,6 +55,7 @@ function HomeDashboardContent() {
     brokerAccount,
     liveSimAccount,
     liveSimCompare,
+    aiTraderSummary,
     riskConcentration,
     marketStatus,
     engineHealthy,
@@ -134,12 +143,25 @@ function HomeDashboardContent() {
         <Suspense fallback={null}>
           <HomeViewSwitcher engineHealthy={engineHealthy} />
         </Suspense>
+        <Suspense fallback={null}>
+          <LiveSimSubViewSwitcher />
+        </Suspense>
         {engineConnectionError ? (
           <div className="mb-4">
             <EngineConnectionError onRetry={() => void refresh()} />
           </div>
         ) : null}
-        <LiveSimDashboard data={liveSimAccount} loading={loading} />
+        {subview === "ai-trader" ? (
+          <AiTraderDashboard data={aiTraderSummary} loading={loading} />
+        ) : subview === "ai-compare" ? (
+          <AiCompareDashboard
+            quantaraData={liveSimAccount}
+            aiData={aiTraderSummary}
+            loading={loading}
+          />
+        ) : (
+          <LiveSimDashboard data={liveSimAccount} loading={loading} />
+        )}
       </>
     );
   }
