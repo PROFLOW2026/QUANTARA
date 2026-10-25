@@ -32,7 +32,7 @@ const AI_TRADER_SCRIPT  = "paper_runner.py";
 const TRADER_DIR        = path.join(AI_TRADER_DIR, "trader");
 const AI_TRADER_PID_FILE  = path.join(TRADER_DIR, "paper-runner.pid");
 const AI_TRADER_STOP_FILE = path.join(TRADER_DIR, "paper-runner.stop");
-const AI_TRADER_LOG_FILE  = path.join(TRADER_DIR, "paper-runner.log");
+export const AI_TRADER_LOG_FILE  = path.join(TRADER_DIR, "paper-runner.log");
 
 // ── PID helpers ───────────────────────────────────────────────────────────────
 export function readAITraderPid() {
@@ -104,6 +104,7 @@ export function launchAITrader() {
       detached: true,
       stdio: ["ignore", logFd, logFd],
       windowsHide: true,          // no console pop-up; output goes to log file
+      env: { ...process.env, PYTHONIOENCODING: "utf-8" },  // prevent cp1252 UnicodeEncodeError
     });
     child.unref();                // Node.js exits without waiting for Python
   } catch (e) {

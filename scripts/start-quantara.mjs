@@ -43,6 +43,7 @@ import {
   launchAITrader,
   isAITraderRunning,
   readAITraderPid,
+  AI_TRADER_LOG_FILE,
 } from "./ai-trader-manager.mjs";
 
 const { ROOT, ENGINE } = prepareDevEnv();
@@ -279,6 +280,21 @@ async function main() {
           ? `not started — ${aiTraderResult.error}`
           : "not started"
     );
+    // Open a dedicated log-viewer terminal (read-only tail — does NOT start a new runner)
+    if (aiRunning) {
+      startWindowsTerminal({
+        name: "ai-trader",
+        label: "AI TRADER — Paper Runner",
+        cwd: path.dirname(AI_TRADER_LOG_FILE),
+        command: "powershell",
+        args: [
+          "-NoExit", "-NoProfile",
+          "-Command",
+          `Get-Content '${AI_TRADER_LOG_FILE}' -Wait -Tail 50`,
+        ],
+        preLines: ["Read-only log viewer. Closing this window does NOT stop the Runner."],
+      });
+    }
   } catch (e) {
     statusLine("AI Trader (paper)", false, `error: ${e.message}`);
   }

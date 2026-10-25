@@ -974,7 +974,8 @@
     "signals_today": "איתותים היום",
     "no_data": "אין נתונים",
     "unavailable": "נתוני AI Trader אינם זמינים. ודא שהמנוע פועל.",
-    "data_notice": "נתונים אמיתיים מ-paper_runner.py בלבד. תוצאות Replay ו-Backtest אינן מוצגות כאן."
+    "data_notice": "נתונים אמיתיים מ-paper_runner.py בלבד. תוצאות Replay ו-Backtest אינן מוצגות כאן.",
+    "data_not_current": "נתוני מסחר ישנים"
   },
   "ai_compare": {
     "range_label": "טווח",

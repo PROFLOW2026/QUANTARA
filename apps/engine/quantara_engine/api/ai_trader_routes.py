@@ -81,6 +81,13 @@ def _staleness_minutes(timestamp_str: str | None) -> Optional[float]:
     """Return how many minutes old a timestamp string is, or None if unparseable."""
     if not timestamp_str:
         return None
+    # ISO-8601 UTC heartbeat (ends with Z)
+    if timestamp_str.endswith("Z"):
+        try:
+            dt = datetime.datetime.strptime(timestamp_str, "%Y-%m-%dT%H:%M:%SZ")
+            return (datetime.datetime.utcnow() - dt).total_seconds() / 60
+        except ValueError:
+            pass
     for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
         try:
             dt = datetime.datetime.strptime(timestamp_str, fmt)
@@ -88,6 +95,20 @@ def _staleness_minutes(timestamp_str: str | None) -> Optional[float]:
         except ValueError:
             continue
     return None
+
+
+def _is_nyse_open() -> bool:
+    """Return True if NYSE is currently in regular trading hours (ET 09:30–16:00, Mon–Fri)."""
+    try:
+        import zoneinfo
+        tz = zoneinfo.ZoneInfo("America/New_York")
+    except Exception:
+        tz = datetime.timezone(datetime.timedelta(hours=-4))   # rough EDT fallback
+    et = datetime.datetime.now(tz)
+    if et.weekday() >= 5:   # Saturday=5, Sunday=6
+        return False
+    mins = et.hour * 60 + et.minute
+    return 9 * 60 + 30 <= mins <= 16 * 60
 
 
 def _opt_float(v: object) -> Optional[float]:
@@ -124,7 +145,10 @@ class AiTraderEquityPoint(BaseModel):
 class AiTraderSummary(BaseModel):
     # Runner status
     runner_alive: bool
-    data_stale: bool               # True if last_updated > 10 min ago
+    market_open: bool                      # NYSE regular hours right now
+    runner_status_text: str                # human-readable: "פועל — הבורסה סגורה" etc.
+    heartbeat_age_minutes: Optional[float] = None  # seconds since last heartbeat write
+    data_stale: bool               # True if trade/journal data > 10 min old (not heartbeat)
     staleness_minutes: Optional[float] = None
     last_updated: Optional[str] = None
 
@@ -191,9 +215,28 @@ async def get_ai_trader_summary() -> AiTraderSummary:
     pid_file = AI_TRADER_DIR / "paper-runner.pid"
 
     runner_alive = _is_runner_alive(pid_file)
+    market_open  = _is_nyse_open()
+
+    # Heartbeat: written by runner every 30s even outside trading hours
+    heartbeat_ts  = state.get("last_heartbeat")          # ISO-8601 UTC, set by write_heartbeat()
+    heartbeat_age = _staleness_minutes(heartbeat_ts)     # None if never written
+
+    # Trade data staleness: based on journal/state last_updated (ET-local timestamp)
     last_updated = journal.get("last_updated") or state.get("last_updated")
     staleness    = _staleness_minutes(last_updated)
-    data_stale   = staleness is not None and staleness > 10
+
+    # data_stale: journal hasn't been updated in >10 min AND runner isn't writing heartbeats
+    # If runner is alive + market closed → heartbeat keeps staleness indicator accurate
+    runner_heartbeating = heartbeat_age is not None and heartbeat_age < 3   # 3-min grace
+    data_stale = not runner_heartbeating and (staleness is None or staleness > 10)
+
+    # Human-readable status
+    if not runner_alive:
+        runner_status_text = "כבוי"
+    elif market_open:
+        runner_status_text = "פועל — הבורסה פתוחה"
+    else:
+        runner_status_text = "פועל — הבורסה סגורה, ממתין למסחר"
 
     starting_capital = float(journal.get("capital_usd") or 10_000)
     capital  = float(state.get("capital")  or journal.get("capital")  or starting_capital)
@@ -267,6 +310,9 @@ async def get_ai_trader_summary() -> AiTraderSummary:
 
     return AiTraderSummary(
         runner_alive=runner_alive,
+        market_open=market_open,
+        runner_status_text=runner_status_text,
+        heartbeat_age_minutes=round(heartbeat_age, 1) if heartbeat_age is not None else None,
         data_stale=data_stale,
         staleness_minutes=round(staleness, 1) if staleness is not None else None,
         last_updated=last_updated,

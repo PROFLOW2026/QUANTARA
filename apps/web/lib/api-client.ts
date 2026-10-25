@@ -1315,6 +1315,9 @@ export interface AiTraderEquityPoint {
 export interface AiTraderSummary {
   // Runner status
   runner_alive: boolean;
+  market_open: boolean;
+  runner_status_text: string;
+  heartbeat_age_minutes?: number | null;
   data_stale: boolean;
   staleness_minutes?: number | null;
   last_updated?: string | null;

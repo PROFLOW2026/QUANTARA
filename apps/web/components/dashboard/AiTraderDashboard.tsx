@@ -20,27 +20,43 @@ type Props = {
   loading: boolean;
 };
 
-function RunnerStatusBadge({ alive, stale }: { alive: boolean; stale: boolean }) {
-  if (alive && !stale) {
+/**
+ * Shows runner process status separately from data staleness.
+ * runner_status_text comes from the API and already contains the human-readable
+ * Hebrew string (e.g. "פועל — הבורסה סגורה, ממתין למסחר").
+ */
+function RunnerStatusBadge({
+  alive,
+  statusText,
+}: {
+  alive: boolean;
+  statusText: string;
+}) {
+  if (!alive) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-profit/10 px-2.5 py-0.5 text-xs font-medium text-profit">
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-profit" aria-hidden />
-        {t("ai_trader.runner_running")}
-      </span>
-    );
-  }
-  if (alive && stale) {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning">
-        <span className="h-1.5 w-1.5 rounded-full bg-warning" aria-hidden />
-        {t("ai_trader.runner_stale")}
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-muted/20 px-2.5 py-0.5 text-xs font-medium text-muted">
+        <span className="h-1.5 w-1.5 rounded-full bg-muted" aria-hidden />
+        {statusText || t("ai_trader.runner_stopped")}
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-muted/20 px-2.5 py-0.5 text-xs font-medium text-muted">
-      <span className="h-1.5 w-1.5 rounded-full bg-muted" aria-hidden />
-      {t("ai_trader.runner_stopped")}
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-profit/10 px-2.5 py-0.5 text-xs font-medium text-profit">
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-profit" aria-hidden />
+      {statusText}
+    </span>
+  );
+}
+
+function DataStaleBadge({ stale, ageMin }: { stale: boolean; ageMin?: number | null }) {
+  if (!stale) return null;
+  const label = ageMin != null
+    ? `${t("ai_trader.data_not_current")} (${Math.round(ageMin)}m)`
+    : t("ai_trader.data_not_current");
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning">
+      <span className="h-1.5 w-1.5 rounded-full bg-warning" aria-hidden />
+      {label}
     </span>
   );
 }
@@ -74,7 +90,11 @@ export function AiTraderDashboard({ data, loading }: Props) {
       {/* ── Status bar ── */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
-          <RunnerStatusBadge alive={data.runner_alive} stale={data.data_stale} />
+          <RunnerStatusBadge
+            alive={data.runner_alive}
+            statusText={data.runner_status_text ?? (data.runner_alive ? t("ai_trader.runner_running") : t("ai_trader.runner_stopped"))}
+          />
+          <DataStaleBadge stale={data.data_stale} ageMin={data.staleness_minutes} />
           {data.last_updated ? (
             <span className="text-xs text-muted">
               {t("ai_trader.last_updated")}: {data.last_updated}
