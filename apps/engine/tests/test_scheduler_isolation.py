@@ -39,6 +39,7 @@ def test_housekeeping_jobs_share_pool_separate_from_ingest():
         assert job.executor == "housekeeping"
         assert job.executor != "fetch_live"
         assert job.executor != "strategy_live"
+        assert job.max_instances == 1
 
 
 def test_historical_strategy_job_isolated_from_live():

@@ -75,9 +75,18 @@ def _collect_pending_work(store: TradingStore, now: datetime) -> list[PendingInt
     return work
 
 
-def _finalize_execution_cycle(
+def run_live_sim_allocation_resume(
     store: TradingStore,
-    now: datetime,
+    now: datetime | None = None,
+) -> dict:
+    """Resume pending Live Sim allocations — safe to run in its own DB session."""
+    from quantara_engine.live_sim.allocator import resume_all_pending_live_sim_allocations
+
+    now = now or datetime.now(timezone.utc)
+    return resume_all_pending_live_sim_allocations(store, now)
+
+
+def _paper_cycle_payload(
     *,
     expired: int,
     fills: int,
@@ -85,42 +94,48 @@ def _finalize_execution_cycle(
     errors: list[str],
     extra: dict | None = None,
 ) -> dict:
-    from quantara_engine.live_sim.allocator import resume_all_pending_live_sim_allocations
-
-    live_sim_resume = resume_all_pending_live_sim_allocations(store, now)
-    store.session.commit()
     payload = {
         "expired_intents": expired,
         "portfolios_checked": portfolios_checked,
         "fills_attempted": fills,
         "errors": errors,
-        "live_sim_resumed": live_sim_resume.get("resumed", 0),
-        "live_sim_expired": live_sim_resume.get("expired", 0),
-        "live_sim_pending_found": live_sim_resume.get("pending_found", 0),
-        "live_sim_not_ready": live_sim_resume.get("not_ready", 0),
-        "live_sim_broker_rejected": live_sim_resume.get("broker_rejected", 0),
-        "live_sim_filled": live_sim_resume.get("filled", 0),
     }
     if extra:
         payload.update(extra)
     return payload
 
 
-def execute_pending_intents_live(store: TradingStore, now: datetime | None = None) -> dict:
-    """Fill eligible pending intents without running strategy logic."""
+def _merge_live_sim_report(payload: dict, live_sim_resume: dict) -> dict:
+    payload.update(
+        {
+            "live_sim_resumed": live_sim_resume.get("resumed", 0),
+            "live_sim_expired": live_sim_resume.get("expired", 0),
+            "live_sim_pending_found": live_sim_resume.get("pending_found", 0),
+            "live_sim_not_ready": live_sim_resume.get("not_ready", 0),
+            "live_sim_broker_rejected": live_sim_resume.get("broker_rejected", 0),
+            "live_sim_filled": live_sim_resume.get("filled", 0),
+        }
+    )
+    return payload
+
+
+def execute_paper_pending_intents_only(
+    store: TradingStore,
+    now: datetime | None = None,
+) -> dict:
+    """Competition Paper fills only — caller commits; no Live Sim resume."""
     from quantara_engine.trading.trading_controls import allows_new_entries, load_trading_control
 
     now = now or datetime.now(timezone.utc)
     if not allows_new_entries(load_trading_control(store.get_settings_dict())):
         expired = _expire_stale_intents(store, now)
-        return {
-            "status": "skipped",
-            "reason": "new_entries_blocked",
-            "expired_intents": expired,
-            "fills_attempted": 0,
-            "portfolios_checked": 0,
-            "errors": [],
-        }
+        return _paper_cycle_payload(
+            expired=expired,
+            fills=0,
+            portfolios_checked=0,
+            errors=[],
+            extra={"status": "skipped", "reason": "new_entries_blocked"},
+        )
     expired = _expire_stale_intents(store, now)
     fills = 0
     portfolios_checked: set[str] = set()
@@ -128,9 +143,7 @@ def execute_pending_intents_live(store: TradingStore, now: datetime | None = Non
 
     work_items = _collect_pending_work(store, now)
     if not work_items:
-        return _finalize_execution_cycle(
-            store,
-            now,
+        return _paper_cycle_payload(
             expired=expired,
             fills=0,
             portfolios_checked=0,
@@ -225,7 +238,8 @@ def execute_pending_intents_live(store: TradingStore, now: datetime | None = Non
                 if row.status == IntentStatus.PENDING_EXECUTION
             )
             processor.pending_intents = [intent]
-            processor.execute_pending_on_candle(candle_index)
+            with store.session.begin_nested():
+                processor.execute_pending_on_candle(candle_index)
             processor.pending_intents = store.list_pending_order_intents(portfolio.id, instance.id)
             pending_after = sum(
                 1
@@ -238,12 +252,21 @@ def execute_pending_intents_live(store: TradingStore, now: datetime | None = Non
             msg = f"{instrument.symbol}/{instance.timeframe}: {exc}"
             logger.exception("execute_pending_intents failed for %s", msg)
             errors.append(msg)
+            if not store.session.is_active:
+                store.session.rollback()
 
-    return _finalize_execution_cycle(
-        store,
-        now,
+    return _paper_cycle_payload(
         expired=expired,
         fills=fills,
         portfolios_checked=len(portfolios_checked),
         errors=errors,
     )
+
+
+def execute_pending_intents_live(store: TradingStore, now: datetime | None = None) -> dict:
+    """Paper fills + Live Sim resume in one session (tests / legacy callers)."""
+    now = now or datetime.now(timezone.utc)
+    paper = execute_paper_pending_intents_only(store, now)
+    live_sim = run_live_sim_allocation_resume(store, now)
+    store.session.commit()
+    return _merge_live_sim_report(paper, live_sim)
