@@ -19,7 +19,10 @@ from quantara_engine.broker.execution_model import (
     resolve_execution_model,
     uses_realistic_broker,
 )
-from quantara_engine.broker.execution_product import route_execution_product
+from quantara_engine.broker.execution_product import (
+    route_execution_product,
+    rules_for_booked_product,
+)
 from quantara_engine.broker.provenance import coerce_uuid
 from quantara_engine.broker.realistic_execution import (
     aggregate_fill_result,
@@ -182,7 +185,8 @@ class BrokerExecutionService:
         pos_rows = self.store.session.execute(
             text(
                 """
-                SELECT i.symbol, bp.net_quantity, bp.average_price, bp.mark_price
+                SELECT i.symbol, bp.net_quantity, bp.average_price, bp.mark_price,
+                       bp.execution_product::text AS execution_product
                 FROM broker_positions bp
                 JOIN instruments i ON i.id = bp.instrument_id
                 WHERE bp.broker_account_id = :aid
@@ -198,6 +202,11 @@ class BrokerExecutionService:
                 Decimal(str(r["mark_price"])),
             )
             for r in pos_rows
+        }
+        execution_products = {
+            str(r["symbol"]).upper(): str(r["execution_product"])
+            for r in pos_rows
+            if r.get("execution_product")
         }
         symbols = list(positions.keys())
         instruments = [self.store.get_instrument_by_symbol(s) for s in symbols]
@@ -216,6 +225,7 @@ class BrokerExecutionService:
             positions=positions,
             fx_rates=fx_map,
             profile=self.profile,
+            execution_products=execution_products,
             spot_crypto_cash=effective_spot_crypto_cash(
                 cash=raw_cash,
                 spot_crypto_cash=raw_spot,
@@ -1199,7 +1209,9 @@ class BrokerExecutionService:
                 continue
             qty = Decimal(str(row["net_quantity"]))
             avg = Decimal(str(row["average_price"]))
-            rules = self.profile.rules_for(spec.asset_class)
+            rules = rules_for_booked_product(
+                self.profile, spec, row.get("execution_product")
+            )
             notional = quote_notional_usd(qty, mark, spec, fx_map)
             unreal = unrealized_pnl_usd(qty, avg, mark, spec, fx_map)
             self.store.session.execute(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from quantara_engine.broker.execution_product import rules_for_booked_product
 from quantara_engine.broker.instruments import get_instrument_spec
 from quantara_engine.broker.margin import (
     gross_leverage,
@@ -32,6 +33,7 @@ def build_account_snapshot(
     profile: BrokerProfile | None = None,
     unrealized_override: Decimal | None = None,
     spot_crypto_cash: Decimal | None = None,
+    execution_products: dict[str, str] | None = None,
 ) -> BrokerAccountSnapshot:
     """
     Build canonical broker account metrics.
@@ -52,7 +54,10 @@ def build_account_snapshot(
         if qty == 0:
             continue
         spec = get_instrument_spec(symbol)
-        rules = profile.rules_for(spec.asset_class)
+        booked = None
+        if execution_products:
+            booked = execution_products.get(symbol) or execution_products.get(symbol.upper())
+        rules = rules_for_booked_product(profile, spec, booked)
         notional = quote_notional_usd(qty, mark, spec, fx_rates)
         gross += notional
         net += notional if qty > 0 else -notional

@@ -173,3 +173,30 @@ def _route_open(sym: str, dir_norm: str, execution_model: ExecutionModelVersion)
 
 def product_rules(product: ExecutionProduct) -> AssetClassRules:
     return EXECUTION_PRODUCT_RULES[product]
+
+
+# Booked product → profile asset-class key. Instrument.asset_class stays "crypto"
+# for both spot and derivatives, so post-fill margin must use the product that
+# accepted the order. Otherwise a 10x crypto short is revalued at 100% spot margin.
+_BOOKED_PRODUCT_ASSET_KEY = {
+    ExecutionProduct.CRYPTO_SPOT.value: "crypto",
+    ExecutionProduct.CRYPTO_DERIVATIVE.value: "crypto_derivative",
+    ExecutionProduct.MARGIN_FX.value: "forex",
+    ExecutionProduct.MARGIN_GOLD.value: "commodity",
+    ExecutionProduct.EQUITY_CASH.value: "stock",
+    ExecutionProduct.EQUITY_MARGIN_SHORT.value: "stock",
+}
+
+
+def rules_for_booked_product(profile, spec, execution_product: str | None) -> AssetClassRules:
+    """Margin rules for an open position.
+
+    Missing or unknown products keep the instrument asset-class rules.
+    """
+    if execution_product:
+        key = _BOOKED_PRODUCT_ASSET_KEY.get(execution_product, execution_product)
+        try:
+            return profile.rules_for(key)
+        except KeyError:
+            pass
+    return profile.rules_for(spec.asset_class)

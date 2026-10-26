@@ -85,12 +85,12 @@ QUANTARA_LIVE_SIM_10K = BrokerProfile(
     account_currency="USD",
     position_mode=PositionMode.NETTING,
     starting_cash=Decimal("10000"),
-    max_gross_leverage=Decimal("2.0"),
-    max_net_leverage=Decimal("2.0"),
+    max_gross_leverage=Decimal("5.0"),
+    max_net_leverage=Decimal("5.0"),
     margin_warning_level_pct=Decimal("150"),
     margin_call_level_pct=Decimal("100"),
     liquidation_level_pct=Decimal("50"),
-    allow_broker_downsize=False,
+    allow_broker_downsize=True,
     asset_rules=_STANDARD_ASSET_RULES,
 )
 
