@@ -165,7 +165,7 @@ export function AiTraderDashboard({ data, loading }: Props) {
         <Card>
           <CardHeader><CardTitle>{t("ai_trader.trades_today")}</CardTitle></CardHeader>
           <CardContent>
-            <p className="font-mono text-2xl">{data.trades_today}/{data.max_trades_per_day}</p>
+            <p className="font-mono text-2xl">{data.trades_today}</p>
           </CardContent>
         </Card>
         <Card>
@@ -272,7 +272,6 @@ export function AiTraderDashboard({ data, loading }: Props) {
           <p><span className="text-muted">{t("ai_trader.stocks")}: </span>{data.target_stocks.join(", ")}</p>
           <p><span className="text-muted">{t("ai_trader.max_risk_per_trade")}: </span>${data.max_risk_per_trade_usd}</p>
           <p><span className="text-muted">{t("ai_trader.max_daily_loss")}: </span>${data.max_daily_loss_usd}</p>
-          <p><span className="text-muted">{t("ai_trader.max_trades_per_day_label")}: </span>{data.max_trades_per_day}</p>
           <p><span className="text-muted">{t("ai_trader.starting_capital")}: </span>{formatCurrency(data.starting_capital)}</p>
         </CardContent>
       </Card>

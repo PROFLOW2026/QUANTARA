@@ -584,7 +584,7 @@ def _process_live_sim(
             current_price=Decimal(str(row["entry_price"])),
             stop_loss=Decimal(str(row["stop_loss"])),
             take_profit=Decimal(str(row["take_profit"])) if row["take_profit"] else None,
-            opened_at=now,
+            opened_at=row.get("opened_at") or now,  # FIX: use actual open time, not now
         )
 
         prefetched = candles_by_instrument.get(instrument.id)

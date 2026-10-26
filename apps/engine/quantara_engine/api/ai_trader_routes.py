@@ -187,7 +187,6 @@ class AiTraderSummary(BaseModel):
     target_stocks: list[str]
     max_risk_per_trade_usd: float
     max_daily_loss_usd: float
-    max_trades_per_day: int
 
     # Signals
     signals_seen: list[str]
@@ -306,7 +305,6 @@ async def get_ai_trader_summary() -> AiTraderSummary:
     target_stocks = journal.get("target_stocks") or []
     max_risk      = float(config.get("max_loss_per_trade_usd") or journal.get("max_risk_per_trade_usd") or 50)
     max_daily     = float(config.get("max_daily_loss_usd")    or journal.get("max_daily_loss_usd")    or 150)
-    max_trades    = int(config.get("max_trades_per_day")       or journal.get("max_trades_per_day")    or 3)
 
     return AiTraderSummary(
         runner_alive=runner_alive,
@@ -342,7 +340,6 @@ async def get_ai_trader_summary() -> AiTraderSummary:
         target_stocks=target_stocks,
         max_risk_per_trade_usd=max_risk,
         max_daily_loss_usd=max_daily,
-        max_trades_per_day=max_trades,
         signals_seen=state.get("signals_seen") or [],
         source="paper-state.json + paper-journal-v2.json",
         data_dir_accessible=True,

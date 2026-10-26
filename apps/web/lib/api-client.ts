@@ -1352,7 +1352,6 @@ export interface AiTraderSummary {
   target_stocks: string[];
   max_risk_per_trade_usd: number;
   max_daily_loss_usd: number;
-  max_trades_per_day: number;
   // Signals
   signals_seen: string[];
   // Source
