@@ -17,8 +17,8 @@ from quantara_engine.domain.types import Direction, IntentStatus, OrderIntent, S
 from quantara_engine.execution.cost_profile import execution_assumptions_for
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
 from quantara_engine.execution.timing import (
-    freshness_max_age_minutes,
     is_execution_candle_ready,
+    live_sim_freshness_max_age_minutes,
     is_terminal_execution_rejection,
     next_execution_timestamp,
     resolve_execution_candle,
@@ -34,6 +34,7 @@ from quantara_engine.live_sim.candidate_log import (
     update_allocation_metadata,
 )
 from quantara_engine.live_sim.constants import REJECTION_HE
+from quantara_engine.live_sim.phase3_constants import EXPERIMENT_ID_BY_SLUG, PHASE3_STRATEGY_SLUGS
 from quantara_engine.live_sim.account_bootstrap import repair_pristine_live_sim_spot_crypto_cash
 from quantara_engine.live_sim.sizing import (
     entry_mark_price_for_sizing,
@@ -158,6 +159,28 @@ def _resolve_live_sim_entry_economics(
     if buying_power <= 0:
         buying_power = v2.buying_power_cash
 
+    from quantara_engine.broker.profile import profile_for_account_slug
+    from quantara_engine.live_sim.sizing import LIVE_SIM_NOTIONAL_HEADROOM_USD
+    from quantara_engine.owner_portfolio.asset_risk import SOFT_POOL_MAX_INCREMENTAL_LEVERAGE
+    from quantara_engine.owner_portfolio.global_risk import remaining_owner_open_sl_usd
+    from quantara_engine.owner_portfolio.service import LIVE_SIM_OWNER_SLUG
+
+    owner_room = remaining_owner_open_sl_usd(store, LIVE_SIM_OWNER_SLUG, symbol)
+    if owner_room is not None:
+        hard_max_risk = min(hard_max_risk, owner_room)
+
+    broker_equity = Decimal(str(account.get("equity") or account.get("starting_cash") or 0))
+    account_gross = Decimal(str(account.get("gross_exposure") or 0))
+    profile = profile_for_account_slug(account_slug)
+    gross_spare = (
+        profile.max_gross_leverage * broker_equity
+        - account_gross
+        - LIVE_SIM_NOTIONAL_HEADROOM_USD
+    )
+    notional_cap = max(Decimal("0"), gross_spare)
+    if v2.soft_allocation and broker_equity > 0:
+        notional_cap = min(notional_cap, broker_equity * SOFT_POOL_MAX_INCREMENTAL_LEVERAGE)
+
     return {
         "account": account,
         "account_id": account_id,
@@ -173,6 +196,7 @@ def _resolve_live_sim_entry_economics(
         "buying_power": buying_power,
         "soft_shared_pool": v2.soft_allocation,
         "broker_cash": v2.buying_power_cash,
+        "max_incremental_notional": notional_cap,
     }
 
 
@@ -724,6 +748,7 @@ def _resume_pending_allocation(
         ),
         product_rules=product_route.rules,
         hard_max_risk_usd=hard_max_risk,
+        max_incremental_notional=econ.get("max_incremental_notional"),
     )
     if sizing.deny_reason or sizing.quantity <= 0:
         mark_allocation_rejected(
@@ -738,7 +763,7 @@ def _resume_pending_allocation(
     profile = profile_for_account_slug(account_slug)
     spot_raw = Decimal(str(account.get("spot_crypto_cash") or "0"))
     cash_raw = Decimal(str(account.get("cash") or account.get("equity") or account["starting_cash"]))
-    accepted, broker_reason = validate_live_sim_broker_pre_trade(
+    accepted, broker_reason, broker_qty = validate_live_sim_broker_pre_trade(
         equity=leverage_equity,
         cash=cash_raw,
         spot_crypto_cash=spot_raw,
@@ -761,10 +786,19 @@ def _resume_pending_allocation(
             rejection_reason="BROKER_REJECTED",
             rejection_detail=detail,
         )
+        update_allocation_metadata(
+            store,
+            existing["id"],
+            {"broker_rejection_reason": broker_reason or "broker_rejected"},
+        )
         return {"status": "rejected", "reason": "BROKER_REJECTED", "detail": detail}
 
-    qty = sizing.quantity
-    expected_risk = sizing.expected_risk_usd
+    qty = broker_qty if broker_qty > 0 else sizing.quantity
+    if qty != sizing.quantity and sizing.quantity > 0:
+        scale = qty / sizing.quantity
+        expected_risk = (sizing.expected_risk_usd * scale).quantize(Decimal("0.01"))
+    else:
+        expected_risk = sizing.expected_risk_usd
 
     return _execute_accepted_allocation(
         store,
@@ -995,8 +1029,6 @@ def maybe_allocate_live_sim(
         execution_now=execution_now,
     )
     if not policy.allowed:
-        if policy.reason == "ROBOT_LIVE_PAUSED":
-            return {"status": "skipped", "reason": policy.reason}
         log_allocation(
             store,
             account_id=account_id,
@@ -1020,6 +1052,37 @@ def maybe_allocate_live_sim(
             metadata={"funnel_category": funnel_category(policy.reason)},
         )
         return {"status": "rejected", "reason": policy.reason}
+
+    from quantara_engine.live_sim.dynamic_universe import evaluate_dynamic_universe_entry
+
+    dyn = evaluate_dynamic_universe_entry(
+        store, symbol=instrument.symbol, is_close=False
+    )
+    if not dyn.allowed:
+        reason = dyn.reason or "DYNAMIC_UNIVERSE_INACTIVE"
+        log_allocation(
+            store,
+            account_id=account_id,
+            canonical_key=canonical_key,
+            opportunity_key=opportunity_key,
+            strategy_slug=strategy_slug,
+            strategy_version=strategy_version,
+            robot_label=robot_label,
+            symbol=instrument.symbol,
+            timeframe=instance.timeframe,
+            direction=direction,
+            signal_candle_timestamp=candle.timestamp,
+            proposed_entry=candle.close,
+            stop_loss=signal.suggested_sl,
+            take_profit=signal.suggested_tp,
+            calculated_risk_usd=None,
+            calculated_quantity=None,
+            accepted=False,
+            rejection_reason=reason,
+            rejection_detail=REJECTION_HE.get(reason, reason),
+            metadata={"funnel_category": funnel_category(reason)},
+        )
+        return {"status": "rejected", "reason": reason}
 
     from quantara_engine.trading.asset_trading_controls import (
         SCOPE_LIVE_SIM,
@@ -1070,7 +1133,7 @@ def maybe_allocate_live_sim(
             )
         return {"status": "skipped", "reason": lifecycle}
 
-    if signal_age_minutes(candle.timestamp, execution_now) > freshness_max_age_minutes(
+    if signal_age_minutes(candle.timestamp, execution_now) > live_sim_freshness_max_age_minutes(
         instance.timeframe
     ):
         log_allocation(
@@ -1249,6 +1312,7 @@ def maybe_allocate_live_sim(
         current_asset_notional=_current_asset_notional_usd(store, account_id, sym_db),
         product_rules=product_route.rules,
         hard_max_risk_usd=hard_max_risk,
+        max_incremental_notional=econ.get("max_incremental_notional"),
     )
     sizing_meta = _sizing_metadata_patch(sizing, settings=settings, risk_equity=risk_equity)
     qty = sizing.quantity
@@ -1304,6 +1368,13 @@ def maybe_allocate_live_sim(
         reason = "MIN_QUANTITY_EXCEEDS_RISK_BUDGET" if deny else "MIN_QUANTITY"
         return _reject(reason, REJECTION_HE.get(reason, deny or reason))
 
+    mark_equity = None
+    mark_scope = "drawdown"
+    if asset_row:
+        from quantara_engine.owner_portfolio.asset_allocation import asset_equity
+
+        mark_equity = asset_equity(asset_row)
+        mark_scope = "asset drawdown"
     gate = evaluate_entry_gates(
         settings=settings,
         equity=risk_equity,
@@ -1311,6 +1382,9 @@ def maybe_allocate_live_sim(
         open_risk=open_risk,
         proposed_risk_usd=expected_risk,
         symbol=instrument.symbol,
+        mark_equity=mark_equity,
+        mark_scope_label=mark_scope,
+        as_of=execution_now,
     )
     if not gate.allowed:
         return _reject(gate.reason or "GATE", gate.detail or REJECTION_HE.get(gate.reason or "", ""))
@@ -1396,7 +1470,7 @@ def maybe_allocate_live_sim(
 
     spot_raw = Decimal(str(account.get("spot_crypto_cash") or "0"))
     cash_raw = Decimal(str(account.get("cash") or account.get("equity") or account["starting_cash"]))
-    broker_ok, broker_reason = validate_live_sim_broker_pre_trade(
+    broker_ok, broker_reason, broker_qty = validate_live_sim_broker_pre_trade(
         equity=leverage_equity,
         cash=cash_raw,
         spot_crypto_cash=spot_raw,
@@ -1417,6 +1491,14 @@ def maybe_allocate_live_sim(
             broker_reason_he(broker_reason or "broker_rejected"),
         )
 
+    if broker_qty > 0 and broker_qty != qty:
+        scale = broker_qty / qty
+        qty = broker_qty
+        expected_risk = (expected_risk * scale).quantize(Decimal("0.01"))
+        sizing_meta = dict(sizing_meta)
+        sizing_meta["broker_downsize_from"] = str(sizing.quantity)
+        sizing_meta["broker_downsize_to"] = str(qty)
+
     exec_ts = next_execution_timestamp(candle.timestamp, instance.timeframe)
     pending_meta = {
         "pending_execution": True,
@@ -1427,6 +1509,8 @@ def maybe_allocate_live_sim(
     }
     if v32_candidate_key:
         pending_meta["v32_candidate_key"] = str(v32_candidate_key)
+    if strategy_slug in PHASE3_STRATEGY_SLUGS:
+        pending_meta["phase3_experiment_id"] = EXPERIMENT_ID_BY_SLUG.get(strategy_slug, strategy_slug)
     if candle_index + 1 >= len(candles):
         log_id = log_allocation(
             store,

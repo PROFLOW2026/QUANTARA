@@ -40,7 +40,8 @@ _FETCH_BULK_OPTS = {
     "misfire_grace_time": 300,
 }
 
-# Short housekeeping jobs (execute, position marks, snapshot).
+# Short housekeeping jobs (execute, position marks, snapshot) — single worker to avoid
+# deadlocks on shared portfolios/positions rows across concurrent jobs.
 _HOUSEKEEPING_OPTS = {
     "executor": "housekeeping",
     "max_instances": 1,
@@ -70,7 +71,7 @@ class WorkerScheduler:
         executors = {
             "fetch_live": ThreadPoolExecutor(max_workers=1),
             "fetch_bulk": ThreadPoolExecutor(max_workers=1),
-            "housekeeping": ThreadPoolExecutor(max_workers=3),
+            "housekeeping": ThreadPoolExecutor(max_workers=1),
             "strategy_live": ThreadPoolExecutor(max_workers=1),
             "strategy_historical": ThreadPoolExecutor(max_workers=1),
         }

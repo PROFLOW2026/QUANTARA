@@ -8,6 +8,9 @@ from decimal import Decimal
 from quantara_engine.owner_portfolio.asset_allocation import asset_equity, get_asset_allocation_row
 from quantara_engine.persistence.store import TradingStore
 
+# Soft shared pool: one new order may not exceed this multiple of broker equity.
+SOFT_POOL_MAX_INCREMENTAL_LEVERAGE = Decimal("5")
+
 
 @dataclass(frozen=True)
 class AssetRiskVerdict:
@@ -42,6 +45,9 @@ def evaluate_asset_envelope_risk(
     if not row.get("enabled"):
         return AssetRiskVerdict(allowed=False, reason="asset_allocation_disabled")
 
+    if row.get("live_sim_new_entries_allowed") is False:
+        return AssetRiskVerdict(allowed=False, reason="asset_new_entries_paused")
+
     equity = asset_equity(row)
     if equity <= 0:
         return AssetRiskVerdict(allowed=False, reason="asset_equity_non_positive")
@@ -72,7 +78,7 @@ def evaluate_asset_envelope_risk(
             ba = broker_account_row_by_id(store, str(broker_aid))
             if ba:
                 broker_eq = Decimal(str(ba.get("equity") or 0))
-                if broker_eq > 0 and incremental_notional_usd > broker_eq * Decimal("5"):
+                if broker_eq > 0 and incremental_notional_usd > broker_eq * SOFT_POOL_MAX_INCREMENTAL_LEVERAGE:
                     return AssetRiskVerdict(allowed=False, reason="asset_leverage_cap_exceeded")
 
     return AssetRiskVerdict(allowed=True)

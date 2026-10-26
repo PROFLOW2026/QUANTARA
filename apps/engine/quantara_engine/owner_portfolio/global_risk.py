@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import text
@@ -89,6 +90,59 @@ def _load_owner_risk_settings(portfolio_row: dict) -> dict:
     return raw
 
 
+def remaining_owner_open_sl_usd(
+    store: TradingStore,
+    owner_slug: str,
+    symbol: str,
+) -> Decimal | None:
+    """USD still allowed under the owner symbol, group, and total stop-risk caps.
+
+    None when that gate is not active. Zero when the caps are already full.
+    """
+    portfolio_row = store.session.execute(
+        text(
+            """
+            SELECT id::text, target_capital, multi_broker_mode_enabled,
+                   equal_asset_allocation_enabled, global_execution_halted, risk_settings
+            FROM owner_trading_portfolios WHERE slug = :slug
+            """
+        ),
+        {"slug": owner_slug},
+    ).mappings().first()
+    if not portfolio_row or portfolio_row.get("global_execution_halted"):
+        return None
+    if not portfolio_row.get("multi_broker_mode_enabled"):
+        return None
+    snapshot = aggregate_owner_portfolio(store, slug=owner_slug)
+    if not snapshot:
+        return None
+    settings = _load_owner_risk_settings(dict(portfolio_row))
+    if portfolio_row.get("equal_asset_allocation_enabled"):
+        from quantara_engine.owner_portfolio.asset_ledger import aggregate_owner_from_assets
+
+        equity = aggregate_owner_from_assets(store, owner_slug)["equity"]
+    else:
+        equity = snapshot.total_equity
+    if equity <= 0:
+        return None
+    risk = compute_global_open_sl_risk(store, owner_slug)
+    sym = symbol.upper().replace("/", "")
+    max_total_pct = Decimal(str(settings.get("max_total_open_sl_risk_pct", 15)))
+    max_symbol_pct = Decimal(str(settings.get("max_symbol_sl_risk_pct", 7.5)))
+    max_group_pct = Decimal(str(settings.get("max_group_sl_risk_pct", 12)))
+    remaining = min(
+        equity * max_symbol_pct / Decimal("100") - risk.by_symbol.get(sym, Decimal("0")),
+        equity * max_total_pct / Decimal("100") - risk.total_sl_risk_usd,
+    )
+    grp = symbol_risk_group(sym)
+    if grp:
+        remaining = min(
+            remaining,
+            equity * max_group_pct / Decimal("100") - risk.by_group.get(grp, Decimal("0")),
+        )
+    return max(Decimal("0"), remaining)
+
+
 def evaluate_owner_global_risk(
     store: TradingStore,
     *,
@@ -136,11 +190,11 @@ def evaluate_owner_global_risk(
     risk = compute_global_open_sl_risk(store, owner_slug)
     sym = symbol.upper().replace("/", "")
 
-    max_total_pct = Decimal(str(settings.get("max_total_open_sl_risk_pct", 3)))
-    max_symbol_pct = Decimal(str(settings.get("max_symbol_sl_risk_pct", 1)))
-    max_group_pct = Decimal(str(settings.get("max_group_sl_risk_pct", 2)))
-    daily_loss_pct = Decimal(str(settings.get("daily_loss_gate_pct", 2)))
-    max_dd_pct = Decimal(str(settings.get("max_drawdown_gate_pct", 10)))
+    max_total_pct = Decimal(str(settings.get("max_total_open_sl_risk_pct", 15)))
+    max_symbol_pct = Decimal(str(settings.get("max_symbol_sl_risk_pct", 7.5)))
+    max_group_pct = Decimal(str(settings.get("max_group_sl_risk_pct", 12)))
+    daily_loss_pct = Decimal(str(settings.get("daily_loss_gate_pct", 10)))
+    max_dd_pct = Decimal(str(settings.get("max_drawdown_gate_pct", 25)))
 
     projected_total = risk.total_sl_risk_usd + incremental_sl_risk_usd
     if projected_total / equity * 100 > max_total_pct:
@@ -162,7 +216,13 @@ def evaluate_owner_global_risk(
         if dd_pct > max_dd_pct:
             return GlobalRiskVerdict(allowed=False, reason="owner_max_drawdown")
 
-    daily_start = Decimal(str(settings.get("daily_start_equity", equity)))
+    daily_raw = settings.get("daily_start_equity")
+    daily_date = str(settings.get("daily_start_date") or "")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if daily_raw is not None and daily_date == today:
+        daily_start = Decimal(str(daily_raw))
+    else:
+        daily_start = Decimal("0")
     if daily_start > 0 and equity < daily_start:
         loss_pct = (daily_start - equity) / daily_start * 100
         if loss_pct > daily_loss_pct:

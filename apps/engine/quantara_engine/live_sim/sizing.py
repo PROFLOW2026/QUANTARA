@@ -68,6 +68,7 @@ def max_safe_quantity_for_live_sim(
     max_asset_leverage: Decimal,
     fx_rates: FxRateTable | None = None,
     product_rules=None,
+    max_incremental_notional: Decimal | None = None,
 ) -> tuple[Decimal, Decimal]:
     """
     Maximum quantity that satisfies broker asset-leverage quantization and cash.
@@ -92,6 +93,10 @@ def max_safe_quantity_for_live_sim(
     headroom = LIVE_SIM_NOTIONAL_HEADROOM_USD
     max_total_notional = max(Decimal("0"), equity * max_asset_leverage - headroom)
     remaining_leverage_notional = max(Decimal("0"), max_total_notional - current_asset_notional)
+    if max_incremental_notional is not None:
+        remaining_leverage_notional = min(
+            remaining_leverage_notional, max(Decimal("0"), max_incremental_notional)
+        )
 
     # Unit economics must be USD — never divide USD headroom by a non-USD quote price.
     unit_notional_usd = quote_notional_usd(Decimal("1"), mark, spec, fx)
@@ -123,9 +128,13 @@ def max_safe_quantity_for_live_sim(
     qty = start_qty
     while qty >= instrument.min_quantity:
         projected = current_asset_notional + quote_notional_usd(qty, mark, spec, fx)
+        incremental = projected - current_asset_notional
         lev = broker_quantized_asset_leverage(projected, equity)
+        incremental_ok = (
+            max_incremental_notional is None or incremental <= max_incremental_notional
+        )
         # Match broker pre-trade strict comparison (reject when lev > max).
-        if lev <= max_asset_leverage and projected <= max_total_notional:
+        if lev <= max_asset_leverage and projected <= max_total_notional and incremental_ok:
             remaining = max(Decimal("0"), max_total_notional - projected)
             return qty, remaining
         qty = round_quantity(qty - instrument.quantity_step, instrument.quantity_step)
@@ -146,6 +155,7 @@ def _cap_desired_by_buying_power(
     max_asset_leverage: Decimal,
     fx_rates: FxRateTable | None = None,
     product_rules=None,
+    max_incremental_notional: Decimal | None = None,
 ) -> tuple[Decimal, str | None, Decimal]:
     safe_qty, headroom = max_safe_quantity_for_live_sim(
         equity=equity,
@@ -158,6 +168,7 @@ def _cap_desired_by_buying_power(
         max_asset_leverage=max_asset_leverage,
         fx_rates=fx_rates,
         product_rules=product_rules,
+        max_incremental_notional=max_incremental_notional,
     )
     if safe_qty < instrument.min_quantity:
         return Decimal("0"), "buying_power_cap", headroom
@@ -182,6 +193,7 @@ def size_live_sim_entry(
     product_rules=None,
     hard_max_risk_usd: Decimal | None = None,
     risk_rounding_tolerance_pct: Decimal | None = None,
+    max_incremental_notional: Decimal | None = None,
 ) -> LiveSimSizingResult:
     from quantara_engine.risk.sizing import DEFAULT_RISK_ROUNDING_TOLERANCE_PCT
 
@@ -211,7 +223,20 @@ def size_live_sim_entry(
         max_asset_leverage=max_asset_leverage,
         fx_rates=fx_rates,
         product_rules=product_rules,
+        max_incremental_notional=max_incremental_notional,
     )
+    if bp_reason and desired < instrument.min_quantity:
+        return LiveSimSizingResult(
+            quantity=Decimal("0"),
+            expected_risk_usd=Decimal("0"),
+            target_risk_usd=target_risk,
+            deny_reason="MIN_QUANTITY",
+            sizing_reason=bp_reason,
+            headroom_notional_usd=headroom,
+            raw_qty_by_stop=raw_qty,
+            binding_constraint="BROKER_MARGIN" if bp_reason else "MIN_QTY",
+            planned_sl_risk_pct=_pct(Decimal("0"), equity),
+        )
     if bp_reason:
         binding = "BROKER_MARGIN"
         sizing_reason = bp_reason
@@ -275,6 +300,141 @@ def _pct(risk_usd: Decimal, equity: Decimal) -> float | None:
     return float(risk_usd / equity * 100)
 
 
+_BROKER_DOWNSIZE_REASONS = frozenset(
+    {
+        "insufficient_margin",
+        "insufficient_buying_power",
+        "max_gross_leverage",
+        "max_leverage",
+        "max_asset_exposure",
+    }
+)
+
+
+def _pre_trade_fx_quote_per_usd(
+    *,
+    store,
+    instrument: Instrument,
+    account,
+    fx_rates: FxRateTable | None,
+) -> dict[str, Decimal]:
+    """FX for every open broker leg plus the candidate symbol (matches execution)."""
+    if store is None:
+        return (fx_rates or FxRateTable.usd_only()).quote_per_usd
+    symbols = {instrument.symbol.upper().replace("/", "")}
+    if account is not None:
+        symbols.update(account.positions.keys())
+    instruments = [store.get_instrument_by_symbol(s) for s in symbols]
+    instruments = [i for i in instruments if i]
+    if not instruments:
+        return (fx_rates or FxRateTable.usd_only()).quote_per_usd
+    return store.build_currency_context_for_instruments(instruments).fx_rates.quote_per_usd
+
+
+def _evaluate_live_sim_broker_order(
+    *,
+    account,
+    profile,
+    route,
+    spec,
+    db_sym: str,
+    dir_str: str,
+    quantity: Decimal,
+    mark_price: Decimal,
+    fx: dict[str, Decimal],
+    account_slug: str | None,
+):
+    from quantara_engine.broker.pre_trade import evaluate_broker_order
+    from quantara_engine.broker.types import BrokerOrderRequest
+
+    request = BrokerOrderRequest(
+        symbol=db_sym,
+        asset_class=route.asset_class_key if route else spec.asset_class,
+        direction=dir_str,
+        quantity=quantity,
+        mark_price=mark_price,
+        data_fresh=True,
+        market_open=True,
+        execution_product=route.product.value if route else None,
+        product_rules_key=route.asset_class_key if route else None,
+        account_slug=account_slug,
+    )
+    return evaluate_broker_order(
+        account,
+        profile,
+        request,
+        fx,
+        product_rules=route.rules if route else None,
+    )
+
+
+def _max_broker_accepted_quantity(
+    *,
+    account,
+    profile,
+    route,
+    spec,
+    db_sym: str,
+    dir_str: str,
+    quantity: Decimal,
+    mark_price: Decimal,
+    fx: dict[str, Decimal],
+    account_slug: str | None,
+    allow_downsize: bool,
+) -> tuple[bool, str | None, Decimal]:
+    """Largest step-valid quantity that passes broker gates (binary search)."""
+    step = spec.quantity_step if spec.quantity_step > 0 else Decimal("1")
+    min_q = max(spec.min_quantity, step)
+
+    def _try(q: Decimal):
+        q = round_quantity(q, step)
+        if q < min_q:
+            return None
+        return _evaluate_live_sim_broker_order(
+            account=account,
+            profile=profile,
+            route=route,
+            spec=spec,
+            db_sym=db_sym,
+            dir_str=dir_str,
+            quantity=q,
+            mark_price=mark_price,
+            fx=fx,
+            account_slug=account_slug,
+        )
+
+    decision = _try(quantity)
+    if decision is None:
+        return False, "invalid_quantity", Decimal("0")
+    if decision.accepted:
+        return True, None, decision.accepted_quantity or quantity
+
+    reason = decision.rejection_reason.value if decision.rejection_reason else "broker_rejected"
+    if not allow_downsize or reason not in _BROKER_DOWNSIZE_REASONS:
+        return False, reason, Decimal("0")
+
+    lo = min_q
+    hi = round_quantity(quantity, step)
+    best: Decimal | None = None
+    while lo <= hi:
+        mid = round_quantity((lo + hi) / 2, step)
+        if mid < min_q:
+            break
+        d = _try(mid)
+        if d is None:
+            hi = mid - step
+            continue
+        if d.accepted:
+            best = d.accepted_quantity or mid
+            lo = mid + step
+        else:
+            hi = mid - step
+
+    if best is not None and best >= min_q:
+        return True, None, best
+    return False, reason, Decimal("0")
+
+
 def validate_live_sim_broker_pre_trade(
     *,
     equity: Decimal,
@@ -289,15 +449,14 @@ def validate_live_sim_broker_pre_trade(
     account_slug: str | None = None,
     store=None,
     execution_model=None,
-) -> tuple[bool, str | None]:
-    """Return (accepted, rejection_reason) using the same broker gate as execution."""
+) -> tuple[bool, str | None, Decimal]:
+    """Return (accepted, rejection_reason, accepted_quantity) using execution broker gates."""
     from quantara_engine.broker.account import build_account_snapshot
     from quantara_engine.broker.accounts import LIVE_SIM_VENDOR_ACCOUNT_SLUGS
     from quantara_engine.broker.execution_model import ExecutionModelVersion
     from quantara_engine.broker.execution_product import route_execution_product
-    from quantara_engine.broker.pre_trade import evaluate_broker_order
+    from quantara_engine.broker.execution_service import BrokerExecutionService
     from quantara_engine.broker.spot_crypto_cash import effective_spot_crypto_cash
-    from quantara_engine.broker.types import BrokerOrderRequest
     from quantara_engine.live_sim.execution_routing import resolve_execution_model_for_slug
 
     db_sym = instrument.symbol.upper().replace("/", "")
@@ -308,7 +467,6 @@ def validate_live_sim_broker_pre_trade(
     if model is None and store is not None and account_slug:
         model = resolve_execution_model_for_slug(store, account_slug)
     elif model is None and account_slug in LIVE_SIM_VENDOR_ACCOUNT_SLUGS:
-        # Vendor Live Sim accounts are realistic even in store-less unit tests.
         model = ExecutionModelVersion.REALISTIC_BROKER_V1
 
     route = (
@@ -317,38 +475,42 @@ def validate_live_sim_broker_pre_trade(
         else None
     )
 
-    fx = (fx_rates or FxRateTable.usd_only()).quote_per_usd
-    account = build_account_snapshot(
-        cash=cash,
-        balance=cash,
-        realized_pnl=Decimal("0"),
-        positions={},
-        fx_rates=fx,
-        spot_crypto_cash=effective_spot_crypto_cash(
+    account = None
+    if store is not None and account_slug:
+        account = BrokerExecutionService(store, account_slug=account_slug).load_account_snapshot()
+
+    if account is None:
+        fx = (fx_rates or FxRateTable.usd_only()).quote_per_usd
+        account = build_account_snapshot(
             cash=cash,
-            spot_crypto_cash=spot_crypto_cash,
-        ),
-    )
-    request = BrokerOrderRequest(
-        symbol=db_sym,
-        asset_class=route.asset_class_key if route else spec.asset_class,
-        direction=dir_str,
+            balance=equity,
+            realized_pnl=Decimal("0"),
+            positions={},
+            fx_rates=fx,
+            profile=profile,
+            spot_crypto_cash=effective_spot_crypto_cash(
+                cash=cash,
+                spot_crypto_cash=spot_crypto_cash,
+            ),
+        )
+    else:
+        fx = _pre_trade_fx_quote_per_usd(
+            store=store,
+            instrument=instrument,
+            account=account,
+            fx_rates=fx_rates,
+        )
+
+    return _max_broker_accepted_quantity(
+        account=account,
+        profile=profile,
+        route=route,
+        spec=spec,
+        db_sym=db_sym,
+        dir_str=dir_str,
         quantity=quantity,
         mark_price=mark_price,
-        data_fresh=True,
-        market_open=True,
-        execution_product=route.product.value if route else None,
-        product_rules_key=route.asset_class_key if route else None,
+        fx=fx,
         account_slug=account_slug,
+        allow_downsize=profile.allow_broker_downsize,
     )
-    decision = evaluate_broker_order(
-        account,
-        profile,
-        request,
-        fx,
-        product_rules=route.rules if route else None,
-    )
-    if decision.accepted:
-        return True, None
-    reason = decision.rejection_reason.value if decision.rejection_reason else "broker_rejected"
-    return False, reason

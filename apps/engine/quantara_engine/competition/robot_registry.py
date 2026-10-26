@@ -10,6 +10,9 @@ ROBOT_LABELS: dict[str, str] = {
     "momentum-continuation": "Robot E",
     "v32-p2-live-sim": "V3.2 Live Sim (P2)",
     "v31-rule-replay": "V3.2 Live Sim (P2)",
+    "phase3-momentum-intraday": "Phase3 Momentum",
+    "phase3-volume-breakout": "Phase3 Breakout",
+    "phase3-mean-reversion-edge": "Phase3 MeanRev",
 }
 
 ROBOT_LABELS_HE: dict[str, str] = {

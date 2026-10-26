@@ -18,6 +18,9 @@ ROBOT_BY_SLUG = {
     "mean-reversion": "Robot C",
     "volatility-squeeze": "Robot D",
     "momentum-continuation": "Robot E",
+    "phase3-momentum-intraday": "Phase3 Momentum",
+    "phase3-volume-breakout": "Phase3 Breakout",
+    "phase3-mean-reversion-edge": "Phase3 MeanRev",
 }
 
 

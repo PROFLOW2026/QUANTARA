@@ -49,5 +49,6 @@ def build_v32_owner_experiment_payload(
         "active_strategies": _active_strategy_rows(),
         "qualified_candidate_count": len(_active_strategy_rows()),
         "observation_anchor": anchor,
-        "legacy_ae_live_disabled": True,
+        "legacy_ae_live_disabled": False,
+        "v32_new_entries_blocked": True,
     }

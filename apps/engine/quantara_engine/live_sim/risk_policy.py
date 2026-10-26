@@ -110,6 +110,37 @@ def compute_open_sl_risk(store: TradingStore, account_id: str) -> OpenRiskSnapsh
     return OpenRiskSnapshot(total_sl_risk_usd=total, by_symbol=by_symbol, by_group=by_group)
 
 
+def resolve_utc_daily_start(
+    *,
+    stored_equity: Decimal,
+    stored_date: str,
+    scope_equity: Decimal,
+    now: datetime,
+    verified_utc_open: Decimal | None = None,
+    foreign_baselines: tuple[Decimal, ...] = (),
+) -> tuple[Decimal, str, str]:
+    """UTC-day baseline for one risk scope.
+
+    Returns ``(equity, utc_date, status)``.
+
+    ``kept`` — stored date is already this UTC day, so today's loss stays.
+    ``verified_open`` — a real UTC-midnight equity for this scope is applied.
+    ``refused_unverified`` — no midnight print. Intraday ``scope_equity`` is
+    not used, and the stored row is left unchanged.
+    ``refused_foreign`` — the offered open matches another scope's baseline.
+    """
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    today = now.astimezone(timezone.utc).strftime("%Y-%m-%d")
+    if stored_date == today:
+        return stored_equity, today, "kept"
+    if verified_utc_open is None:
+        return stored_equity, stored_date, "refused_unverified"
+    if any(verified_utc_open == foreign for foreign in foreign_baselines):
+        return stored_equity, stored_date, "refused_foreign"
+    return verified_utc_open, today, "verified_open"
+
+
 def maybe_roll_daily_start(
     store: TradingStore,
     account_id: str,
@@ -117,8 +148,13 @@ def maybe_roll_daily_start(
     equity: Decimal,
     now: datetime,
 ) -> LiveSimRiskSettings:
-    today = now.astimezone(timezone.utc).strftime("%Y-%m-%d")
-    if settings.daily_start_date == today:
+    baseline, today, status = resolve_utc_daily_start(
+        stored_equity=settings.daily_start_equity,
+        stored_date=settings.daily_start_date,
+        scope_equity=equity,
+        now=now,
+    )
+    if status != "verified_open":
         return settings
     from sqlalchemy import text
 
@@ -127,7 +163,7 @@ def maybe_roll_daily_start(
             text("SELECT risk_settings FROM broker_accounts WHERE id = :id"),
             {"id": account_id},
         ).scalar() or {}),
-        "daily_start_equity": float(equity),
+        "daily_start_equity": float(baseline),
         "daily_start_date": today,
     }
     store.session.execute(
@@ -149,7 +185,7 @@ def maybe_roll_daily_start(
         max_drawdown_gate_pct=settings.max_drawdown_gate_pct,
         concentration_mode=settings.concentration_mode,
         high_water_mark=settings.high_water_mark,
-        daily_start_equity=equity,
+        daily_start_equity=baseline,
         daily_start_date=today,
     )
 
@@ -217,28 +253,49 @@ def evaluate_entry_gates(
     proposed_risk_usd: Decimal,
     symbol: str,
     unrealized_pnl: Decimal = Decimal("0"),
+    mark_equity: Decimal | None = None,
+    mark_scope_label: str = "drawdown",
+    as_of: datetime | None = None,
 ) -> GateResult:
+    """Risk-budget ``equity`` sizes stop-loss caps.
+
+    ``mark_equity`` is the equity of the scope that owns ``settings`` high-water
+    mark and daily start. Asset gates pass asset equity here and owner equity
+    as ``equity``, so an owner balance cannot hide an asset drawdown.
+    """
     if equity <= 0:
+        return GateResult(False, "ACCOUNT_INACTIVE", "equity <= 0")
+    scoped = equity if mark_equity is None else mark_equity
+    if scoped <= 0:
         return GateResult(False, "ACCOUNT_INACTIVE", "equity <= 0")
 
     dd = evaluate_drawdown_gate(
-        equity=equity,
+        equity=scoped,
         high_water_mark=settings.high_water_mark,
         max_drawdown_gate_pct=settings.max_drawdown_gate_pct,
+        scope_label=mark_scope_label,
     )
     if not dd.allowed:
         return dd
 
     daily_start = settings.daily_start_equity
-    if daily_start > 0:
-        daily_loss = daily_start - equity
+    daily_applies = True
+    if as_of is not None:
+        if as_of.tzinfo is None:
+            as_of = as_of.replace(tzinfo=timezone.utc)
+        daily_applies = settings.daily_start_date == as_of.astimezone(timezone.utc).strftime("%Y-%m-%d")
+    if daily_applies and daily_start > 0:
+        daily_loss = daily_start - scoped
         if daily_loss > 0:
             daily_loss_pct = daily_loss / daily_start * Decimal("100")
             if daily_loss_pct >= settings.daily_loss_gate_pct:
+                daily_label = (
+                    "asset daily loss" if mark_scope_label == "asset drawdown" else "daily loss"
+                )
                 return GateResult(
                     False,
                     "DAILY_LOSS_GATE",
-                    f"daily loss {daily_loss_pct:.2f}% >= {settings.daily_loss_gate_pct}%",
+                    f"{daily_label} {daily_loss_pct:.2f}% >= {settings.daily_loss_gate_pct}%",
                 )
 
     max_total = equity * settings.max_total_open_sl_risk_pct / Decimal("100")

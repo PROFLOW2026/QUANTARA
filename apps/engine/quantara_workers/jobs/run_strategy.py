@@ -25,6 +25,7 @@ from quantara_engine.execution.strategy_scheduling import (
     ROBOT_A_LIVE_CURSOR_KEY,
     ROBOT_B_ORB_LIVE_CURSOR_KEY,
     ROBOT_CDE_LIVE_CURSOR_KEY,
+    ROBOT_PHASE3_LIVE_CURSOR_KEY,
     load_scheduling_cursor,
     rotated_indices,
     save_scheduling_cursor,
@@ -48,9 +49,10 @@ CANDLE_LOOKBACK = STRATEGY_MIN_CANDLES + 50
 MAX_HISTORICAL_DECISIONS_PER_RUN = 50
 # Live envelope (~5 min). Each robot gets a guaranteed slice so one backlog cannot starve the other.
 LIVE_CYCLE_MAX_SECONDS = 300
-LIVE_ROBOT_A_BUDGET_SEC = 150
-LIVE_ROBOT_B_BUDGET_SEC = 75
-LIVE_ROBOT_CDE_BUDGET_SEC = 75
+LIVE_ROBOT_A_BUDGET_SEC = 100
+LIVE_ROBOT_B_BUDGET_SEC = 100
+LIVE_ROBOT_CDE_BUDGET_SEC = 100
+LIVE_ROBOT_PHASE3_BUDGET_SEC = 90
 HISTORICAL_CYCLE_MAX_SECONDS = 240
 STRATEGY_STALL_THRESHOLD_MINUTES = 12
 
@@ -197,6 +199,46 @@ def _orb_entry_signal_for_portfolio(
 ):
     """ORB shared signal fan-out — position-exists gate remains in pipeline/risk."""
     return shared_signal
+
+
+_LIVE_SIM_TF_PRIORITY = {"5m": 0, "15m": 1, "1h": 2, "1m": 3}
+_LIVE_SIM_FORWARD_STRATEGY_ORDER = (
+    "phase3-mean-reversion-edge",
+    "phase3-volume-breakout",
+    "phase3-momentum-intraday",
+    "opening-range-breakout",
+    "mean-reversion",
+    "volatility-squeeze",
+    "momentum-continuation",
+    "gold-trend-pullback",
+)
+
+
+def _prioritize_live_sim_forwards(
+    forwards: list[tuple[dict, object]],
+    *,
+    symbol: str,
+) -> list[tuple[dict, object]]:
+    """One Live Sim forward per strategy×symbol (best TF); process non-A robots before A."""
+    sym = symbol.upper().replace("/", "")
+    deduped: dict[tuple[str, str], tuple[int, dict, object]] = {}
+    for entry, signal in forwards:
+        slug = str(entry["instance"].strategy_slug)
+        tf = str(entry["instance"].timeframe)
+        key = (slug, sym)
+        pri = _LIVE_SIM_TF_PRIORITY.get(tf, 50)
+        if key not in deduped or pri < deduped[key][0]:
+            deduped[key] = (pri, entry, signal)
+    ordered = list(deduped.values())
+    ordered.sort(
+        key=lambda t: (
+            _LIVE_SIM_FORWARD_STRATEGY_ORDER.index(t[1]["instance"].strategy_slug)
+            if t[1]["instance"].strategy_slug in _LIVE_SIM_FORWARD_STRATEGY_ORDER
+            else 99,
+            t[0],
+        )
+    )
+    return [(entry, signal) for _, entry, signal in ordered]
 
 
 def _canonical_strategy_representatives(group: list[dict]) -> list[dict]:
@@ -403,6 +445,9 @@ def _process_candle_batch(
     if allow_live_execution and live_sim_forwards:
         from quantara_engine.live_sim.allocator import maybe_allocate_live_sim
 
+        live_sim_forwards = _prioritize_live_sim_forwards(
+            live_sim_forwards, symbol=instrument.symbol
+        )
         for entry, signal in live_sim_forwards:
             maybe_allocate_live_sim(
                 s,
@@ -818,6 +863,13 @@ def _process_competition(
     orb_entries = s.list_orb_competition_entries()
     cde_entries = s.list_multi_strategy_competition_entries()
 
+    groups_p3 = touched_p3 = decisions_p3 = 0
+    robot_phase3_duration_ms = 0.0
+    tf_p3: dict[str, dict] = {}
+    inst_p3: dict[str, dict] = defaultdict(dict)
+    skipped_p3: list[str] = []
+    phase3_entry_count = 0
+
     if live_only and not historical_only:
         # Guaranteed fair scheduling: Robot B cannot be starved by Robot A backlog.
         deadline_a = cycle_t0 + LIVE_ROBOT_A_BUDGET_SEC
@@ -888,6 +940,40 @@ def _process_competition(
             scheduling_cursor_key=ROBOT_CDE_LIVE_CURSOR_KEY,
         )
         robot_cde_duration_ms = round((time.perf_counter() - robot_cde_t0) * 1000, 1)
+
+        from quantara_engine.live_sim.phase3_instance_sync import (
+            PHASE3_TIMEFRAME,
+            phase3_eligible_symbols,
+        )
+
+        phase3_entries = s.list_phase3_live_sim_entries()
+        phase3_entry_count = len(phase3_entries)
+        phase3_syms = sorted(phase3_eligible_symbols(s))
+        if phase3_entries and phase3_syms:
+            phase3_t0 = time.perf_counter()
+            deadline_p3 = phase3_t0 + LIVE_ROBOT_PHASE3_BUDGET_SEC
+            (
+                groups_p3,
+                touched_p3,
+                decisions_p3,
+                tf_p3,
+                inst_p3,
+                skipped_p3,
+            ) = _process_experiment(
+                s,
+                phase3_entries,
+                phase3_syms,
+                (PHASE3_TIMEFRAME,),
+                settings_dict,
+                started_at,
+                live_only=True,
+                historical_only=False,
+                time_budget_sec=LIVE_ROBOT_PHASE3_BUDGET_SEC,
+                deadline=deadline_p3,
+                per_portfolio_eval=True,
+                scheduling_cursor_key=ROBOT_PHASE3_LIVE_CURSOR_KEY,
+            )
+            robot_phase3_duration_ms = round((time.perf_counter() - phase3_t0) * 1000, 1)
     else:
         deadline = cycle_t0 + time_budget_sec
         (
@@ -992,23 +1078,27 @@ def _process_competition(
                 per_portfolio_eval=True,
             )
 
-    groups_evaluated = groups_a + groups_b + groups_cde + groups_v32
-    portfolios_touched = touched_a + touched_b + touched_cde + touched_v32
-    total_decisions = decisions_a + decisions_b + decisions_cde + decisions_v32
-    skipped_reasons = skipped_a + skipped_b + skipped_cde + skipped_v32
+    groups_evaluated = groups_a + groups_b + groups_cde + groups_p3 + groups_v32
+    portfolios_touched = touched_a + touched_b + touched_cde + touched_p3 + touched_v32
+    total_decisions = decisions_a + decisions_b + decisions_cde + decisions_p3 + decisions_v32
+    skipped_reasons = skipped_a + skipped_b + skipped_cde + skipped_p3 + skipped_v32
     timeframe_status = {
         **tf_a,
         **{f"orb_{k}": v for k, v in tf_b.items()},
         **{f"cde_{k}": v for k, v in tf_cde.items()},
+        **{f"phase3_{k}": v for k, v in tf_p3.items()},
         **{f"v32_{k}": v for k, v in tf_v32.items()},
     }
     instrument_status = {
         **inst_a,
         **{f"orb_{k}": v for k, v in inst_b.items()},
         **{f"cde_{k}": v for k, v in inst_cde.items()},
+        **{f"phase3_{k}": v for k, v in inst_p3.items()},
         **{f"v32_{k}": v for k, v in inst_v32.items()},
     }
-    entries_count = len(robot_a) + len(orb_entries) + len(cde_entries) + v32_entry_count
+    entries_count = (
+        len(robot_a) + len(orb_entries) + len(cde_entries) + phase3_entry_count + v32_entry_count
+    )
 
     overall_live, overall_historical, overall_backlog = aggregate_actionable_backlog(
         timeframe_status
@@ -1056,8 +1146,13 @@ def _process_competition(
         "duration_ms": duration_ms,
         "robot_a_duration_ms": robot_a_duration_ms,
         "robot_b_duration_ms": robot_b_duration_ms,
+        "robot_cde_duration_ms": robot_cde_duration_ms,
+        "robot_phase3_duration_ms": robot_phase3_duration_ms,
         "robot_a_groups_evaluated": groups_a,
         "robot_b_groups_evaluated": groups_b,
+        "robot_cde_groups_evaluated": groups_cde,
+        "robot_phase3_groups_evaluated": groups_p3,
+        "phase3_active_instances": phase3_entry_count,
         "jobs_pending": overall_backlog,
         "jobs_live_pending": overall_live,
         "jobs_historical_pending": overall_historical,
@@ -1185,6 +1280,16 @@ def _execute_strategy_cycle(
             with session_scope() as session:
                 jobs = _run(TradingStore(session))
         duration_ms = round((time.perf_counter() - t0) * 1000, 1)
+        if not historical_only and store is None:
+            try:
+                with session_scope() as scan_session:
+                    from quantara_engine.live_sim.market_scan import maybe_refresh_live_sim_market_scan
+
+                    maybe_refresh_live_sim_market_scan(TradingStore(scan_session))
+                    scan_session.commit()
+            except Exception:
+                logger.exception("live_sim market scan refresh failed (non-fatal)")
+
         logger.info(
             "run_strategy_%s_job finished in %.1fms (jobs=%d)",
             mode,

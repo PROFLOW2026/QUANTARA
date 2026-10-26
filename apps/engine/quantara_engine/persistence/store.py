@@ -767,6 +767,72 @@ class TradingStore:
         entries.sort(key=lambda e: e["sort_order"])
         return entries
 
+    def list_phase3_live_sim_entries(self) -> list[dict[str, Any]]:
+        """Phase 3 experiments on the dynamic Live Sim active symbol set."""
+        from quantara_engine.live_sim.phase3_constants import PHASE3_STRATEGY_SLUGS
+        from quantara_engine.live_sim.phase3_instance_sync import (
+            PHASE3_LIVE_SIM_ENABLED_KEY,
+            PHASE3_TIMEFRAME,
+            phase3_eligible_symbols,
+        )
+        settings = self.get_settings_dict()
+        if not settings.get(PHASE3_LIVE_SIM_ENABLED_KEY, True):
+            return []
+        eligible = phase3_eligible_symbols(self)
+        if not eligible:
+            return []
+
+        stmt = (
+            select(
+                OrmStrategyInstance,
+                OrmPortfolio,
+                OrmRiskProfile,
+                OrmStrategy,
+                OrmStrategyVersion,
+                OrmInstrument,
+            )
+            .join(OrmPortfolio, OrmStrategyInstance.portfolio_id == OrmPortfolio.id)
+            .join(OrmRiskProfile, OrmStrategyInstance.risk_profile_id == OrmRiskProfile.id)
+            .join(
+                OrmStrategyVersion,
+                OrmStrategyInstance.strategy_version_id == OrmStrategyVersion.id,
+            )
+            .join(OrmStrategy, OrmStrategyVersion.strategy_id == OrmStrategy.id)
+            .join(OrmInstrument, OrmStrategyInstance.instrument_id == OrmInstrument.id)
+            .where(
+                OrmStrategyInstance.is_active.is_(True),
+                OrmStrategy.slug.in_(tuple(PHASE3_STRATEGY_SLUGS)),
+                OrmStrategyInstance.timeframe == PHASE3_TIMEFRAME,
+            )
+        )
+        rows = self.session.execute(stmt).all()
+        entries: list[dict[str, Any]] = []
+        for (
+            instance_row,
+            portfolio_row,
+            risk_row,
+            strategy_row,
+            version_row,
+            instrument_row,
+        ) in rows:
+            db_sym = str(instrument_row.symbol or "").upper().replace("/", "")
+            if db_sym not in eligible:
+                continue
+            entries.append(
+                {
+                    "portfolio": self._portfolio_to_domain(portfolio_row),
+                    "instance": self._strategy_instance_to_domain(
+                        instance_row,
+                        strategy_row.slug,
+                        version_row=version_row,
+                    ),
+                    "risk_profile": self._risk_profile_to_domain(risk_row),
+                    "sort_order": f"{strategy_row.slug}:{db_sym}",
+                }
+            )
+        entries.sort(key=lambda e: e["sort_order"])
+        return entries
+
     def is_orb_competition_enabled(self) -> bool:
         settings = self.get_settings_dict()
         return bool(settings.get("orb_competition_enabled"))
@@ -1976,6 +2042,10 @@ class TradingStore:
         )
 
         paper_run_id = resolve_position_paper_run_id(self, intent_id=intent_id)
+        status = OrmPositionStatus(position.status.value)
+        closed_at = position.closed_at
+        if status == OrmPositionStatus.OPEN:
+            closed_at = None
         row = OrmPosition(
             id=_uuid(position.id),
             portfolio_id=_uuid(position.portfolio_id),
@@ -1988,9 +2058,9 @@ class TradingStore:
             stop_loss=position.stop_loss,
             take_profit=position.take_profit,
             unrealized_pnl=position.unrealized_pnl,
-            status=OrmPositionStatus(position.status.value),
+            status=status,
             opened_at=position.opened_at or datetime.now(timezone.utc),
-            closed_at=position.closed_at,
+            closed_at=closed_at,
             mode=_mode_to_orm(self.mode),
             backtest_run_id=self._bt_uuid(),
             paper_run_id=_uuid(paper_run_id) if paper_run_id and paper_run_columns_ready(self) else None,

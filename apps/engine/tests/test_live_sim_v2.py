@@ -17,27 +17,41 @@ from quantara_engine.live_sim.sizing import size_live_sim_entry
 from quantara_engine.portfolio.currency import FxRateTable
 
 
-def test_robot_d_e_paused_in_live_policy():
-    for slug in ("volatility-squeeze", "momentum-continuation"):
-        v = evaluate_live_sim_v2_policy(strategy_slug=slug, symbol="BTCUSD", timeframe="5m")
-        assert not v.allowed
-        assert v.reason == "ROBOT_LIVE_PAUSED"
+def test_robots_a_through_e_are_live():
+    from quantara_engine.live_sim.v2_policy import MAIN_LIVE_SIM_STRATEGY_SLUGS
+
+    assert LIVE_SIM_PAUSED_STRATEGY_SLUGS == frozenset()
+    core = MAIN_LIVE_SIM_STRATEGY_SLUGS - frozenset(
+        {"gold-trend-pullback", "phase3-momentum-intraday", "phase3-volume-breakout", "phase3-mean-reversion-edge"}
+    )
+    for slug in core:
+        for symbol in ("BTCUSD", "NVDA"):
+            v = evaluate_live_sim_v2_policy(strategy_slug=slug, symbol=symbol, timeframe="5m")
+            assert v.allowed, slug
 
 
-def test_robot_a_b_paused_in_live_policy():
-    for slug in ("gold-trend-pullback", "opening-range-breakout"):
-        v = evaluate_live_sim_v2_policy(strategy_slug=slug, symbol="BTCUSD", timeframe="5m")
-        assert not v.allowed
-        assert v.reason == "ROBOT_LIVE_PAUSED"
-
-
-def test_robot_c_paused_in_live_policy():
-    v = evaluate_live_sim_v2_policy(strategy_slug="mean-reversion", symbol="BTCUSD", timeframe="5m")
+def test_robot_a_phase3_narrow_universe():
+    v = evaluate_live_sim_v2_policy(
+        strategy_slug="gold-trend-pullback", symbol="NVDA", timeframe="5m"
+    )
     assert not v.allowed
-    assert v.reason == "ROBOT_LIVE_PAUSED"
+    assert v.reason == "ROBOT_A_PHASE3_NARROW_UNIVERSE"
+    assert evaluate_live_sim_v2_policy(
+        strategy_slug="gold-trend-pullback", symbol="XAUUSD", timeframe="5m"
+    ).allowed
 
 
-def test_v32_slug_requires_qualified_params():
+def test_phase3_experiments_allowed_on_equities():
+    for slug in (
+        "phase3-momentum-intraday",
+        "phase3-volume-breakout",
+        "phase3-mean-reversion-edge",
+    ):
+        assert evaluate_live_sim_v2_policy(strategy_slug=slug, symbol="META", timeframe="5m").allowed
+
+
+def test_v32_slug_requires_qualified_params(monkeypatch):
+    monkeypatch.setattr("quantara_engine.live_sim.v2_policy.V32_NEW_ENTRIES_BLOCKED", False)
     from quantara_engine.live_sim.v2_policy import V32_LIVE_SIM_STRATEGY_SLUG
 
     v = evaluate_live_sim_v2_policy(
@@ -47,12 +61,11 @@ def test_v32_slug_requires_qualified_params():
     assert v.reason == "V32_CANDIDATE_NOT_QUALIFIED"
 
 
-def test_robot_a_paused_even_on_blocked_combo_xau_1h():
+def test_robot_a_xau_1h_is_live():
     v = evaluate_live_sim_v2_policy(
         strategy_slug="gold-trend-pullback", symbol="XAUUSD", timeframe="1h"
     )
-    assert not v.allowed
-    assert v.reason == "ROBOT_LIVE_PAUSED"
+    assert v.allowed
 
 
 def test_owner_equity_produces_larger_target_risk_than_asset_slice():
@@ -102,7 +115,7 @@ def test_owner_equity_produces_larger_target_risk_than_asset_slice():
 
 def test_paused_robots_remain_in_registry():
     assert "volatility-squeeze" in ROBOT_LABELS
-    assert "volatility-squeeze" in LIVE_SIM_PAUSED_STRATEGY_SLUGS
+    assert "volatility-squeeze" not in LIVE_SIM_PAUSED_STRATEGY_SLUGS
 
 
 def test_funnel_category_maps_min_qty_and_containment():
@@ -143,6 +156,78 @@ def test_hard_max_risk_clamps_quantity():
         hard_max_risk_usd=Decimal("5"),
     )
     assert (res.expected_risk_usd or 0) <= Decimal("5.01")
+
+
+def test_owner_stop_budget_and_notional_cap_shrink_xau():
+    """A full 1% target that overshoots the owner cap is stepped down, stop unchanged."""
+    from decimal import Decimal
+
+    from quantara_engine.domain.types import Direction, Instrument
+    from quantara_engine.live_sim.sizing import size_live_sim_entry
+    from quantara_engine.portfolio.currency import FxRateTable
+
+    stop = Decimal("4129.16119276")
+    res = size_live_sim_entry(
+        equity=Decimal("10000"),
+        cash=Decimal("10000"),
+        target_risk=Decimal("98.71"),
+        entry_reference=Decimal("4115.77"),
+        stop_loss=stop,
+        direction=Direction.SHORT,
+        instrument=Instrument(
+            id="i",
+            symbol="XAUUSD",
+            name="XAU",
+            asset_class="commodity",
+            quote_currency="USD",
+            contract_size=Decimal("1"),
+            quantity_step=Decimal("0.01"),
+            min_quantity=Decimal("0.01"),
+        ),
+        fx_rates=FxRateTable.usd_only(),
+        execution_assumptions=None,
+        max_asset_leverage=Decimal("10"),
+        hard_max_risk_usd=Decimal("96.82"),
+        max_incremental_notional=Decimal("327"),
+    )
+    assert res.deny_reason is None
+    assert res.quantity >= Decimal("0.01")
+    assert res.quantity < Decimal("1")
+    assert res.expected_risk_usd <= Decimal("96.82")
+
+
+def test_min_quantity_above_notional_cap_is_rejected():
+    from decimal import Decimal
+
+    from quantara_engine.domain.types import Direction, Instrument
+    from quantara_engine.live_sim.sizing import size_live_sim_entry
+    from quantara_engine.portfolio.currency import FxRateTable
+
+    res = size_live_sim_entry(
+        equity=Decimal("10000"),
+        cash=Decimal("100000"),
+        target_risk=Decimal("98.64"),
+        entry_reference=Decimal("209.1835"),
+        stop_loss=Decimal("209.04148214"),
+        direction=Direction.LONG,
+        instrument=Instrument(
+            id="i",
+            symbol="GBPJPY",
+            name="GBPJPY",
+            asset_class="forex",
+            quote_currency="JPY",
+            contract_size=Decimal("1"),
+            quantity_step=Decimal("1000"),
+            min_quantity=Decimal("1000"),
+        ),
+        fx_rates=FxRateTable.with_jpy(Decimal("150")),
+        execution_assumptions=None,
+        max_asset_leverage=Decimal("20"),
+        hard_max_risk_usd=Decimal("96.82"),
+        max_incremental_notional=Decimal("327"),
+    )
+    assert res.quantity == 0
+    assert res.deny_reason == "MIN_QUANTITY"
 
 
 def test_v32_audit_since_prefers_observation_anchor():

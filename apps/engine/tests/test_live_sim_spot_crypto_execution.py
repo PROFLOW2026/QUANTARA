@@ -74,7 +74,7 @@ def test_crypto_long_pre_trade_passes_with_effective_spot_cash():
         execution_assumptions=assumptions,
         max_asset_leverage=Decimal("1"),
     )
-    accepted, reason = validate_live_sim_broker_pre_trade(
+    accepted, reason, final_qty = validate_live_sim_broker_pre_trade(
         equity=Decimal("10000"),
         cash=Decimal("10000"),
         spot_crypto_cash=Decimal("0"),
@@ -86,6 +86,7 @@ def test_crypto_long_pre_trade_passes_with_effective_spot_cash():
     )
     assert accepted is True
     assert reason is None
+    assert final_qty > 0
     assert broker_quantized_asset_leverage(sizing.quantity * mark, Decimal("10000")) <= Decimal("1")
 
 

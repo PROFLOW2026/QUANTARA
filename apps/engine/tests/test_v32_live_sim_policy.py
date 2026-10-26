@@ -19,29 +19,24 @@ def _params_for_key(key: str) -> dict:
     raise KeyError(key)
 
 
-def test_v32_amd_rsi_15m_long_allowed():
-    params = _params_for_key("rsi_divergence_mr|v1|AMD|15m|long")
-    v = evaluate_live_sim_v2_policy(
-        strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
-        symbol="AMD",
-        timeframe="15m",
-        parameter_overrides=params,
-    )
-    assert v.allowed
+def test_v32_new_entries_blocked_on_ibkr_and_kraken():
+    for symbol, key in (
+        ("AMD", "rsi_divergence_mr|v1|AMD|15m|long"),
+        ("NVDA", "ema_pullback_continue|v2|NVDA|15m|long"),
+        ("BTCUSD", "rsi_divergence_mr|v1|AMD|15m|long"),
+    ):
+        v = evaluate_live_sim_v2_policy(
+            strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
+            symbol=symbol,
+            timeframe="15m",
+            parameter_overrides=_params_for_key(key),
+        )
+        assert not v.allowed
+        assert v.reason == "V32_NEW_ENTRIES_BLOCKED"
 
 
-def test_v32_nvda_ema_v2_15m_long_allowed():
-    params = _params_for_key("ema_pullback_continue|v2|NVDA|15m|long")
-    v = evaluate_live_sim_v2_policy(
-        strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
-        symbol="NVDA",
-        timeframe="15m",
-        parameter_overrides=params,
-    )
-    assert v.allowed
-
-
-def test_v32_unqualified_family_blocked():
+def test_v32_unqualified_family_blocked(monkeypatch):
+    monkeypatch.setattr("quantara_engine.live_sim.v2_policy.V32_NEW_ENTRIES_BLOCKED", False)
     v = evaluate_live_sim_v2_policy(
         strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
         symbol="AMD",
@@ -57,7 +52,7 @@ def test_v32_unqualified_family_blocked():
     assert v.reason == "V32_CANDIDATE_NOT_QUALIFIED"
 
 
-def test_v32_coin_qualified_short_allowed():
+def test_v32_coin_new_entry_blocked():
     params = _params_for_key("vol_expansion_v2|v2|COIN|15m|short")
     v = evaluate_live_sim_v2_policy(
         strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
@@ -65,17 +60,26 @@ def test_v32_coin_qualified_short_allowed():
         timeframe="15m",
         parameter_overrides=params,
     )
-    assert v.allowed
+    assert not v.allowed
+    assert v.reason == "V32_NEW_ENTRIES_BLOCKED"
 
 
-def test_robots_a_through_e_live_paused():
-    for slug in LIVE_SIM_PAUSED_STRATEGY_SLUGS:
-        v = evaluate_live_sim_v2_policy(strategy_slug=slug, symbol="AMD", timeframe="15m")
-        assert not v.allowed
-        assert v.reason == "ROBOT_LIVE_PAUSED"
+def test_main_robots_not_paused():
+    from quantara_engine.live_sim.phase3_constants import ROBOT_A_LIVE_SIM_SYMBOLS
+    from quantara_engine.live_sim.v2_policy import MAIN_LIVE_SIM_STRATEGY_SLUGS
+
+    assert not LIVE_SIM_PAUSED_STRATEGY_SLUGS
+    probe_symbol = {
+        "gold-trend-pullback": next(iter(ROBOT_A_LIVE_SIM_SYMBOLS)),
+    }
+    for slug in MAIN_LIVE_SIM_STRATEGY_SLUGS:
+        sym = probe_symbol.get(slug, "ETHUSD")
+        v = evaluate_live_sim_v2_policy(strategy_slug=slug, symbol=sym, timeframe="15m")
+        assert v.allowed, (slug, sym, v.reason)
 
 
-def test_v32_stale_fx_mark_blocked():
+def test_v32_stale_fx_mark_blocked(monkeypatch):
+    monkeypatch.setattr("quantara_engine.live_sim.v2_policy.V32_NEW_ENTRIES_BLOCKED", False)
     from datetime import datetime, timedelta, timezone
 
     params = _params_for_key("ema_pullback_continue|v1|AMD|15m|long")
@@ -93,7 +97,8 @@ def test_v32_stale_fx_mark_blocked():
     assert v.reason == "STALE_FX_MARK"
 
 
-def test_v32_fail_classification_blocked():
+def test_v32_fail_classification_blocked(monkeypatch):
+    monkeypatch.setattr("quantara_engine.live_sim.v2_policy.V32_NEW_ENTRIES_BLOCKED", False)
     params = _params_for_key("channel_mean_revert|v1|COIN|15m|short")
     v = evaluate_live_sim_v2_policy(
         strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,

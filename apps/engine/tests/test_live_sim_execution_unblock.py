@@ -127,7 +127,7 @@ def test_kraken_crypto_pre_trade_accepts_long_and_short(instrument_factory, dire
     assert sizing.deny_reason is None
     assert sizing.quantity > 0
 
-    accepted, reason = validate_live_sim_broker_pre_trade(
+    accepted, reason, final_qty = validate_live_sim_broker_pre_trade(
         equity=Decimal("1250"),
         cash=Decimal("1250"),
         spot_crypto_cash=Decimal("1250"),
@@ -142,11 +142,12 @@ def test_kraken_crypto_pre_trade_accepts_long_and_short(instrument_factory, dire
     )
     assert accepted is True, reason
     assert reason is None
+    assert final_qty > 0
 
 
 def test_spot_crypto_short_still_rejected_without_derivative_route():
     eth = _eth()
-    accepted, reason = validate_live_sim_broker_pre_trade(
+    accepted, reason, _final_qty = validate_live_sim_broker_pre_trade(
         equity=Decimal("10000"),
         cash=Decimal("10000"),
         spot_crypto_cash=Decimal("10000"),

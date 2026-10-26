@@ -8,6 +8,10 @@ from typing import Any
 from quantara_engine.competition.robot_registry import ROBOT_LABELS
 from datetime import datetime, timezone
 
+from quantara_engine.live_sim.phase3_constants import (
+    PHASE3_STRATEGY_SLUGS,
+    ROBOT_A_LIVE_SIM_SYMBOLS,
+)
 from quantara_engine.live_sim.v32_registry import (
     FX_LIVE_MAX_5M_AGE_HOURS,
     V32_FX_LIVE_SYMBOLS,
@@ -17,16 +21,24 @@ from quantara_engine.live_sim.v32_registry import (
     v32_candidate_key_from_params,
 )
 
-# Strategy slugs paused for Live Sim only (Research + Learning continue).
-LIVE_SIM_PAUSED_STRATEGY_SLUGS: frozenset[str] = frozenset(
+# Empty: robots A–E are the Main Live Sim book. Research is unchanged.
+# A slug added here is rejected and logged as ROBOT_LIVE_PAUSED.
+LIVE_SIM_PAUSED_STRATEGY_SLUGS: frozenset[str] = frozenset()
+
+MAIN_LIVE_SIM_STRATEGY_SLUGS: frozenset[str] = frozenset(
     {
-        "gold-trend-pullback",  # Robot A
-        "opening-range-breakout",  # Robot B
-        "mean-reversion",  # Robot C
-        "volatility-squeeze",  # Robot D
-        "momentum-continuation",  # Robot E
+        "gold-trend-pullback",
+        "opening-range-breakout",
+        "mean-reversion",
+        "volatility-squeeze",
+        "momentum-continuation",
+        *PHASE3_STRATEGY_SLUGS,
     }
 )
+
+# New V3.2 entries stay off so they do not take more IBKR gross or owner risk.
+# Open V3.2 positions still exit through position management.
+V32_NEW_ENTRIES_BLOCKED: bool = True
 
 # Legacy V3.1 finalists — superseded by V3.2 registry.
 V31_LIVE_SIM_STRATEGY_SLUG = V32_LIVE_SIM_STRATEGY_SLUG
@@ -55,6 +67,12 @@ def evaluate_live_sim_v2_policy(
     sym = symbol.upper().replace("/", "")
     tf = normalize_timeframe(timeframe)
     if strategy_slug in (V32_LIVE_SIM_STRATEGY_SLUG, "v31-rule-replay"):
+        if V32_NEW_ENTRIES_BLOCKED:
+            return LiveSimPolicyVerdict(
+                allowed=False,
+                reason="V32_NEW_ENTRIES_BLOCKED",
+                category="ROBOT_POLICY",
+            )
         key = v32_candidate_key_from_params(parameter_overrides or {})
         if not key or not is_v32_qualified_candidate_key(key):
             return LiveSimPolicyVerdict(
@@ -78,6 +96,12 @@ def evaluate_live_sim_v2_policy(
             allowed=False,
             reason="ROBOT_LIVE_PAUSED",
             category="ROBOT_POLICY",
+        )
+    if strategy_slug == "gold-trend-pullback" and sym not in ROBOT_A_LIVE_SIM_SYMBOLS:
+        return LiveSimPolicyVerdict(
+            allowed=False,
+            reason="ROBOT_A_PHASE3_NARROW_UNIVERSE",
+            category="ASSET_POLICY",
         )
     combo = (strategy_slug, sym, tf)
     if combo in LIVE_SIM_BLOCKED_COMBINATIONS:

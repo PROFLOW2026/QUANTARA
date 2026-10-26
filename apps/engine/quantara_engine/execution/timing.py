@@ -43,6 +43,11 @@ def freshness_max_age_minutes(timeframe: str) -> int:
     return stale_signal_max_age_minutes(timeframe)
 
 
+def live_sim_freshness_max_age_minutes(timeframe: str) -> int:
+    """Live Sim learning mode: extra grace for worker cadence and multi-robot cycles."""
+    return stale_signal_max_age_minutes(timeframe) + execution_grace_minutes(timeframe)
+
+
 def is_terminal_execution_rejection(reason: str | None) -> bool:
     """Non-retryable execution rejections — pending rows must not remain accepted."""
     if not reason:

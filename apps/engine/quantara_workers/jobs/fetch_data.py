@@ -1114,6 +1114,18 @@ def _accelerate_btc_catchup(
     return total_count, total_derived
 
 
+def _json_safe_worker_payload(value):
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(k): _json_safe_worker_payload(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe_worker_payload(v) for v in value]
+    if isinstance(value, tuple):
+        return [_json_safe_worker_payload(v) for v in value]
+    return value
+
+
 def _finalize_worker_run(
     store: TradingStore,
     *,
@@ -1155,7 +1167,7 @@ def _finalize_worker_run(
     }
     if tiingo_fallback:
         worker_payload["tiingo_fallback"] = tiingo_fallback
-    store.update_worker_status("data_fetcher", worker_payload)
+    store.update_worker_status("data_fetcher", _json_safe_worker_payload(worker_payload))
     store.save_worker_run(
         run_id=str(uuid.uuid4()),
         worker_name="data_fetcher",

@@ -195,7 +195,8 @@ def get_asset_allocation_row(
                    a.starting_allocated_capital, a.current_cash, a.realized_pnl,
                    a.unrealized_pnl, a.fees_paid, a.funding_paid, a.gross_exposure,
                    a.open_sl_risk_usd, a.trade_count, a.enabled, a.label_he,
-                   a.high_water_mark, a.daily_start_equity, a.daily_start_date
+                   a.high_water_mark, a.daily_start_equity, a.daily_start_date,
+                   a.live_sim_new_entries_allowed
             FROM owner_portfolio_asset_allocations a
             JOIN owner_trading_portfolios otp ON otp.id = a.owner_portfolio_id
             WHERE otp.slug = :slug AND a.canonical_symbol = :sym

@@ -2,12 +2,49 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from quantara_engine.live_sim.risk_policy import LiveSimRiskSettings, _dec
+from quantara_engine.live_sim.risk_policy import (
+    LiveSimRiskSettings,
+    _dec,
+    resolve_utc_daily_start,
+)
+from quantara_engine.owner_portfolio.asset_allocation import asset_equity
 from quantara_engine.persistence.store import TradingStore
+
+
+def reset_asset_gate_baselines_to_current_equity(store: TradingStore, asset_id: str) -> None:
+    """Re-anchor HWM/daily scope when an equal-asset slot rotates symbol (ledger unchanged)."""
+    from sqlalchemy import text
+
+    row = store.session.execute(
+        text(
+            """
+            SELECT current_cash, unrealized_pnl
+            FROM owner_portfolio_asset_allocations
+            WHERE id = CAST(:id AS uuid)
+            """
+        ),
+        {"id": asset_id},
+    ).mappings().first()
+    if not row:
+        return
+    equity = asset_equity(dict(row))
+    store.session.execute(
+        text(
+            """
+            UPDATE owner_portfolio_asset_allocations
+            SET high_water_mark = :eq,
+                daily_start_equity = :eq,
+                daily_start_date = (NOW() AT TIME ZONE 'UTC')::date,
+                updated_at = NOW()
+            WHERE id = CAST(:id AS uuid)
+            """
+        ),
+        {"id": asset_id, "eq": equity},
+    )
 
 
 def load_asset_gate_settings(
@@ -42,8 +79,13 @@ def maybe_roll_asset_daily_start(
     equity: Decimal,
     now: datetime,
 ) -> LiveSimRiskSettings:
-    today = now.astimezone(timezone.utc).strftime("%Y-%m-%d")
-    if settings.daily_start_date == today:
+    baseline, today, status = resolve_utc_daily_start(
+        stored_equity=settings.daily_start_equity,
+        stored_date=settings.daily_start_date,
+        scope_equity=equity,
+        now=now,
+    )
+    if status != "verified_open":
         return settings
     from sqlalchemy import text
 
@@ -57,7 +99,7 @@ def maybe_roll_asset_daily_start(
             WHERE id = CAST(:id AS uuid)
             """
         ),
-        {"id": asset_id, "equity": equity, "today": today},
+        {"id": asset_id, "equity": baseline, "today": today},
     )
     return LiveSimRiskSettings(
         risk_per_trade_pct=settings.risk_per_trade_pct,
@@ -68,7 +110,7 @@ def maybe_roll_asset_daily_start(
         max_drawdown_gate_pct=settings.max_drawdown_gate_pct,
         concentration_mode=settings.concentration_mode,
         high_water_mark=settings.high_water_mark,
-        daily_start_equity=equity,
+        daily_start_equity=baseline,
         daily_start_date=today,
     )
 

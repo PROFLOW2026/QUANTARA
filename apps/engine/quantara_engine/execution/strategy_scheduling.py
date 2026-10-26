@@ -6,6 +6,7 @@ STRATEGY_SCHEDULING_CURSORS_KEY = "strategy_scheduling_cursors"
 ROBOT_A_LIVE_CURSOR_KEY = "robot_a_live"
 ROBOT_B_ORB_LIVE_CURSOR_KEY = "robot_b_orb"
 ROBOT_CDE_LIVE_CURSOR_KEY = "robot_cde_live"
+ROBOT_PHASE3_LIVE_CURSOR_KEY = "robot_phase3_live"
 
 
 def load_scheduling_cursor(store, key: str) -> int:

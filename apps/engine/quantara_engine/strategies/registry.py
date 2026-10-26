@@ -10,6 +10,11 @@ from quantara_engine.strategies.mean_reversion.v1_0_0 import MeanReversionV1
 from quantara_engine.strategies.momentum_continuation.v1_0_0 import MomentumContinuationV1
 from quantara_engine.strategies.opening_range_breakout.v1_0_0 import OpeningRangeBreakoutV1
 from quantara_engine.strategies.volatility_squeeze.v1_0_0 import VolatilitySqueezeV1
+from quantara_engine.strategies.phase3_experiments.v1_0_0 import (
+    Phase3MeanReversionEdgeV1,
+    Phase3MomentumIntradayV1,
+    Phase3VolumeBreakoutV1,
+)
 from quantara_engine.strategies.v31_rule_replay.v1_0_0 import V31RuleReplayV1
 
 STRATEGY_REGISTRY: dict[str, dict[str, Type[BaseStrategy]]] = {
@@ -34,6 +39,15 @@ STRATEGY_REGISTRY: dict[str, dict[str, Type[BaseStrategy]]] = {
     # Legacy slug — same implementation (pre-V3.2 release instances / replay jobs).
     "v31-rule-replay": {
         "1.0.0": V31RuleReplayV1,
+    },
+    "phase3-momentum-intraday": {
+        "1.0.0": Phase3MomentumIntradayV1,
+    },
+    "phase3-volume-breakout": {
+        "1.0.0": Phase3VolumeBreakoutV1,
+    },
+    "phase3-mean-reversion-edge": {
+        "1.0.0": Phase3MeanReversionEdgeV1,
     },
 }
 
