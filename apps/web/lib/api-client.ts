@@ -1299,6 +1299,16 @@ export interface AiTraderFill {
   stop: number;
   target: number;
   status: "open" | "closed";
+  // Open position enrichment
+  open_pnl?: number | null;
+  position_cost?: number | null;
+  current_price?: number | null;
+  position_value?: number | null;
+  unrealized_pnl_pct?: number | null;
+  price_as_of?: string | null;
+  entry_time?: string | null;
+  note?: string | null;
+  // Closed position enrichment
   exit_price?: number | null;
   exit_reason?: string | null;
   pnl?: number | null;
@@ -1321,22 +1331,27 @@ export interface AiTraderSummary {
   data_stale: boolean;
   staleness_minutes?: number | null;
   last_updated?: string | null;
-  // Account
+  prices_as_of?: string | null;
+  // Account — computed from live state
   starting_capital: number;
-  capital: number;
+  equity: number;           // cash + market_value (real equity)
+  capital: number;          // alias for equity (legacy)
   cash: number;
+  market_value: number;     // total value of open positions
+  buying_power: number;     // free cash (no margin)
   realized_pnl: number;
   unrealized_pnl: number;
+  total_pnl: number;        // realized + unrealized
   peak_equity: number;
   max_drawdown_usd: number;
   max_drawdown_pct: number;
-  return_pct: number;
+  return_pct: number;       // total_pnl / starting_capital × 100
   daily_loss_at_risk: number;
   trades_today: number;
   // Positions
   open_fills: AiTraderFill[];
   closed_fills: AiTraderFill[];
-  // Performance metrics
+  // Performance metrics (closed fills only)
   closed_count: number;
   win_count: number;
   loss_count: number;

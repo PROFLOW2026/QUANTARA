@@ -20,11 +20,6 @@ type Props = {
   loading: boolean;
 };
 
-/**
- * Shows runner process status separately from data staleness.
- * runner_status_text comes from the API and already contains the human-readable
- * Hebrew string (e.g. "פועל — הבורסה סגורה, ממתין למסחר").
- */
 function RunnerStatusBadge({
   alive,
   statusText,
@@ -67,6 +62,16 @@ function pf(v: number | null | undefined): string {
   return v.toFixed(2);
 }
 
+function PnLPct({ pct }: { pct: number | null | undefined }) {
+  if (pct == null) return <span className="text-muted">—</span>;
+  const pos = pct >= 0;
+  return (
+    <span className={pos ? "text-profit" : "text-loss"}>
+      {pos ? "+" : ""}{pct.toFixed(3)}%
+    </span>
+  );
+}
+
 export function AiTraderDashboard({ data, loading }: Props) {
   if (loading && !data) {
     return <p className="text-muted">{t("common.loading")}</p>;
@@ -84,6 +89,14 @@ export function AiTraderDashboard({ data, loading }: Props) {
 
   const openCount   = data.open_fills.length;
   const closedCount = data.closed_count;
+
+  // Derived for display — use equity (real) not capital alias
+  const equity       = data.equity ?? data.capital;
+  const totalPnl     = data.total_pnl ?? (data.realized_pnl + (data.unrealized_pnl ?? 0));
+  const marketValue  = data.market_value ?? 0;
+  const buyingPower  = data.buying_power ?? data.cash;
+  const pricesAsOf   = data.prices_as_of ?? data.last_updated;
+  const marketClosed = !data.market_open;
 
   return (
     <>
@@ -106,20 +119,70 @@ export function AiTraderDashboard({ data, loading }: Props) {
         </span>
       </div>
 
-      {/* ── Account summary cards ── */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {/* ── Primary financial cards ── */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Equity */}
         <HomeSummaryCard label={t("ai_trader.equity")}>
-          <HomeSummaryValue>{formatCurrency(data.capital)}</HomeSummaryValue>
-        </HomeSummaryCard>
-        <HomeSummaryCard label={t("ai_trader.total_return")}>
-          <PnLDisplay value={data.realized_pnl} size="lg" />
+          <HomeSummaryValue>
+            <span className="font-mono text-2xl">{formatCurrency(equity)}</span>
+          </HomeSummaryValue>
           <p className="mt-1 text-xs text-muted">
-            {formatPercent(data.return_pct)}
+            {t("ai_trader.equity_formula")}
           </p>
         </HomeSummaryCard>
+
+        {/* Cash (free) */}
         <HomeSummaryCard label={t("ai_trader.cash")}>
           <HomeSummaryValue>{formatCurrency(data.cash)}</HomeSummaryValue>
+          <p className="mt-1 text-xs text-muted">
+            {t("ai_trader.buying_power")}: {formatCurrency(buyingPower)}
+          </p>
         </HomeSummaryCard>
+
+        {/* Market Value */}
+        <HomeSummaryCard label={t("ai_trader.market_value")}>
+          <HomeSummaryValue>
+            {marketValue > 0 ? formatCurrency(marketValue) : <span className="text-muted">—</span>}
+          </HomeSummaryValue>
+          {marketClosed && pricesAsOf ? (
+            <p className="mt-1 text-xs text-warning">
+              {t("ai_trader.prices_as_of")}: {pricesAsOf}
+            </p>
+          ) : openCount > 0 ? (
+            <p className="mt-1 text-xs text-muted">{openCount} {t("ai_trader.positions")}</p>
+          ) : null}
+        </HomeSummaryCard>
+
+        {/* Total P&L */}
+        <HomeSummaryCard label={t("ai_trader.total_pnl")}>
+          <PnLDisplay value={totalPnl} size="lg" />
+          <p className="mt-1 text-xs text-muted">
+            {formatPercent(data.return_pct)} {t("ai_trader.since_start")}
+          </p>
+        </HomeSummaryCard>
+      </div>
+
+      {/* ── Secondary financial cards ── */}
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Unrealized P&L */}
+        <HomeSummaryCard label={t("ai_trader.unrealized_pnl")}>
+          <PnLDisplay value={data.unrealized_pnl} size="lg" />
+          <p className="mt-1 text-xs text-muted">
+            {openCount} {t("ai_trader.open_positions_short")}
+          </p>
+        </HomeSummaryCard>
+
+        {/* Realized P&L */}
+        <HomeSummaryCard label={t("ai_trader.realized_pnl")}>
+          {closedCount > 0
+            ? <PnLDisplay value={data.realized_pnl} size="lg" />
+            : <span className="font-mono text-2xl text-muted">{t("ai_trader.no_data")}</span>}
+          <p className="mt-1 text-xs text-muted">
+            {closedCount} {t("ai_trader.closed_trades_short")}
+          </p>
+        </HomeSummaryCard>
+
+        {/* Max Drawdown */}
         <HomeSummaryCard label={t("ai_trader.max_drawdown")}>
           <HomeSummaryValue>
             {formatCurrency(data.max_drawdown_usd)}
@@ -128,11 +191,13 @@ export function AiTraderDashboard({ data, loading }: Props) {
             </span>
           </HomeSummaryValue>
         </HomeSummaryCard>
-        <HomeSummaryCard label={t("ai_trader.open_positions")}>
-          <HomeSummaryValue>{openCount}</HomeSummaryValue>
-        </HomeSummaryCard>
-        <HomeSummaryCard label={t("ai_trader.closed_trades")}>
-          <HomeSummaryValue>{closedCount}</HomeSummaryValue>
+
+        {/* Daily risk */}
+        <HomeSummaryCard label={t("ai_trader.daily_loss_at_risk")}>
+          <HomeSummaryValue>{formatCurrency(data.daily_loss_at_risk)}</HomeSummaryValue>
+          <p className="mt-1 text-xs text-muted">
+            {t("ai_trader.limit")}: {formatCurrency(data.max_daily_loss_usd)}
+          </p>
         </HomeSummaryCard>
       </div>
 
@@ -169,19 +234,36 @@ export function AiTraderDashboard({ data, loading }: Props) {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle>{t("ai_trader.daily_loss_at_risk")}</CardTitle></CardHeader>
-          <CardContent>
-            <p className="font-mono text-2xl">{formatCurrency(data.daily_loss_at_risk)}</p>
-            <p className="mt-1 text-xs text-muted">
-              {t("ai_trader.limit")}: {formatCurrency(data.max_daily_loss_usd)}
-            </p>
+          <CardHeader><CardTitle>{t("ai_trader.account_breakdown")}</CardTitle></CardHeader>
+          <CardContent className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted">{t("ai_trader.cash")}:</span>
+              <span className="font-mono">{formatCurrency(data.cash)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted">{t("ai_trader.market_value")}:</span>
+              <span className="font-mono">{marketValue > 0 ? formatCurrency(marketValue) : "—"}</span>
+            </div>
+            <div className="flex justify-between border-t pt-1 font-medium">
+              <span>{t("ai_trader.equity")}:</span>
+              <span className="font-mono">{formatCurrency(equity)}</span>
+            </div>
           </CardContent>
         </Card>
       </div>
 
       {/* ── Open positions ── */}
       <Card className="mt-4">
-        <CardHeader><CardTitle>{t("ai_trader.open_positions_title")}</CardTitle></CardHeader>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>{t("ai_trader.open_positions_title")}</CardTitle>
+            {marketClosed && pricesAsOf && (
+              <span className="text-xs text-warning">
+                {t("ai_trader.prices_as_of")}: {pricesAsOf}
+              </span>
+            )}
+          </div>
+        </CardHeader>
         <CardContent>
           {openCount === 0 ? (
             <p className="text-sm text-muted">{t("ai_trader.no_open_positions")}</p>
@@ -193,9 +275,13 @@ export function AiTraderDashboard({ data, loading }: Props) {
                     <th className="py-2 text-start">{t("ai_trader.symbol")}</th>
                     <th className="py-2 text-end">{t("ai_trader.shares")}</th>
                     <th className="py-2 text-end">{t("ai_trader.entry")}</th>
+                    <th className="py-2 text-end">{t("ai_trader.current_price")}</th>
                     <th className="py-2 text-end">{t("ai_trader.stop")}</th>
                     <th className="py-2 text-end">{t("ai_trader.target")}</th>
-                    <th className="py-2 text-end">{t("ai_trader.filled_at")}</th>
+                    <th className="py-2 text-end">{t("ai_trader.position_value")}</th>
+                    <th className="py-2 text-end">{t("ai_trader.unrealized_pnl")}</th>
+                    <th className="py-2 text-end">%</th>
+                    <th className="py-2 text-end">{t("ai_trader.entry_time")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -204,12 +290,42 @@ export function AiTraderDashboard({ data, loading }: Props) {
                       <td className="py-2 font-medium">{f.symbol}</td>
                       <td className="py-2 text-end font-mono">{f.shares}</td>
                       <td className="py-2 text-end font-mono">${f.entry_price_fill.toFixed(2)}</td>
+                      <td className="py-2 text-end font-mono">
+                        {f.current_price != null
+                          ? <span className={marketClosed ? "text-muted" : ""}>${f.current_price.toFixed(2)}</span>
+                          : <span className="text-muted">—</span>}
+                      </td>
                       <td className="py-2 text-end font-mono text-warning">${f.stop.toFixed(2)}</td>
                       <td className="py-2 text-end font-mono text-profit">${f.target.toFixed(2)}</td>
-                      <td className="py-2 text-end text-muted">{f.filled_at ?? "—"}</td>
+                      <td className="py-2 text-end font-mono">
+                        {f.position_value != null ? formatCurrency(f.position_value) : "—"}
+                      </td>
+                      <td className="py-2 text-end">
+                        {f.open_pnl != null
+                          ? <PnLDisplay value={f.open_pnl} size="sm" />
+                          : <span className="text-muted">—</span>}
+                      </td>
+                      <td className="py-2 text-end">
+                        <PnLPct pct={f.unrealized_pnl_pct} />
+                      </td>
+                      <td className="py-2 text-end text-muted">{f.entry_time ?? f.filled_at ?? "—"}</td>
                     </tr>
                   ))}
                 </tbody>
+                {openCount > 0 && (
+                  <tfoot>
+                    <tr className="border-t font-medium">
+                      <td colSpan={6} className="py-2 text-muted">{t("ai_trader.total")}</td>
+                      <td className="py-2 text-end font-mono">
+                        {formatCurrency(marketValue)}
+                      </td>
+                      <td className="py-2 text-end">
+                        <PnLDisplay value={data.unrealized_pnl} size="sm" />
+                      </td>
+                      <td colSpan={2} />
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           )}

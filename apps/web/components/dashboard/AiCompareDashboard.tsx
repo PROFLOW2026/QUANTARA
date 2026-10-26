@@ -114,17 +114,19 @@ export function AiCompareDashboard({ quantaraData, aiData, loading }: Props) {
   const qLastUpdated = null; // not exposed in LiveSimAccountSummary
 
   // ── AI Trader metrics ─────────────────────────────────────────────────────────
-  const aiStarting   = aiData?.starting_capital ?? null;
-  const aiEquity     = aiData?.capital ?? null;
-  const aiRealized   = aiData?.realized_pnl ?? null;
-  const aiReturnPct  = aiData?.return_pct ?? null;
-  const aiDrawdownUsd= aiData?.max_drawdown_usd ?? null;
-  const aiDrawdownPct= aiData?.max_drawdown_pct ?? null;
-  const aiOpenCount  = aiData?.open_fills.length ?? null;
-  const aiClosedCount= aiData?.closed_count ?? null;
-  const aiWinRate    = aiData?.win_rate_pct ?? null;
-  const aiPF         = aiData?.profit_factor ?? null;
-  const aiLastUpdated= aiData?.last_updated ?? null;
+  const aiStarting    = aiData?.starting_capital ?? null;
+  const aiEquity      = aiData?.equity ?? aiData?.capital ?? null;  // real equity: cash + market_value
+  const aiRealized    = aiData?.realized_pnl ?? null;
+  const aiUnrealized  = aiData?.unrealized_pnl ?? null;
+  const aiTotalPnl    = aiData?.total_pnl ?? (aiRealized != null && aiUnrealized != null ? aiRealized + aiUnrealized : null);
+  const aiReturnPct   = aiData?.return_pct ?? null;
+  const aiDrawdownUsd = aiData?.max_drawdown_usd ?? null;
+  const aiDrawdownPct = aiData?.max_drawdown_pct ?? null;
+  const aiOpenCount   = aiData?.open_fills.length ?? null;
+  const aiClosedCount = aiData?.closed_count ?? null;
+  const aiWinRate     = aiData?.win_rate_pct ?? null;
+  const aiPF          = aiData?.profit_factor ?? null;
+  const aiLastUpdated = aiData?.last_updated ?? null;
 
   // ── Staleness warnings ────────────────────────────────────────────────────────
   const aiStale = aiData?.data_stale ?? false;
@@ -237,12 +239,12 @@ export function AiCompareDashboard({ quantaraData, aiData, loading }: Props) {
               <MetricRow
                 label={t("ai_compare.unrealized_pnl")}
                 quantaraValue={fmtPnl(qUnrealized)}
-                aiValue={fmtPnl(0)}
+                aiValue={fmtPnl(aiUnrealized)}
               />
               <MetricRow
                 label={t("ai_compare.total_pnl")}
                 quantaraValue={fmtPnl(qTotalPnl)}
-                aiValue={fmtPnl(aiRealized)}
+                aiValue={fmtPnl(aiTotalPnl)}
               />
               <MetricRow
                 label={t("ai_compare.max_drawdown")}

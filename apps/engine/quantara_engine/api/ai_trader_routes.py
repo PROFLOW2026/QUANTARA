@@ -128,7 +128,17 @@ class AiTraderFill(BaseModel):
     entry_price_fill: float
     stop: float
     target: float
-    status: str                        # "open" | "closed"
+    status: str                            # "open" | "closed"
+    # Open position enrichment
+    open_pnl: Optional[float] = None       # unrealized P&L from paper-state
+    position_cost: Optional[float] = None  # total cost basis
+    current_price: Optional[float] = None  # implied last price (cost + pnl) / shares
+    position_value: Optional[float] = None # current market value
+    unrealized_pnl_pct: Optional[float] = None  # P&L as % of entry price
+    price_as_of: Optional[str] = None     # last_updated timestamp for price staleness
+    entry_time: Optional[str] = None      # entry_time from state
+    note: Optional[str] = None            # strategy note from state
+    # Closed position enrichment
     exit_price: Optional[float] = None
     exit_reason: Optional[str] = None
     pnl: Optional[float] = None
@@ -145,41 +155,48 @@ class AiTraderEquityPoint(BaseModel):
 class AiTraderSummary(BaseModel):
     # Runner status
     runner_alive: bool
-    market_open: bool                      # NYSE regular hours right now
-    runner_status_text: str                # human-readable: "פועל — הבורסה סגורה" etc.
-    heartbeat_age_minutes: Optional[float] = None  # seconds since last heartbeat write
-    data_stale: bool               # True if trade/journal data > 10 min old (not heartbeat)
+    market_open: bool                          # NYSE regular hours right now
+    runner_status_text: str
+    heartbeat_age_minutes: Optional[float] = None
+    data_stale: bool
     staleness_minutes: Optional[float] = None
     last_updated: Optional[str] = None
+    prices_as_of: Optional[str] = None        # timestamp of last price update in state
 
-    # Account
+    # Account — all derived from live state, not starting capital
     starting_capital: float
-    capital: float                 # current equity
-    cash: float
-    realized_pnl: float
-    unrealized_pnl: float          # sum of open positions P&L (0 for paper runner)
+    equity: float                              # cash + market_value (real-time)
+    cash: float                                # free cash
+    market_value: float                        # total value of open positions
+    buying_power: float                        # cash available (no margin in paper)
+    realized_pnl: float                        # from closed fills
+    unrealized_pnl: float                      # sum of open_pnl from open fills
+    total_pnl: float                           # realized + unrealized
     peak_equity: float
     max_drawdown_usd: float
     max_drawdown_pct: float
-    return_pct: float
+    return_pct: float                          # total_pnl / starting_capital × 100
     daily_loss_at_risk: float
     trades_today: int
+
+    # Legacy alias kept for callers that use .capital
+    capital: float                             # same as equity
 
     # Positions
     open_fills: list[AiTraderFill]
     closed_fills: list[AiTraderFill]
 
-    # Performance metrics (from closed fills)
+    # Performance metrics (from closed fills only)
     closed_count: int
     win_count: int
     loss_count: int
     flat_count: int
-    win_rate_pct: Optional[float]   # None if no closed trades
-    profit_factor: Optional[float]  # None if no closed trades
+    win_rate_pct: Optional[float]
+    profit_factor: Optional[float]
     gross_wins: float
     gross_losses: float
 
-    # Equity history (one point per session)
+    # Equity history (one point per session from journal)
     equity_history: list[AiTraderEquityPoint]
 
     # Strategy config
@@ -217,16 +234,14 @@ async def get_ai_trader_summary() -> AiTraderSummary:
     market_open  = _is_nyse_open()
 
     # Heartbeat: written by runner every 30s even outside trading hours
-    heartbeat_ts  = state.get("last_heartbeat")          # ISO-8601 UTC, set by write_heartbeat()
-    heartbeat_age = _staleness_minutes(heartbeat_ts)     # None if never written
+    heartbeat_ts  = state.get("last_heartbeat")
+    heartbeat_age = _staleness_minutes(heartbeat_ts)
 
-    # Trade data staleness: based on journal/state last_updated (ET-local timestamp)
+    # Trade data staleness
     last_updated = journal.get("last_updated") or state.get("last_updated")
     staleness    = _staleness_minutes(last_updated)
 
-    # data_stale: journal hasn't been updated in >10 min AND runner isn't writing heartbeats
-    # If runner is alive + market closed → heartbeat keeps staleness indicator accurate
-    runner_heartbeating = heartbeat_age is not None and heartbeat_age < 3   # 3-min grace
+    runner_heartbeating = heartbeat_age is not None and heartbeat_age < 3
     data_stale = not runner_heartbeating and (staleness is None or staleness > 10)
 
     # Human-readable status
@@ -238,37 +253,92 @@ async def get_ai_trader_summary() -> AiTraderSummary:
         runner_status_text = "פועל — הבורסה סגורה, ממתין למסחר"
 
     starting_capital = float(journal.get("capital_usd") or 10_000)
-    capital  = float(state.get("capital")  or journal.get("capital")  or starting_capital)
-    cash     = float(state.get("cash")     or starting_capital)
-    realized = float(state.get("realized_pnl") or journal.get("realized_pnl") or 0)
-    peak_eq  = float(state.get("peak_equity")  or capital)
-    max_dd_usd = float(state.get("max_drawdown") or 0)
-    max_dd_pct = (max_dd_usd / peak_eq * 100) if peak_eq > 0 else 0.0
-    return_pct = ((capital - starting_capital) / starting_capital * 100) if starting_capital else 0.0
+    cash             = float(state.get("cash") or starting_capital)
+    realized         = float(state.get("realized_pnl") or journal.get("realized_pnl") or 0)
+    peak_eq          = float(state.get("peak_equity") or starting_capital)
+    prices_as_of     = state.get("last_updated")   # last time prices were written by runner
 
     # ── Fills ──
     fills_raw = state.get("fills") or []
+    open_fills_raw   = [f for f in fills_raw if f.get("status") == "open"]
+    closed_fills_raw = [f for f in fills_raw if f.get("status") != "open"]
 
-    def _parse_fill(f: dict) -> AiTraderFill:
+    # ── Unrealized P&L: sum open_pnl from open fills ──
+    # open_pnl is written by paper_runner.py when prices are available.
+    # When NYSE is closed, it reflects the last known price (may be stale).
+    unrealized_pnl = sum(float(f.get("open_pnl") or 0) for f in open_fills_raw)
+
+    # ── Market value: position cost + unrealized P&L per position ──
+    market_value = sum(
+        float(f.get("position_cost") or 0) + float(f.get("open_pnl") or 0)
+        for f in open_fills_raw
+    )
+
+    # ── Real equity ──
+    equity   = cash + market_value
+    total_pnl = realized + unrealized_pnl
+    buying_power = cash   # paper: no margin, buying power = free cash
+
+    max_dd_usd = float(state.get("max_drawdown") or 0)
+    max_dd_pct = (max_dd_usd / peak_eq * 100) if peak_eq > 0 else 0.0
+    return_pct = (total_pnl / starting_capital * 100) if starting_capital else 0.0
+
+    def _parse_open_fill(f: dict) -> AiTraderFill:
+        entry = float(f.get("entry_price_fill") or 0)
+        shares = int(f.get("shares") or 0)
+        pos_cost = _opt_float(f.get("position_cost"))
+        pnl_open = _opt_float(f.get("open_pnl"))
+
+        # Implied current price from position cost + unrealized P&L
+        current_price: Optional[float] = None
+        position_value: Optional[float] = None
+        unrealized_pnl_pct: Optional[float] = None
+        if pos_cost is not None and pnl_open is not None and shares > 0:
+            current_price = round((pos_cost + pnl_open) / shares, 4)
+            position_value = round(pos_cost + pnl_open, 2)
+            if entry > 0:
+                unrealized_pnl_pct = round((current_price - entry) / entry * 100, 3)
+
         return AiTraderFill(
             symbol=str(f.get("symbol", "")),
-            shares=int(f.get("shares", 0)),
-            entry_price_fill=float(f.get("entry_price_fill", 0)),
-            stop=float(f.get("stop", 0)),
-            target=float(f.get("target", 0)),
+            shares=shares,
+            entry_price_fill=entry,
+            stop=float(f.get("stop") or 0),
+            target=float(f.get("target") or 0),
+            status="open",
+            open_pnl=pnl_open,
+            position_cost=pos_cost,
+            current_price=current_price,
+            position_value=position_value,
+            unrealized_pnl_pct=unrealized_pnl_pct,
+            price_as_of=prices_as_of,
+            entry_time=str(f.get("entry_time")) if f.get("entry_time") else None,
+            note=str(f.get("note")) if f.get("note") else None,
+            filled_at=str(f.get("entry_time")) if f.get("entry_time") else None,
+        )
+
+    def _parse_closed_fill(f: dict) -> AiTraderFill:
+        return AiTraderFill(
+            symbol=str(f.get("symbol", "")),
+            shares=int(f.get("shares") or 0),
+            entry_price_fill=float(f.get("entry_price_fill") or 0),
+            stop=float(f.get("stop") or 0),
+            target=float(f.get("target") or 0),
             status=str(f.get("status", "closed")),
             exit_price=_opt_float(f.get("exit_price")),
             exit_reason=str(f.get("exit_reason")) if f.get("exit_reason") else None,
             pnl=_opt_float(f.get("pnl")),
             r=_opt_float(f.get("r")),
-            filled_at=str(f.get("filled_at")) if f.get("filled_at") else None,
-            closed_at=str(f.get("closed_at")) if f.get("closed_at") else None,
+            entry_time=str(f.get("entry_time")) if f.get("entry_time") else None,
+            filled_at=str(f.get("entry_time")) if f.get("entry_time") else None,
+            closed_at=str(f.get("exit_time")) if f.get("exit_time") else None,
+            note=str(f.get("note")) if f.get("note") else None,
         )
 
-    open_fills   = [_parse_fill(f) for f in fills_raw if f.get("status") == "open"]
-    closed_fills = [_parse_fill(f) for f in fills_raw if f.get("status") != "open"]
+    open_fills   = [_parse_open_fill(f)   for f in open_fills_raw]
+    closed_fills = [_parse_closed_fill(f) for f in closed_fills_raw]
 
-    # ── Performance metrics ──
+    # ── Performance metrics (closed fills only) ──
     closed_count = len(closed_fills)
     wins   = [f for f in closed_fills if (f.pnl or 0) > 0]
     losses = [f for f in closed_fills if (f.pnl or 0) < 0]
@@ -287,7 +357,7 @@ async def get_ai_trader_summary() -> AiTraderSummary:
     if gross_losses > 0:
         profit_factor = round(gross_wins / gross_losses, 2)
     elif gross_wins > 0:
-        profit_factor = 999.0  # no losses → infinite PF
+        profit_factor = 999.0   # no losses → infinite PF
 
     # ── Equity history from sessions_log ──
     sessions_log = journal.get("sessions_log") or []
@@ -299,6 +369,10 @@ async def get_ai_trader_summary() -> AiTraderSummary:
         if date:
             running_equity += float(net)
             equity_history.append(AiTraderEquityPoint(date=date, equity=round(running_equity, 2)))
+    # Always add today's equity as the last point if not already present
+    today_str = state.get("date") or datetime.date.today().isoformat()
+    if equity and (not equity_history or equity_history[-1].date != today_str):
+        equity_history.append(AiTraderEquityPoint(date=today_str, equity=round(equity, 2)))
 
     # ── Config ──
     strategy      = journal.get("strategy")  or "E: or-low stop / 1R target"
@@ -314,17 +388,22 @@ async def get_ai_trader_summary() -> AiTraderSummary:
         data_stale=data_stale,
         staleness_minutes=round(staleness, 1) if staleness is not None else None,
         last_updated=last_updated,
+        prices_as_of=prices_as_of,
         starting_capital=starting_capital,
-        capital=capital,
-        cash=cash,
-        realized_pnl=realized,
-        unrealized_pnl=0.0,   # paper runner only tracks realized (no live mark-to-market)
-        peak_equity=peak_eq,
-        max_drawdown_usd=max_dd_usd,
+        equity=round(equity, 2),
+        cash=round(cash, 2),
+        market_value=round(market_value, 2),
+        buying_power=round(buying_power, 2),
+        realized_pnl=round(realized, 2),
+        unrealized_pnl=round(unrealized_pnl, 2),
+        total_pnl=round(total_pnl, 2),
+        peak_equity=round(peak_eq, 2),
+        max_drawdown_usd=round(max_dd_usd, 2),
         max_drawdown_pct=round(max_dd_pct, 2),
         return_pct=round(return_pct, 4),
         daily_loss_at_risk=float(state.get("daily_loss_at_risk") or 0),
         trades_today=int(state.get("trades_today") or 0),
+        capital=round(equity, 2),   # legacy alias
         open_fills=open_fills,
         closed_fills=closed_fills,
         closed_count=closed_count,
