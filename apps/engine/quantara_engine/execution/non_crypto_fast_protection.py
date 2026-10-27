@@ -54,7 +54,10 @@ from quantara_engine.execution.position_management import (
     clear_position_management_cursor,
     process_position_management,
 )
-from quantara_engine.live_sim.close_authority import finalize_live_sim_position_close
+from quantara_engine.live_sim.close_authority import (
+    finalize_live_sim_position_close,
+    live_sim_physical_close_succeeded,
+)
 from quantara_engine.live_sim.opportunity import live_sim_execution_idempotency_key
 from quantara_engine.market_data.adapters.alpaca import AlpacaError, AlpacaMarketDataProvider
 from quantara_engine.market_data.adapters.tiingo import TiingoError, TiingoMarketDataProvider
@@ -344,7 +347,7 @@ def _fx_positions_for_symbol(
                 current_price=Decimal(str(row["entry_price"])),
                 stop_loss=Decimal(str(row["stop_loss"])),
                 take_profit=Decimal(str(row["take_profit"])) if row["take_profit"] else None,
-                opened_at=datetime.now(timezone.utc),
+                opened_at=row.get("opened_at") or datetime.now(timezone.utc),
             )
         )
     return out
@@ -652,8 +655,12 @@ def _process_live_sim(
                 cursors.pop(pos_id, None)
                 closed += 1
                 logger.info("Live-sim 1m closed %s via %s", instrument.symbol, purpose)
-            else:
-                cursors[pos_id] = candle.timestamp.isoformat()
+            elif not live_sim_physical_close_succeeded(broker_res):
+                logger.warning(
+                    "Live-sim 1m exit not confirmed for %s (%s); cursor held",
+                    instrument.symbol,
+                    pos_id,
+                )
             break
 
     return {"checked": len(rows), "closed": closed}

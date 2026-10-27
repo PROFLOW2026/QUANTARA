@@ -56,7 +56,7 @@ def process_live_sim_exits(store: TradingStore, now: datetime) -> dict:
             current_price=Dc(str(row["entry_price"])),
             stop_loss=Dc(str(row["stop_loss"])),
             take_profit=Dc(str(row["take_profit"])) if row["take_profit"] else None,
-            opened_at=now,
+            opened_at=row.get("opened_at") or now,
         )
 
         for candle in candles:

@@ -25,7 +25,10 @@ from quantara_engine.execution.position_management import (
     clear_position_management_cursor,
     process_position_management,
 )
-from quantara_engine.live_sim.close_authority import finalize_live_sim_position_close
+from quantara_engine.live_sim.close_authority import (
+    finalize_live_sim_position_close,
+    live_sim_physical_close_succeeded,
+)
 from quantara_engine.live_sim.opportunity import live_sim_execution_idempotency_key
 from quantara_engine.market_data.adapters.coinbase import CoinbaseMarketDataProvider, CoinbaseError
 from quantara_engine.market_data.polling import FAST_PROTECTION_TIMEFRAME, is_bar_complete
@@ -522,8 +525,21 @@ def _process_live_sim_crypto(
                         instrument.symbol,
                         purpose,
                     )
+                elif live_sim_physical_close_succeeded(broker_res):
+                    # Partial physical close — shadow qty updated; retry same bar next run.
+                    logger.warning(
+                        "Live-sim partial %s close on %s (%s); cursor held",
+                        purpose,
+                        instrument.symbol,
+                        pos_id,
+                    )
                 else:
-                    active_cursors[pos_id] = candle.timestamp.isoformat()
+                    logger.warning(
+                        "Live-sim %s exit not confirmed for %s (%s); cursor held",
+                        purpose,
+                        instrument.symbol,
+                        pos_id,
+                    )
                 break
             nested.commit()
         except Exception as exc:
@@ -598,10 +614,14 @@ def run_crypto_fast_protection(store: TradingStore, now: datetime) -> dict[str, 
             continue
         candles_1m = candles_1m_by_instrument.get(instrument.id) or []
         latest_1m = latest_completed_candle_ts(candles_1m, FAST_PROTECTION_TIMEFRAME, now)
-        if latest_1m is None:
-            latest_1m = store.latest_candle_timestamp(
-                instrument.id, FAST_PROTECTION_TIMEFRAME
-            )
+        db_latest = store.latest_candle_timestamp(instrument.id, FAST_PROTECTION_TIMEFRAME)
+        if db_latest is not None:
+            db_latest = _as_utc(db_latest)
+            if is_bar_complete(db_latest, FAST_PROTECTION_TIMEFRAME, now):
+                if latest_1m is None or db_latest > _as_utc(latest_1m):
+                    latest_1m = db_latest
+        elif latest_1m is None:
+            latest_1m = db_latest
         age = crypto_1m_age_minutes(latest_1m, now)
         stale = is_crypto_1m_stale(latest_1m, now)
         stale_by_instrument[instrument.id] = stale
