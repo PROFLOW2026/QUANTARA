@@ -299,16 +299,22 @@ def test_stale_candidate_still_rejected(active_equal_asset):
         suggested_sl=Decimal("78000"),
         suggested_tp=Decimal("76000"),
     )
-    result = maybe_allocate_live_sim(
-        store,
-        entry={"instance": _instance("15m")},
-        instrument=_btc(),
-        candle=candle,
-        candles=[candle],
-        candle_index=0,
-        signal=signal,
-        execution_now=execution_now,
-    )
+    # gold-trend-pullback is XAU/GBPJPY-only (ROBOT_A_PHASE3_NARROW_UNIVERSE on BTCUSD).
+    # mean-reversion uses the generic pullback opportunity key (no ORB metadata).
+    with patch(
+        "quantara_engine.live_sim.dynamic_universe.evaluate_dynamic_universe_entry",
+        return_value=MagicMock(allowed=True),
+    ):
+        result = maybe_allocate_live_sim(
+            store,
+            entry={"instance": _instance("15m", slug="mean-reversion")},
+            instrument=_btc(),
+            candle=candle,
+            candles=[candle],
+            candle_index=0,
+            signal=signal,
+            execution_now=execution_now,
+        )
     assert result["status"] == "rejected"
     assert result["reason"] == "STALE_SIGNAL"
 
