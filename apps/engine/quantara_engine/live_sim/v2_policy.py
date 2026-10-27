@@ -36,9 +36,8 @@ MAIN_LIVE_SIM_STRATEGY_SLUGS: frozenset[str] = frozenset(
     }
 )
 
-# New V3.2 entries stay off so they do not take more IBKR gross or owner risk.
-# Open V3.2 positions still exit through position management.
-V32_NEW_ENTRIES_BLOCKED: bool = True
+# When True, blocks new V3.2 / v31-rule-replay entries only (open positions unchanged).
+V32_NEW_ENTRIES_BLOCKED: bool = False
 
 # Legacy V3.1 finalists — superseded by V3.2 registry.
 V31_LIVE_SIM_STRATEGY_SLUG = V32_LIVE_SIM_STRATEGY_SLUG

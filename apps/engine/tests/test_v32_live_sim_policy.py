@@ -19,11 +19,10 @@ def _params_for_key(key: str) -> dict:
     raise KeyError(key)
 
 
-def test_v32_new_entries_blocked_on_ibkr_and_kraken():
+def test_v32_qualified_entries_allowed_when_active():
     for symbol, key in (
         ("AMD", "rsi_divergence_mr|v1|AMD|15m|long"),
         ("NVDA", "ema_pullback_continue|v2|NVDA|15m|long"),
-        ("BTCUSD", "rsi_divergence_mr|v1|AMD|15m|long"),
     ):
         v = evaluate_live_sim_v2_policy(
             strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
@@ -31,8 +30,26 @@ def test_v32_new_entries_blocked_on_ibkr_and_kraken():
             timeframe="15m",
             parameter_overrides=_params_for_key(key),
         )
-        assert not v.allowed
-        assert v.reason == "V32_NEW_ENTRIES_BLOCKED"
+        assert v.allowed, (symbol, key, v.reason)
+    v_mismatch = evaluate_live_sim_v2_policy(
+        strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
+        symbol="BTCUSD",
+        timeframe="15m",
+        parameter_overrides=_params_for_key("rsi_divergence_mr|v1|AMD|15m|long"),
+    )
+    assert v_mismatch.allowed
+
+
+def test_v32_global_entry_block_when_flag_enabled(monkeypatch):
+    monkeypatch.setattr("quantara_engine.live_sim.v2_policy.V32_NEW_ENTRIES_BLOCKED", True)
+    v = evaluate_live_sim_v2_policy(
+        strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
+        symbol="AMD",
+        timeframe="15m",
+        parameter_overrides=_params_for_key("rsi_divergence_mr|v1|AMD|15m|long"),
+    )
+    assert not v.allowed
+    assert v.reason == "V32_NEW_ENTRIES_BLOCKED"
 
 
 def test_v32_unqualified_family_blocked(monkeypatch):
@@ -52,7 +69,7 @@ def test_v32_unqualified_family_blocked(monkeypatch):
     assert v.reason == "V32_CANDIDATE_NOT_QUALIFIED"
 
 
-def test_v32_coin_new_entry_blocked():
+def test_v32_qualified_coin_short_allowed_when_active():
     params = _params_for_key("vol_expansion_v2|v2|COIN|15m|short")
     v = evaluate_live_sim_v2_policy(
         strategy_slug=V32_LIVE_SIM_STRATEGY_SLUG,
@@ -60,8 +77,7 @@ def test_v32_coin_new_entry_blocked():
         timeframe="15m",
         parameter_overrides=params,
     )
-    assert not v.allowed
-    assert v.reason == "V32_NEW_ENTRIES_BLOCKED"
+    assert v.allowed, v.reason
 
 
 def test_main_robots_not_paused():

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from quantara_engine.live_sim.v2_policy import V32_LIVE_SIM_STRATEGY_SLUG
+from quantara_engine.live_sim.v2_policy import V32_LIVE_SIM_STRATEGY_SLUG, V32_NEW_ENTRIES_BLOCKED
 from quantara_engine.live_sim.v32_registry import load_v32_live_sim_active_combinations
 
 V32_EXPERIMENT_ID = "v3.2-p2"
@@ -50,5 +50,5 @@ def build_v32_owner_experiment_payload(
         "qualified_candidate_count": len(_active_strategy_rows()),
         "observation_anchor": anchor,
         "legacy_ae_live_disabled": False,
-        "v32_new_entries_blocked": True,
+        "v32_new_entries_blocked": V32_NEW_ENTRIES_BLOCKED,
     }

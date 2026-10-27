@@ -50,8 +50,7 @@ def test_phase3_experiments_allowed_on_equities():
         assert evaluate_live_sim_v2_policy(strategy_slug=slug, symbol="META", timeframe="5m").allowed
 
 
-def test_v32_slug_requires_qualified_params(monkeypatch):
-    monkeypatch.setattr("quantara_engine.live_sim.v2_policy.V32_NEW_ENTRIES_BLOCKED", False)
+def test_v32_slug_requires_qualified_params():
     from quantara_engine.live_sim.v2_policy import V32_LIVE_SIM_STRATEGY_SLUG
 
     v = evaluate_live_sim_v2_policy(

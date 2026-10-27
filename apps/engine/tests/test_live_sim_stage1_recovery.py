@@ -231,7 +231,7 @@ def test_paused_robot_rejection_is_logged(monkeypatch):
                 strategy_slug="v32-p2-live-sim",
                 strategy_version="1.0.0",
                 timeframe="15m",
-                parameter_overrides={"v32_candidate_key": "rsi_divergence_mr|v1|AMD|15m|long"},
+                parameter_overrides={"family": "not_qualified"},
             )
         },
         instrument=instrument,
@@ -247,7 +247,7 @@ def test_paused_robot_rejection_is_logged(monkeypatch):
         execution_now=now,
     )
     assert result["status"] == "rejected"
-    assert result["reason"] == "V32_NEW_ENTRIES_BLOCKED"
+    assert result["reason"] == "V32_CANDIDATE_NOT_QUALIFIED"
     assert captured["accepted"] is False
-    assert captured["rejection_reason"] == "V32_NEW_ENTRIES_BLOCKED"
+    assert captured["rejection_reason"] == "V32_CANDIDATE_NOT_QUALIFIED"
     assert captured["strategy_slug"] == "v32-p2-live-sim"
