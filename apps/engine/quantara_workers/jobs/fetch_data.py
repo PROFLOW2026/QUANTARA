@@ -583,11 +583,13 @@ def _fetch_asset_live(
                 timings["alpaca"] = timings.get("alpaca", 0.0) + (time.perf_counter() - t0) * 1000
                 return local_5m, local_higher, None, ProviderName.ALPACA.value
 
-    # FX: Tiingo 1m is canonical; derive 5m/15m/1h locally (Twelve Data emergency only).
+    # FX: Tiingo 1m is canonical; derive 5m/15m/1h locally; Twelve Data 1m when Tiingo fails.
     if asset.db_symbol in FAST_FX_DB_SYMBOLS and not force_bootstrap:
-        from quantara_engine.market_data.adapters.tiingo import TiingoMarketDataProvider
+        from quantara_engine.market_data.fx_1m_ingest import (
+            fetch_tiingo_fx_1m,
+            fetch_twelve_data_fx_1m_fallback,
+        )
         from quantara_engine.market_data.polling import FAST_PROTECTION_TIMEFRAME
-        from quantara_engine.market_data.provider_budgets import FetchPriority as TiingoFetchPriority
         from quantara_engine.market_data.sessions import is_forex_session
 
         last_ts = store.latest_candle_timestamp(instrument.id, timeframe)
@@ -599,26 +601,29 @@ def _fetch_asset_live(
             return local_5m, local_higher, None, "aggregated"
         if is_forex_session(now) and (not fresh_1m or not fresh_5m):
             # When canonical 5m is stale but 1m looks fresh, still fetch from the
-            # last 5m boundary so Tiingo can gap-fill missing minutes for aggregation.
+            # last 5m boundary so providers can gap-fill missing minutes for aggregation.
             fetch_since = last_1m
             if not fresh_5m and last_ts is not None:
                 fetch_since = min(ts for ts in (last_1m, last_ts) if ts is not None)
-            provider = TiingoMarketDataProvider(
-                store=store,
+            candles_1m = fetch_tiingo_fx_1m(
+                store,
+                asset,
+                instrument.id,
+                since=fetch_since,
                 caller="fetch_live_job:fx_1m",
-                priority=TiingoFetchPriority.SCHEDULED,
-                asset=asset,
-                allow_non_canonical_timeframes=True,
             )
-            try:
-                candles_1m = provider.fetch_latest(
+            used_source = ProviderName.TIINGO.value if candles_1m else None
+            if not candles_1m:
+                candles_1m = fetch_twelve_data_fx_1m_fallback(
+                    store,
+                    asset,
                     instrument.id,
-                    FAST_PROTECTION_TIMEFRAME,
                     since=fetch_since,
+                    caller="fetch_live_job:fx_1m_td",
+                    stale_canonical=not fresh_5m,
                 )
-            except TiingoError as exc:
-                logger.warning("Tiingo FX 1m fetch failed for %s: %s", asset.db_symbol, exc)
-                candles_1m = []
+                if candles_1m:
+                    used_source = ProviderName.TWELVE_DATA.value
             new_ts: list[datetime] = []
             for candle in dedupe_complete_candles(candles_1m):
                 try:
@@ -637,11 +642,19 @@ def _fetch_asset_live(
                 )
                 local_5m += d5
                 local_higher += dh
-                _mark_tiingo_fetch(store, asset.db_symbol, now)
+                if used_source == ProviderName.TIINGO.value:
+                    _mark_tiingo_fetch(store, asset.db_symbol, now)
                 if asset.db_symbol == "XAUUSD":
                     update_spot_from_latest_5m(store, instrument.id)
-                timings["tiingo"] = timings.get("tiingo", 0.0) + (time.perf_counter() - t0) * 1000
-                return local_5m, local_higher, None, ProviderName.TIINGO.value
+                timing_key = (
+                    "tiingo"
+                    if used_source == ProviderName.TIINGO.value
+                    else "twelvedata"
+                    if used_source == ProviderName.TWELVE_DATA.value
+                    else "local_1m_agg"
+                )
+                timings[timing_key] = timings.get(timing_key, 0.0) + (time.perf_counter() - t0) * 1000
+                return local_5m, local_higher, None, used_source
         if stored >= STRATEGY_MIN_CANDLES:
             timings["local_1m_agg"] = timings.get("local_1m_agg", 0.0) + (time.perf_counter() - t0) * 1000
             return local_5m, local_higher, None, "aggregated"
