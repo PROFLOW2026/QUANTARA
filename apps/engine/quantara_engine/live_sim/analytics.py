@@ -443,19 +443,11 @@ def build_live_sim_summary(store: TradingStore) -> dict:
             account_metadata=legacy_meta,
             activated_at=activated_at,
         )
-        since_params: dict = {"aids": active_ids}
-        open_since_sql = ""
-        fill_since_sql = ""
-        closed_since_sql = ""
-        if audit_since is not None:
-            since_params["since"] = audit_since
-            open_since_sql = " AND p.opened_at >= :since"
-            fill_since_sql = " AND f.filled_at >= :since"
-            closed_since_sql = " AND p.closed_at >= :since"
+        owner_params: dict = {"aids": active_ids}
 
         positions = store.session.execute(
             text(
-                f"""
+                """
                 SELECT p.id::text, i.symbol, p.direction::text, p.robot_label, p.strategy_slug,
                        p.timeframe, p.quantity, p.entry_price, p.current_price, p.stop_loss,
                        p.take_profit, p.planned_sl_risk_usd, p.unrealized_pnl, p.opened_at,
@@ -465,16 +457,15 @@ def build_live_sim_summary(store: TradingStore) -> dict:
                 JOIN broker_accounts ba ON ba.id = p.broker_account_id
                 WHERE p.broker_account_id = ANY(CAST(:aids AS uuid[]))
                   AND p.status = 'open'
-                  {open_since_sql}
                 ORDER BY p.opened_at DESC
                 """
             ),
-            since_params,
+            owner_params,
         ).mappings().all()
 
         closed = store.session.execute(
             text(
-                f"""
+                """
                 SELECT COUNT(*) AS cnt,
                        SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) AS wins
                 FROM (
@@ -483,11 +474,10 @@ def build_live_sim_summary(store: TradingStore) -> dict:
                   JOIN broker_orders o ON o.id = f.broker_order_id
                   WHERE o.broker_account_id = ANY(CAST(:aids AS uuid[]))
                     AND o.order_purpose IN ('sl', 'tp', 'close')
-                    {fill_since_sql}
                 ) t
                 """
             ),
-            since_params,
+            owner_params,
         ).mappings().first()
         exit_fills_count = int(closed["cnt"] or 0) if closed else 0
         closed_count = exit_fills_count  # backward-compatible alias
@@ -496,14 +486,13 @@ def build_live_sim_summary(store: TradingStore) -> dict:
 
         closed_positions_count = store.session.execute(
             text(
-                f"""
+                """
                 SELECT COUNT(*) FROM live_sim_positions p
                 WHERE p.status = 'closed'
                   AND p.broker_account_id = ANY(CAST(:aids AS uuid[]))
-                  {closed_since_sql}
                 """
             ),
-            since_params,
+            owner_params,
         ).scalar()
         closed_positions_count = int(closed_positions_count or 0)
 
@@ -519,11 +508,11 @@ def build_live_sim_summary(store: TradingStore) -> dict:
         recent.sort(key=lambda r: r.get("created_at") or "", reverse=True)
         recent = recent[:40]
 
-        closed_trades = _list_closed_live_sim_trades(store, active_ids, since=audit_since)
+        closed_trades = _list_closed_live_sim_trades(store, active_ids, since=None, limit=100)
 
         clean_window = _clean_window_position_stats(store, active_ids, audit_since)
         risk_visibility = _risk_utilization_snapshot(
-            store, active_ids, equity=owner_snapshot.total_equity, audit_since=audit_since
+            store, active_ids, equity=owner_snapshot.total_equity, audit_since=None
         )
 
         owner_payload = {
@@ -658,6 +647,10 @@ def build_live_sim_summary(store: TradingStore) -> dict:
             "closed_positions_count": closed_positions_count,
             "exit_fills_count": exit_fills_count,
             "clean_window": clean_window,
+            "live_sim_audit_scope": {
+                "since": audit_since.isoformat() if audit_since else None,
+                "applies_to": ["candidates", "recent_decisions", "clean_window"],
+            },
             "v32_experiment": v32_experiment,
             "risk_visibility": risk_visibility,
             "win_rate_pct": win_rate,
@@ -699,25 +692,16 @@ def build_live_sim_summary(store: TradingStore) -> dict:
         activated_at=legacy.get("activated_at"),
     )
     legacy_params: dict = {"aid": account_id}
-    open_since_sql = ""
-    closed_since_sql = ""
-    fill_since_sql = ""
-    if audit_since is not None:
-        legacy_params["since"] = audit_since
-        open_since_sql = " AND p.opened_at >= :since"
-        closed_since_sql = " AND p.closed_at >= :since"
-        fill_since_sql = " AND f.filled_at >= :since"
 
     positions = store.session.execute(
         text(
-            f"""
+            """
             SELECT p.id::text, i.symbol, p.direction::text, p.robot_label, p.strategy_slug,
                    p.timeframe, p.quantity, p.entry_price, p.current_price, p.stop_loss,
                    p.take_profit, p.planned_sl_risk_usd, p.unrealized_pnl, p.opened_at
             FROM live_sim_positions p
             JOIN instruments i ON i.id = p.instrument_id
             WHERE p.broker_account_id = :aid AND p.status = 'open'
-              {open_since_sql}
             ORDER BY p.opened_at DESC
             """
         ),
@@ -726,7 +710,7 @@ def build_live_sim_summary(store: TradingStore) -> dict:
 
     closed = store.session.execute(
         text(
-            f"""
+            """
             SELECT COUNT(*) AS cnt,
                    SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) AS wins
             FROM (
@@ -734,7 +718,6 @@ def build_live_sim_summary(store: TradingStore) -> dict:
               FROM broker_fills f
               JOIN broker_orders o ON o.id = f.broker_order_id
               WHERE o.broker_account_id = :aid AND o.order_purpose IN ('sl', 'tp', 'close')
-                {fill_since_sql}
             ) t
             """
         ),
@@ -743,10 +726,9 @@ def build_live_sim_summary(store: TradingStore) -> dict:
 
     closed_positions_count = store.session.execute(
         text(
-            f"""
+            """
             SELECT COUNT(*) FROM live_sim_positions p
             WHERE p.status = 'closed' AND p.broker_account_id = :aid
-              {closed_since_sql}
             """
         ),
         legacy_params,
@@ -760,7 +742,7 @@ def build_live_sim_summary(store: TradingStore) -> dict:
     snap = build_live_sim_broker_account(store)
     recent = list_recent_allocations(store, account_id, limit=30, since=audit_since)
     daily_pnl = equity - settings.daily_start_equity
-    closed_trades = _list_closed_live_sim_trades(store, [account_id], since=audit_since)
+    closed_trades = _list_closed_live_sim_trades(store, [account_id], since=None, limit=100)
     clean_window = _clean_window_position_stats(store, [account_id], audit_since)
     v32_experiment = build_v32_owner_experiment_payload(
         observation_anchor_iso=audit_since.isoformat() if audit_since else None,
@@ -839,6 +821,10 @@ def build_live_sim_summary(store: TradingStore) -> dict:
         "closed_trades_count": closed_count,
         "closed_positions_count": closed_count,
         "clean_window": clean_window,
+        "live_sim_audit_scope": {
+            "since": audit_since.isoformat() if audit_since else None,
+            "applies_to": ["candidates", "recent_decisions", "clean_window"],
+        },
         "v32_experiment": v32_experiment,
         "win_rate_pct": win_rate,
         "candidates": funnel,

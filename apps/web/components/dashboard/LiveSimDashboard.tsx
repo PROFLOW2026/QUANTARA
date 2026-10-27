@@ -65,17 +65,10 @@ export function LiveSimDashboard({ data, loading }: Props) {
   const riskVis = data.risk_visibility;
   const cleanWin = data.clean_window;
   const v32 = data.v32_experiment;
-  const v32OpenUnrealized = (data.open_positions ?? []).reduce(
-    (sum, p) => sum + (p.unrealized_pnl ?? 0),
-    0
-  );
-  const v32Realized = cleanWin?.net_pnl ?? 0;
-  const v32Unrealized = v32 ? v32OpenUnrealized : (data.unrealized_pnl ?? 0);
-  const v32TotalPnl = v32 ? v32Realized + v32Unrealized : undefined;
-  const displayRealized = v32 ? v32Realized : (data.realized_pnl ?? 0);
-  const displayUnrealized = v32 ? v32Unrealized : (data.unrealized_pnl ?? 0);
+  const displayRealized = data.realized_pnl ?? 0;
+  const displayUnrealized = data.unrealized_pnl ?? 0;
   const displayTotalPnl =
-    v32TotalPnl ?? data.total_pnl ?? (data.realized_pnl ?? 0) + (data.unrealized_pnl ?? 0);
+    data.total_pnl ?? displayRealized + displayUnrealized;
 
   return (
     <>
@@ -124,10 +117,24 @@ export function LiveSimDashboard({ data, loading }: Props) {
                 </ul>
                 <p className="text-xs text-muted">{t("home.live_sim_v32_ae_note")}</p>
                 <p className="text-xs font-medium text-muted">{t("home.live_sim_v32_metrics_scope")}</p>
+                {cleanWin ? (
+                  <div className="rounded-md border border-border/50 bg-surface-inner/30 px-3 py-2 text-xs text-muted">
+                    <p>
+                      {t("home.live_sim_v32_window_pnl")}:{" "}
+                      <PnLDisplay value={cleanWin.net_pnl ?? 0} size="sm" />
+                    </p>
+                    <p>
+                      {t("home.live_sim_v32_scoped_closed")}: {cleanWin.closed_positions ?? 0}
+                    </p>
+                  </div>
+                ) : null}
               </>
             ) : null}
           </CardContent>
         </Card>
+      ) : null}
+      {v32 ? (
+        <p className="mb-2 text-sm font-medium text-foreground">{t("home.live_sim_owner_summary_heading")}</p>
       ) : null}
       {/* Owner financial truth — primary */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
