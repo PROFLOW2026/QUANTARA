@@ -74,7 +74,9 @@ def test_twelve_data_healthy_primary_used(provider_factory, settings_mock):
     settings_mock.alpaca_api_secret_key = ""
     asset = _gbpjpy_asset()
     primary = MagicMock()
-    primary.fetch_latest.return_value = [_candle(datetime(2026, 9, 11, 10, 0, tzinfo=timezone.utc))]
+    primary.fetch_latest.return_value = [
+        _candle(datetime(2026, 9, 11, 10, 0, tzinfo=timezone.utc), source="tiingo")
+    ]
     provider_factory.return_value = primary
 
     store = FakeStore()
@@ -85,9 +87,9 @@ def test_twelve_data_healthy_primary_used(provider_factory, settings_mock):
         priority=3,
         fetch_fn=lambda p: p.fetch_latest("inst-1", "5m"),
     )
-    assert outcome.provider == ProviderName.TWELVE_DATA
+    assert outcome.provider == ProviderName.TIINGO
     assert len(outcome.candles) == 1
-    provider_factory.assert_called_once_with("twelvedata", asset=asset)
+    provider_factory.assert_called_once_with("tiingo", asset=asset)
 
 
 @patch("quantara_engine.market_data.provider_resolver.settings")
@@ -132,12 +134,14 @@ def test_twelve_data_timeout_uses_fallback(provider_factory, settings_mock):
     asset = _gbpjpy_asset()
     store = FakeStore()
 
-    td = MagicMock()
-    td.fetch_latest.side_effect = TwelveDataError("Network error: timeout")
     tiingo = MagicMock()
-    tiingo.fetch_latest.return_value = [_candle(datetime(2026, 9, 11, 10, 10, tzinfo=timezone.utc), source="tiingo")]
+    tiingo.fetch_latest.side_effect = TiingoError("Network error: timeout")
+    td = MagicMock()
+    td.fetch_latest.return_value = [
+        _candle(datetime(2026, 9, 11, 10, 10, tzinfo=timezone.utc), source="twelvedata")
+    ]
 
-    provider_factory.side_effect = lambda name, asset=None: td if name == "twelvedata" else tiingo
+    provider_factory.side_effect = lambda name, asset=None: tiingo if name == "tiingo" else td
 
     outcome = fetch_with_failover(
         store,
@@ -146,8 +150,8 @@ def test_twelve_data_timeout_uses_fallback(provider_factory, settings_mock):
         priority=3,
         fetch_fn=lambda p: p.fetch_latest("inst-1", "5m"),
     )
-    assert outcome.provider == ProviderName.TIINGO
-    assert is_in_cooldown(store, "twelvedata")
+    assert outcome.provider == ProviderName.TWELVE_DATA
+    assert is_in_cooldown(store, "tiingo")
 
 
 @patch("quantara_engine.market_data.provider_resolver.settings")
@@ -402,12 +406,12 @@ def test_nvda_provider_chain():
 
 def test_gbpjpy_provider_chain():
     chain = provider_chain_for_asset(_gbpjpy_asset())
-    assert chain == (ProviderName.TWELVE_DATA, ProviderName.TIINGO)
+    assert chain == (ProviderName.TIINGO, ProviderName.TWELVE_DATA)
 
 
 def test_xauusd_provider_chain():
     chain = provider_chain_for_asset(_xau_asset())
-    assert chain == (ProviderName.TWELVE_DATA, ProviderName.TIINGO)
+    assert chain == (ProviderName.TIINGO, ProviderName.TWELVE_DATA)
 
 
 @patch("quantara_engine.market_data.provider_resolver.settings")
