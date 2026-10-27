@@ -119,3 +119,59 @@ def test_fetch_live_fx_falls_back_to_twelve_data_when_tiingo_fails():
     assert count >= 0
     derive.assert_called_once()
     store.upsert_candle.assert_called()
+
+
+def test_fetch_live_fx_still_ingests_when_should_poll_deferred():
+    """Stale FX must reach the 1m ingest path even if 5m poll is deferred."""
+    from quantara_workers.jobs import fetch_data as fd
+
+    store = MagicMock()
+    instrument = MagicMock()
+    instrument.id = "inst-xau"
+    asset = get_asset("XAUUSD")
+    assert asset is not None
+    now = datetime(2026, 10, 27, 12, 30, tzinfo=timezone.utc)
+    stale_5m = datetime(2026, 10, 27, 11, 0, tzinfo=timezone.utc)
+    stale_1m = datetime(2026, 10, 27, 11, 58, tzinfo=timezone.utc)
+
+    store.latest_candle_timestamp.side_effect = lambda iid, tf: (
+        stale_5m if tf == "5m" else stale_1m
+    )
+    store.count_candles.return_value = 500
+
+    td_candle = _candle("2026-10-27T12:05:00+00:00")
+
+    with (
+        patch.object(fd, "_try_local_1m_canonical", return_value=(0, 0, False)),
+        patch.object(
+            fd,
+            "_should_poll_asset",
+            return_value=(False, "deferred (Tiingo poll interval 5m)"),
+        ),
+        patch(
+            "quantara_engine.market_data.sessions.is_forex_session",
+            return_value=True,
+        ),
+        patch(
+            "quantara_engine.market_data.fx_1m_ingest.fetch_tiingo_fx_1m",
+            return_value=[],
+        ),
+        patch(
+            "quantara_engine.market_data.fx_1m_ingest.fetch_twelve_data_fx_1m_fallback",
+            return_value=[td_candle],
+        ) as td_fetch,
+        patch.object(fd, "derive_higher_from_1m", return_value=(1, 1)),
+        patch.object(fd, "update_spot_from_latest_5m"),
+    ):
+        _count, _derived, err, source = fd._fetch_asset_live(
+            store,
+            instrument,
+            asset,
+            now,
+            {},
+        )
+
+    assert err is None
+    assert source == "twelvedata"
+    td_fetch.assert_called_once()
+    store.upsert_candle.assert_called()

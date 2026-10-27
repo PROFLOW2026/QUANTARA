@@ -307,11 +307,14 @@ def _should_poll_asset(
             elapsed = (now - last_poll).total_seconds() / 60
             if elapsed < TIINGO_POLL_INTERVAL_MINUTES:
                 return False, f"deferred (Tiingo poll interval {TIINGO_POLL_INTERVAL_MINUTES}m)"
-        from quantara_engine.market_data.provider_budgets import can_request
+        from quantara_engine.market_data.provider_budgets import can_request, can_request_tiingo_candle
 
-        from quantara_engine.market_data.provider_budgets import can_request_tiingo_candle
-
-        if not can_request_tiingo_candle(store):
+        tiingo_budget_ok = (
+            can_request(store, "tiingo", purpose="fx_rate")
+            if asset.db_symbol in FAST_FX_DB_SYMBOLS
+            else can_request_tiingo_candle(store)
+        )
+        if not tiingo_budget_ok:
             return False, "deferred (Tiingo hourly budget)"
 
     if asset.primary_provider == ProviderName.ALPACA:
@@ -508,7 +511,24 @@ def _fetch_asset_live(
         last_ts=last_ts,
         plan=plan,
     )
-    if not should_poll:
+
+    def _fx_stale_needs_provider_1m() -> bool:
+        """FX/XAU 1m ingest must not be skipped by generic 5m poll deferrals."""
+        if asset.db_symbol not in FAST_FX_DB_SYMBOLS or force_bootstrap:
+            return False
+        from quantara_engine.market_data.polling import FAST_PROTECTION_TIMEFRAME
+        from quantara_engine.market_data.sessions import is_forex_session
+
+        if not is_forex_session(now):
+            return False
+        last_1m = store.latest_candle_timestamp(instrument.id, FAST_PROTECTION_TIMEFRAME)
+        fresh_5m = last_ts is not None and is_market_data_fresh(last_ts, timeframe, now)
+        fresh_1m = last_1m is not None and is_market_data_fresh(
+            last_1m, FAST_PROTECTION_TIMEFRAME, now
+        )
+        return not fresh_5m or not fresh_1m
+
+    if not should_poll and not _fx_stale_needs_provider_1m():
         # Even when deferred for provider budget, keep local aggregation warm.
         if local_5m or local_higher:
             timings["local_1m_agg"] = timings.get("local_1m_agg", 0.0) + (time.perf_counter() - t0) * 1000
