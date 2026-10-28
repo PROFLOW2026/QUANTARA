@@ -31,6 +31,25 @@ def live_sim_physical_close_succeeded(result: BrokerExecutionResult | None) -> b
     return False
 
 
+def attributed_lot_remaining(store: TradingStore, position_id: str) -> Decimal | None:
+    """Remaining lot qty linked to this shadow, or None when the book cannot be read."""
+    try:
+        value = store.session.execute(
+            text(
+                """
+                SELECT COALESCE(SUM(remaining_qty), 0)
+                FROM broker_attribution_lots
+                WHERE strategy_position_id = CAST(:pid AS uuid)
+                  AND remaining_qty > 0
+                """
+            ),
+            {"pid": position_id},
+        ).scalar()
+        return Decimal(str(value))
+    except Exception:
+        return None
+
+
 def live_sim_close_is_partial(
     result: BrokerExecutionResult | None,
     *,
@@ -64,6 +83,22 @@ def finalize_live_sim_position_close(
         return False
 
     closed_qty = Decimal(str(broker_res.physical_closed_qty or broker_res.fill_quantity or 0))
+    remaining_lots = attributed_lot_remaining(store, position_id)
+    if remaining_lots is not None and remaining_lots > 0:
+        store.session.execute(
+            text(
+                """
+                UPDATE live_sim_positions
+                SET quantity = :qty, updated_at = NOW()
+                WHERE id = :id AND status = 'open'
+                """
+            ),
+            {"id": position_id, "qty": remaining_lots},
+        )
+        svc = BrokerExecutionService(store, account_slug=account_slug)
+        svc.mark_to_market({instrument_symbol.upper(): mark_price}, at=closed_at)
+        return False
+
     if requested_quantity is not None and closed_qty > 0 and closed_qty < requested_quantity:
         remaining = requested_quantity - closed_qty
         store.session.execute(

@@ -563,7 +563,10 @@ def _process_live_sim(
     from quantara_engine.domain.types import Direction as D
     from quantara_engine.domain.types import Position as DomainPosition
 
+    from quantara_engine.live_sim.position_management import _as_utc, _exit_resume_after
+
     closed = 0
+    resume_after = _exit_resume_after(store)
     for row in rows:
         pos_id = row["id"]
         account_slug = str(row["broker_account_slug"])
@@ -600,6 +603,15 @@ def _process_live_sim(
             now=now,
             prefetched=prefetched,
         )
+        resume_utc = _as_utc(resume_after.get(str(pos_id)))
+        if resume_utc is not None:
+            pending = [
+                candle
+                for candle in pending
+                if (stamp := _as_utc(candle.timestamp)) is not None and stamp > resume_utc
+            ]
+            if not pending:
+                cursors[pos_id] = resume_utc.isoformat()
         if not pending:
             continue
 

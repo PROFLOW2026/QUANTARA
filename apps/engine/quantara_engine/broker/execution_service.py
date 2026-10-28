@@ -1230,6 +1230,43 @@ class BrokerExecutionService:
                     "mm": maintenance_margin_for_notional(notional, rules),
                 },
             )
+            open_shadows = self.store.session.execute(
+                text(
+                    """
+                    SELECT id::text AS id, direction::text AS direction,
+                           quantity, entry_price
+                    FROM live_sim_positions
+                    WHERE broker_account_id = :aid
+                      AND instrument_id = :iid
+                      AND status = 'open'
+                    """
+                ),
+                {"aid": account_id, "iid": instrument.id},
+            ).mappings().all()
+            for shadow in open_shadows:
+                shadow_qty = Decimal(str(shadow["quantity"]))
+                signed = (
+                    shadow_qty
+                    if str(shadow["direction"]).lower() == "long"
+                    else -shadow_qty
+                )
+                shadow_upnl = unrealized_pnl_usd(
+                    signed,
+                    Decimal(str(shadow["entry_price"])),
+                    mark,
+                    spec,
+                    fx_map,
+                )
+                self.store.session.execute(
+                    text(
+                        """
+                        UPDATE live_sim_positions
+                        SET current_price = :mark, unrealized_pnl = :upnl, updated_at = NOW()
+                        WHERE id = :id AND status = 'open'
+                        """
+                    ),
+                    {"id": shadow["id"], "mark": mark, "upnl": shadow_upnl},
+                )
             try:
                 accrue_position_costs(
                     self.store,

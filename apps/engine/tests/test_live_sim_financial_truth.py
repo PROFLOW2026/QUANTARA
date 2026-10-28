@@ -152,6 +152,41 @@ def test_finalize_partial_updates_qty_not_closed(monkeypatch):
     assert "closed" not in sql.lower() or "status = 'closed'" not in sql.lower()
 
 
+def test_finalize_stays_open_while_lots_remain(monkeypatch):
+    store = MagicMock()
+    lots = MagicMock()
+    lots.scalar.return_value = Decimal("13")
+    update = MagicMock()
+    store.session.execute.side_effect = [lots, update]
+    svc = MagicMock()
+    monkeypatch.setattr(
+        "quantara_engine.live_sim.close_authority.BrokerExecutionService",
+        lambda *a, **k: svc,
+    )
+    r = _res(
+        accepted=True,
+        shadow_only=False,
+        physical_closed_qty=Decimal("4"),
+        fill_quantity=Decimal("4"),
+        broker_order_id="ord",
+        broker_fill_id="fill",
+    )
+    ok = finalize_live_sim_position_close(
+        store,
+        position_id="53196517-9887-486f-97b8-57b04b07bb91",
+        closed_at=datetime.now(timezone.utc),
+        account_slug="live-sim-ibkr-like",
+        instrument_symbol="GOOGL",
+        mark_price=Decimal("321.665"),
+        broker_res=r,
+        requested_quantity=Decimal("4"),
+    )
+    assert ok is False
+    sql = str(store.session.execute.call_args[0][0])
+    assert "quantity" in sql.lower()
+    assert "status = 'closed'" not in sql.lower()
+
+
 def test_h_multi_broker_summary_excludes_legacy(monkeypatch):
     from quantara_engine.live_sim import analytics
 
