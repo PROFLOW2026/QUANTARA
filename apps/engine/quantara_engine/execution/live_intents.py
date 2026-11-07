@@ -34,6 +34,7 @@ def _expire_stale_intents(store: TradingStore, now: datetime) -> int:
         MOMENTUM_CONTINUATION_EXPERIMENT_ID,
         VOLATILITY_SQUEEZE_EXPERIMENT_ID,
     )
+    from quantara_engine.live_sim.v32_registry import V32_LIVE_SIM_EXPERIMENT_ID
 
     expired = store.cancel_stale_pending_intents(ACTIVE_COMPETITION_EXPERIMENT_ID, now)
     expired += store.cancel_stale_pending_intents(ORB_COMPETITION_EXPERIMENT_ID, now)
@@ -41,6 +42,7 @@ def _expire_stale_intents(store: TradingStore, now: datetime) -> int:
         MEAN_REVERSION_EXPERIMENT_ID,
         VOLATILITY_SQUEEZE_EXPERIMENT_ID,
         MOMENTUM_CONTINUATION_EXPERIMENT_ID,
+        V32_LIVE_SIM_EXPERIMENT_ID,
     ):
         expired += store.cancel_stale_pending_intents(experiment_id, now)
     return expired

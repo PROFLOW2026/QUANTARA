@@ -217,6 +217,15 @@ def allocate_fill_to_strategy_legs(
         remaining -= take
 
     if opened_qty > 0:
+        # Exit fills that overshoot (flip) must not attach the residual open lot to the
+        # strategy position being closed — that leaves opposite-direction remaining_qty
+        # on a "long" shadow and blocks shadow_exit_sync forever.
+        exit_purposes = ("sl", "tp", "close", "flatten", "manual_close", "liquidation")
+        open_spid = (
+            None
+            if order_purpose in exit_purposes
+            else strategy_position_id
+        )
         lot_id = str(uuid.uuid4())
         try:
             _insert_entry_lot(
@@ -224,13 +233,13 @@ def allocate_fill_to_strategy_legs(
                 lot_id=lot_id,
                 broker_account_id=broker_account_id,
                 broker_fill_id=broker_fill_id,
-                strategy_position_id=strategy_position_id,
+                strategy_position_id=open_spid,
                 portfolio_id=portfolio_id,
                 symbol=symbol,
                 direction=direction,
                 quantity=opened_qty,
                 fill_price=fill_price,
-                opportunity_key=opportunity_key,
+                opportunity_key=opportunity_key if open_spid else None,
             )
         except IntegrityError as exc:
             raise RuntimeError(
@@ -317,19 +326,32 @@ def attributed_remaining_quantity(
     strategy_position_id: str | None = None,
     portfolio_id: str | None = None,
     opportunity_key: str | None = None,
+    direction: str | None = None,
 ) -> Decimal:
-    """Remaining physically attributed quantity for a strategy leg."""
+    """Remaining physically attributed quantity for a strategy leg.
+
+    When ``direction`` is set, only lots in that direction count — opposite-direction
+    flip orphans must not keep a closed strategy shadow alive.
+    """
+    dir_filter = ""
+    params: dict = {"aid": broker_account_id, "sym": symbol.upper()}
+    if direction:
+        dir_filter = " AND lower(direction::text) = lower(:dir) "
+        params["dir"] = direction
+
     if strategy_position_id:
+        params["spid"] = strategy_position_id
         row = store.session.execute(
             text(
-                """
+                f"""
                 SELECT COALESCE(SUM(remaining_qty), 0) AS qty
                 FROM broker_attribution_lots
                 WHERE broker_account_id = :aid AND symbol = :sym
                   AND strategy_position_id = :spid AND remaining_qty > 0
+                  {dir_filter}
                 """
             ),
-            {"aid": broker_account_id, "sym": symbol.upper(), "spid": strategy_position_id},
+            params,
         ).mappings().first()
         qty = Decimal(str(row["qty"])) if row else Decimal("0")
         if qty > 0:
@@ -338,22 +360,20 @@ def attributed_remaining_quantity(
         # Fall through to opportunity/portfolio match when direct link is missing.
 
     if portfolio_id and opportunity_key:
+        params["pid"] = portfolio_id
+        params["opp"] = opportunity_key
         row = store.session.execute(
             text(
-                """
+                f"""
                 SELECT COALESCE(SUM(remaining_qty), 0) AS qty
                 FROM broker_attribution_lots
                 WHERE broker_account_id = :aid AND symbol = :sym
                   AND strategy_portfolio_id = :pid AND opportunity_key = :opp
                   AND remaining_qty > 0
+                  {dir_filter}
                 """
             ),
-            {
-                "aid": broker_account_id,
-                "sym": symbol.upper(),
-                "pid": portfolio_id,
-                "opp": opportunity_key,
-            },
+            params,
         ).mappings().first()
         return Decimal(str(row["qty"])) if row else Decimal("0")
 

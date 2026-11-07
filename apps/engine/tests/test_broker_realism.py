@@ -333,3 +333,53 @@ def test_margin_call_blocks_risk_increasing():
     decision = evaluate_broker_order(account, QUANTARA_STANDARD_PAPER, req, {"USD": Decimal("1")})
     assert not decision.accepted
     assert decision.rejection_reason == BrokerRejectionReason.MARGIN_CALL
+
+
+def test_dust_close_exempt_from_min_notional():
+    """Protective TP/SL below min_notional must still close residual crypto qty."""
+    # Flat account: 0.0028 * 2230 ≈ $6.24 < ETH min_notional $10 → new entry rejected.
+    flat = _empty_account(Decimal("10000"))
+    entry_req = BrokerOrderRequest(
+        symbol="ETHUSD",
+        asset_class="crypto",
+        direction="long",
+        quantity=Decimal("0.0028"),
+        mark_price=Decimal("2230"),
+        is_close=False,
+    )
+    entry_dec = evaluate_broker_order(flat, QUANTARA_STANDARD_PAPER, entry_req, {"USD": Decimal("1")})
+    assert not entry_dec.accepted
+    assert entry_dec.rejection_reason == BrokerRejectionReason.INVALID_QUANTITY
+
+    # Mis-tagged is_close on a flat account is still risk-increasing → still blocked.
+    fake_close = BrokerOrderRequest(
+        symbol="ETHUSD",
+        asset_class="crypto",
+        direction="long",
+        quantity=Decimal("0.0028"),
+        mark_price=Decimal("2230"),
+        is_close=True,
+    )
+    fake_dec = evaluate_broker_order(flat, QUANTARA_STANDARD_PAPER, fake_close, {"USD": Decimal("1")})
+    assert not fake_dec.accepted
+    assert fake_dec.rejection_reason == BrokerRejectionReason.INVALID_QUANTITY
+
+    # Same qty as a close of an existing short dust position must be accepted.
+    held = build_account_snapshot(
+        cash=Decimal("10000"),
+        balance=Decimal("10000"),
+        realized_pnl=Decimal("0"),
+        positions={"ETHUSD": (Decimal("-0.0028"), Decimal("2400"), Decimal("2230"))},
+        fx_rates={"USD": Decimal("1")},
+    )
+    close_req = BrokerOrderRequest(
+        symbol="ETHUSD",
+        asset_class="crypto",
+        direction="long",
+        quantity=Decimal("0.0028"),
+        mark_price=Decimal("2230"),
+        is_close=True,
+    )
+    close_dec = evaluate_broker_order(held, QUANTARA_STANDARD_PAPER, close_req, {"USD": Decimal("1")})
+    assert close_dec.accepted, close_dec.rejection_detail
+    assert close_dec.accepted_quantity == Decimal("0.0028")

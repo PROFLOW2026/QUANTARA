@@ -157,6 +157,71 @@ def test_hard_max_risk_clamps_quantity():
     assert (res.expected_risk_usd or 0) <= Decimal("5.01")
 
 
+def test_inverted_stop_geometry_rejected_for_long():
+    """Gap-open prior-bar SL above entry must not size as a valid long risk distance."""
+    from decimal import Decimal
+
+    from quantara_engine.domain.types import Direction, Instrument
+    from quantara_engine.live_sim.sizing import size_live_sim_entry
+    from quantara_engine.portfolio.currency import FxRateTable
+
+    instrument = Instrument(
+        id="i",
+        symbol="AMD",
+        name="AMD",
+        asset_class="stock",
+        quote_currency="USD",
+        quantity_step=Decimal("1"),
+        min_quantity=Decimal("1"),
+    )
+    res = size_live_sim_entry(
+        equity=Decimal("8700"),
+        cash=Decimal("8700"),
+        target_risk=Decimal("87"),
+        entry_reference=Decimal("437.71"),
+        stop_loss=Decimal("480.97"),
+        direction=Direction.LONG,
+        instrument=instrument,
+        fx_rates=FxRateTable.usd_only(),
+        execution_assumptions=None,
+    )
+    assert res.quantity == Decimal("0")
+    assert res.deny_reason == "INVALID_STOP_LOSS"
+
+
+def test_valid_long_stop_below_entry_still_sizes():
+    """Normal protective / trailed SL below entry must remain valid (not blocked)."""
+    from decimal import Decimal
+
+    from quantara_engine.domain.types import Direction, Instrument
+    from quantara_engine.live_sim.sizing import size_live_sim_entry
+    from quantara_engine.portfolio.currency import FxRateTable
+
+    instrument = Instrument(
+        id="i",
+        symbol="AMD",
+        name="AMD",
+        asset_class="stock",
+        quote_currency="USD",
+        quantity_step=Decimal("1"),
+        min_quantity=Decimal("1"),
+    )
+    # Trailed SL still below entry (and below mark) — valid geometry.
+    res = size_live_sim_entry(
+        equity=Decimal("8700"),
+        cash=Decimal("8700"),
+        target_risk=Decimal("87"),
+        entry_reference=Decimal("437.71"),
+        stop_loss=Decimal("424.73"),
+        direction=Direction.LONG,
+        instrument=instrument,
+        fx_rates=FxRateTable.usd_only(),
+        execution_assumptions=None,
+    )
+    assert res.deny_reason is None
+    assert res.quantity > 0
+
+
 def test_owner_stop_budget_and_notional_cap_shrink_xau():
     """A full 1% target that overshoots the owner cap is stepped down, stop unchanged."""
     from decimal import Decimal

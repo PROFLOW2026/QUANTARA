@@ -32,15 +32,17 @@ def live_sim_physical_close_succeeded(result: BrokerExecutionResult | None) -> b
 
 
 def attributed_lot_remaining(store: TradingStore, position_id: str) -> Decimal | None:
-    """Remaining lot qty linked to this shadow, or None when the book cannot be read."""
+    """Remaining lot qty in the shadow's own direction (ignore flip orphans)."""
     try:
         value = store.session.execute(
             text(
                 """
-                SELECT COALESCE(SUM(remaining_qty), 0)
-                FROM broker_attribution_lots
-                WHERE strategy_position_id = CAST(:pid AS uuid)
-                  AND remaining_qty > 0
+                SELECT COALESCE(SUM(l.remaining_qty), 0)
+                FROM broker_attribution_lots l
+                JOIN live_sim_positions lsp ON lsp.id = l.strategy_position_id
+                WHERE l.strategy_position_id = CAST(:pid AS uuid)
+                  AND l.remaining_qty > 0
+                  AND lower(l.direction::text) = lower(lsp.direction::text)
                 """
             ),
             {"pid": position_id},

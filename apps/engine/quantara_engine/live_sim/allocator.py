@@ -1270,7 +1270,12 @@ def maybe_allocate_live_sim(
     sl = Decimal(str(signal.suggested_sl))
 
     sl_distance = abs(entry_ref - sl)
-    if sl_distance <= 0:
+    # Directional geometry: long SL must be strictly below entry; short SL strictly above.
+    # abs()-only checks accept gap-open inversions (prior-bar SL vs current entry).
+    inverted_geometry = (direction == "long" and sl >= entry_ref) or (
+        direction == "short" and sl <= entry_ref
+    )
+    if sl_distance <= 0 or inverted_geometry:
         log_allocation(
             store,
             account_id=account_id,

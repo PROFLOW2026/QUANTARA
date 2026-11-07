@@ -31,7 +31,8 @@ def _live_sim_position_row(store: TradingStore, strategy_position_id: str) -> di
     row = store.session.execute(
         text(
             """
-            SELECT id::text, status, quantity, opportunity_key, broker_account_id::text
+            SELECT id::text, status, quantity, direction::text AS direction,
+                   opportunity_key, broker_account_id::text
             FROM live_sim_positions
             WHERE id = CAST(:pid AS uuid)
             """
@@ -171,6 +172,7 @@ def maybe_close_live_sim_shadow_on_attribution_exhausted(
         strategy_position_id=strategy_position_id,
         portfolio_id=portfolio_id,
         opportunity_key=opportunity_key or row.get("opportunity_key"),
+        direction=str(row.get("direction") or ""),
     )
     if remaining > 0:
         _sync_shadow_quantity(

@@ -242,7 +242,14 @@ def evaluate_broker_order(
             )
 
     order_notional = quote_notional_usd(qty, request.mark_price, spec, fx_rates)
-    if order_notional < spec.min_notional and spec.quote_currency != "JPY":
+    # Dust risk-reducing closes must not be blocked by min_notional — otherwise
+    # protective exits retry forever below the broker floor (e.g. ETH 0.0028 * px < $10).
+    # Only risk-increasing orders are gated; is_close alone is not enough (could be mis-set).
+    if (
+        order_notional < spec.min_notional
+        and spec.quote_currency != "JPY"
+        and not risk_reducing
+    ):
         return _reject(
             BrokerRejectionReason.INVALID_QUANTITY,
             f"notional {order_notional} below min {spec.min_notional}",

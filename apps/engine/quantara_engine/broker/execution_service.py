@@ -11,7 +11,10 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from quantara_engine.broker.account import build_account_snapshot
-from quantara_engine.broker.attribution import allocate_fill_to_strategy_legs
+from quantara_engine.broker.attribution import (
+    allocate_fill_to_strategy_legs,
+    attributed_remaining_quantity,
+)
 from quantara_engine.broker.client_order_id import derive_client_order_id
 from quantara_engine.broker.execution_model import (
     ExecutionModelVersion,
@@ -62,6 +65,61 @@ from quantara_engine.execution.fill_calculator import FillResult
 from quantara_engine.persistence.store import TradingStore
 from quantara_engine.broker.accounts import PAPER_ACCOUNT_SLUG, RESEARCH_PAPER_ACCOUNT_SLUG
 from quantara_engine.portfolio.currency import quote_currencies_for_instruments, resolve_dashboard_fx_rates
+
+
+def _sync_strategy_position_quantity_from_attribution(
+    store: TradingStore,
+    *,
+    strategy_position_id: str,
+    broker_account_id: str,
+    symbol: str,
+) -> None:
+    """Keep paper ``positions.quantity`` aligned with attributed remaining in its direction."""
+    row = store.session.execute(
+        text(
+            """
+            SELECT direction::text AS direction, quantity, status::text AS status
+            FROM positions
+            WHERE id = CAST(:pid AS uuid)
+            """
+        ),
+        {"pid": strategy_position_id},
+    ).mappings().first()
+    if not row or str(row["status"]).lower() != "open":
+        return
+    direction = str(row["direction"])
+    remaining = attributed_remaining_quantity(
+        store,
+        broker_account_id=broker_account_id,
+        symbol=symbol,
+        strategy_position_id=strategy_position_id,
+        direction=direction,
+    )
+    current = Decimal(str(row["quantity"]))
+    if remaining <= 0:
+        store.session.execute(
+            text(
+                """
+                UPDATE positions
+                SET status = 'closed', quantity = 0, closed_at = COALESCE(closed_at, NOW()),
+                    updated_at = NOW()
+                WHERE id = CAST(:pid AS uuid) AND status = 'open'
+                """
+            ),
+            {"pid": strategy_position_id},
+        )
+        return
+    if remaining != current:
+        store.session.execute(
+            text(
+                """
+                UPDATE positions
+                SET quantity = :qty, updated_at = NOW()
+                WHERE id = CAST(:pid AS uuid) AND status = 'open'
+                """
+            ),
+            {"pid": strategy_position_id, "qty": remaining},
+        )
 
 
 @dataclass
@@ -602,6 +660,7 @@ class BrokerExecutionService:
                     execution_at=execution_at,
                     db_strategy_intent_id=db_strategy_intent_id,
                     db_strategy_portfolio_id=db_strategy_portfolio_id,
+                    reduce_only=is_close,
                 )
             else:
                 self.store.session.execute(
@@ -921,6 +980,57 @@ class BrokerExecutionService:
         cur_qty = Decimal(str(pos_row["net_quantity"])) if pos_row else Decimal("0")
         cur_avg = Decimal(str(pos_row["average_price"])) if pos_row else Decimal("0")
 
+        # Hard reduce-only for closes: only allow orders that shrink absolute exposure.
+        # Selling while already short (or buying while long) must zero out — not flip further.
+        if is_close:
+            if cur_qty > 0 and direction == "short":
+                quantity = min(quantity, cur_qty)
+            elif cur_qty < 0 and direction == "long":
+                quantity = min(quantity, abs(cur_qty))
+            else:
+                quantity = Decimal("0")
+            if quantity <= 0:
+                self.store.session.execute(
+                    text(
+                        """
+                        UPDATE broker_orders
+                        SET status = 'cancelled', rejection_reason = 'reduce_only_flat',
+                            updated_at = NOW()
+                        WHERE id = :id
+                        """
+                    ),
+                    {"id": order_id},
+                )
+                if strategy_position_id:
+                    from quantara_engine.live_sim.shadow_exit_sync import (
+                        maybe_close_live_sim_shadow_on_attribution_exhausted,
+                    )
+
+                    maybe_close_live_sim_shadow_on_attribution_exhausted(
+                        self.store,
+                        strategy_position_id=strategy_position_id,
+                        broker_account_id=account_id,
+                        symbol=instrument.symbol,
+                        closed_at=execution_at,
+                        portfolio_id=portfolio_id,
+                        opportunity_key=opportunity_key,
+                        reason="reduce_only_nothing_left_to_close",
+                    )
+                    _sync_strategy_position_quantity_from_attribution(
+                        self.store,
+                        strategy_position_id=strategy_position_id,
+                        broker_account_id=account_id,
+                        symbol=instrument.symbol,
+                    )
+                return BrokerExecutionResult(
+                    accepted=True,
+                    shadow_only=True,
+                    fill_quantity=Decimal("0"),
+                    physical_opened_qty=Decimal("0"),
+                    physical_closed_qty=Decimal("0"),
+                    broker_order_id=order_id,
+                )
+
         netting = apply_fill_with_realized_pnl(
             cur_qty, cur_avg, quantity, fill.fill_price, direction,
             mode=PositionMode.NETTING, spec=spec, fx_rates=fx_map,
@@ -1127,6 +1237,12 @@ class BrokerExecutionService:
                 closed_at=execution_at,
                 portfolio_id=portfolio_id,
                 opportunity_key=opportunity_key,
+            )
+            _sync_strategy_position_quantity_from_attribution(
+                self.store,
+                strategy_position_id=strategy_position_id,
+                broker_account_id=account_id,
+                symbol=instrument.symbol,
             )
 
         self._persist_ledger_balances(

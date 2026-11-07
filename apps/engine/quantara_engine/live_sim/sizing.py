@@ -198,7 +198,10 @@ def size_live_sim_entry(
     from quantara_engine.risk.sizing import DEFAULT_RISK_ROUNDING_TOLERANCE_PCT
 
     sl_distance = abs(entry_reference - stop_loss)
-    if sl_distance <= 0:
+    inverted = (direction == Direction.LONG and stop_loss >= entry_reference) or (
+        direction == Direction.SHORT and stop_loss <= entry_reference
+    )
+    if sl_distance <= 0 or inverted:
         return LiveSimSizingResult(
             quantity=Decimal("0"),
             expected_risk_usd=Decimal("0"),
