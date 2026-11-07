@@ -259,7 +259,7 @@ def finalize_expired_accepted_limbo(store: TradingStore) -> int:
             store,
             row["id"],
             rejection_reason="EXECUTION_WINDOW",
-            rejection_detail=str(row["reason"]),
+            rejection_detail=str(row.get("reason") or "execution_window_passed"),
         )
     return len(rows)
 
@@ -292,8 +292,11 @@ def reconcile_accepted_limbo_allocations(store: TradingStore, now: datetime) -> 
     ).mappings().all()
     reconciled = 0
     for row in rows:
-        tf = str(row["timeframe"])
-        signal_ts = row["signal_candle_timestamp"]
+        tf = str(row.get("timeframe") or "")
+        signal_ts = row.get("signal_candle_timestamp")
+        if signal_ts is None:
+            # Incomplete historical/pending rows must not crash expiry reconciliation.
+            continue
         meta = row.get("metadata") or {}
         stored_exec = meta.get("execution_candle_timestamp")
         if stored_exec:
@@ -351,8 +354,10 @@ def expire_stale_live_sim_allocations(store: TradingStore, now: datetime) -> int
     ).mappings().all()
     expired = 0
     for row in rows:
-        exec_ts = row["signal_candle_timestamp"]
-        tf = str(row["timeframe"])
+        exec_ts = row.get("signal_candle_timestamp")
+        if exec_ts is None:
+            continue
+        tf = str(row.get("timeframe") or "")
         from quantara_engine.execution.timing import next_execution_timestamp
 
         meta = row.get("metadata") or {}
@@ -364,7 +369,7 @@ def expire_stale_live_sim_allocations(store: TradingStore, now: datetime) -> int
         if intent_past_execution_window(
             signal_candle_timestamp=exec_ts,
             execution_candle_timestamp=execution_ts,
-            intent_created_at=row["created_at"],
+            intent_created_at=row.get("created_at"),
             timeframe=tf,
             now=now,
         ):

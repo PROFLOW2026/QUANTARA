@@ -184,6 +184,9 @@ def test_pending_allocation_counters_when_not_ready():
         "symbol": "ETHUSD",
         "timeframe": "15m",
         "broker_account_id": "acct",
+        "signal_candle_timestamp": datetime(2026, 9, 13, 0, 0, tzinfo=TZ3),
+        "created_at": datetime(2026, 9, 13, 0, 1, tzinfo=TZ3),
+        "metadata": {"pending_execution": True},
     }
     store.session.execute.return_value.mappings.return_value.all.return_value = [pending_row]
 
@@ -264,6 +267,27 @@ def test_expire_uses_stored_execution_candle_timestamp_not_signal_only():
         timeframe="15m",
         now=before_window,
     )
+
+
+def test_expire_skips_rows_missing_signal_candle_timestamp():
+    from quantara_engine.live_sim.candidate_log import expire_stale_live_sim_allocations
+
+    store = MagicMock()
+    store.session.execute.return_value.mappings.return_value.all.return_value = [
+        {
+            "id": "log-missing",
+            "signal_candle_timestamp": None,
+            "timeframe": "15m",
+            "created_at": datetime(2026, 9, 13, 0, 1, tzinfo=TZ3),
+            "metadata": {"pending_execution": True},
+        }
+    ]
+    with patch("quantara_engine.live_sim.candidate_log.mark_allocation_expired") as mark_exp:
+        expired = expire_stale_live_sim_allocations(
+            store, datetime(2026, 9, 13, 1, 0, tzinfo=TZ3)
+        )
+    assert expired == 0
+    mark_exp.assert_not_called()
 
 
 def test_true_stale_expiry_still_works():
