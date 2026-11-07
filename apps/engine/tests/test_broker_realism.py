@@ -383,3 +383,37 @@ def test_dust_close_exempt_from_min_notional():
     close_dec = evaluate_broker_order(held, QUANTARA_STANDARD_PAPER, close_req, {"USD": Decimal("1")})
     assert close_dec.accepted, close_dec.rejection_detail
     assert close_dec.accepted_quantity == Decimal("0.0028")
+
+
+def test_residual_dust_below_min_quantity_full_flatten_allowed():
+    """Exact abs(current) dust flatten must pass even when qty < min_quantity."""
+    held = build_account_snapshot(
+        cash=Decimal("10000"),
+        balance=Decimal("10000"),
+        realized_pnl=Decimal("0"),
+        positions={"ETHUSD": (Decimal("-0.00005"), Decimal("2400"), Decimal("2230"))},
+        fx_rates={"USD": Decimal("1")},
+    )
+    # Partial / non-exact dust still rejected (below min).
+    partial = BrokerOrderRequest(
+        symbol="ETHUSD",
+        asset_class="crypto",
+        direction="long",
+        quantity=Decimal("0.00004"),
+        mark_price=Decimal("2230"),
+        is_close=True,
+    )
+    partial_dec = evaluate_broker_order(held, QUANTARA_STANDARD_PAPER, partial, {"USD": Decimal("1")})
+    assert not partial_dec.accepted
+
+    full = BrokerOrderRequest(
+        symbol="ETHUSD",
+        asset_class="crypto",
+        direction="long",
+        quantity=Decimal("0.00005"),
+        mark_price=Decimal("2230"),
+        is_close=True,
+    )
+    full_dec = evaluate_broker_order(held, QUANTARA_STANDARD_PAPER, full, {"USD": Decimal("1")})
+    assert full_dec.accepted, full_dec.rejection_detail
+    assert full_dec.accepted_quantity == Decimal("0.00005")

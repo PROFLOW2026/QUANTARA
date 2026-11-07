@@ -1221,23 +1221,8 @@ def _execute_strategy_cycle(
             return 0
 
         _mark_cycle_started(s, run_id=run_id, started_at=started_at, mode=mode)
-        expired_intents = s.cancel_stale_pending_intents(ACTIVE_COMPETITION_EXPERIMENT_ID, started_at)
-        from quantara_engine.competition.orb_constants import ORB_COMPETITION_EXPERIMENT_ID
-        from quantara_engine.competition.multi_strategy_constants import (
-            MEAN_REVERSION_EXPERIMENT_ID,
-            MOMENTUM_CONTINUATION_EXPERIMENT_ID,
-            VOLATILITY_SQUEEZE_EXPERIMENT_ID,
-        )
-        from quantara_engine.live_sim.v32_registry import V32_LIVE_SIM_EXPERIMENT_ID
-
-        for experiment_id in (
-            ORB_COMPETITION_EXPERIMENT_ID,
-            MEAN_REVERSION_EXPERIMENT_ID,
-            VOLATILITY_SQUEEZE_EXPERIMENT_ID,
-            MOMENTUM_CONTINUATION_EXPERIMENT_ID,
-            V32_LIVE_SIM_EXPERIMENT_ID,
-        ):
-            expired_intents += s.cancel_stale_pending_intents(experiment_id, started_at)
+        # All experiments (including Phase-3 UUIDs outside the legacy allow-list).
+        expired_intents = s.cancel_stale_pending_intents(None, started_at)
         if expired_intents:
             logger.info("Expired %d stale pending_execution intent(s)", expired_intents)
             _commit_progress(s)

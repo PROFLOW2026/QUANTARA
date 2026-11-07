@@ -6,8 +6,6 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from quantara_engine.competition.constants import ACTIVE_COMPETITION_EXPERIMENT_ID
-from quantara_engine.competition.orb_constants import ORB_COMPETITION_EXPERIMENT_ID
 from quantara_engine.core.clock import BacktestClock
 from quantara_engine.domain.types import IntentStatus, Mode
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
@@ -29,23 +27,8 @@ class PendingIntentWork:
 
 
 def _expire_stale_intents(store: TradingStore, now: datetime) -> int:
-    from quantara_engine.competition.multi_strategy_constants import (
-        MEAN_REVERSION_EXPERIMENT_ID,
-        MOMENTUM_CONTINUATION_EXPERIMENT_ID,
-        VOLATILITY_SQUEEZE_EXPERIMENT_ID,
-    )
-    from quantara_engine.live_sim.v32_registry import V32_LIVE_SIM_EXPERIMENT_ID
-
-    expired = store.cancel_stale_pending_intents(ACTIVE_COMPETITION_EXPERIMENT_ID, now)
-    expired += store.cancel_stale_pending_intents(ORB_COMPETITION_EXPERIMENT_ID, now)
-    for experiment_id in (
-        MEAN_REVERSION_EXPERIMENT_ID,
-        VOLATILITY_SQUEEZE_EXPERIMENT_ID,
-        MOMENTUM_CONTINUATION_EXPERIMENT_ID,
-        V32_LIVE_SIM_EXPERIMENT_ID,
-    ):
-        expired += store.cancel_stale_pending_intents(experiment_id, now)
-    return expired
+    # Expire across every experiment — Phase-3 / ad-hoc ids must not be skipped.
+    return store.cancel_stale_pending_intents(None, now)
 
 
 def _collect_pending_work(store: TradingStore, now: datetime) -> list[PendingIntentWork]:

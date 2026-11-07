@@ -3124,27 +3124,44 @@ class TradingStore:
 
     def cancel_stale_pending_intents(
         self,
-        experiment_id: str,
+        experiment_id: str | None,
         now: datetime,
     ) -> int:
-        """Cancel pending intents whose execution candle is complete but never filled."""
+        """Cancel pending intents whose execution candle is complete but never filled.
+
+        When ``experiment_id`` is None, expire across all experiments so Phase-3 /
+        ad-hoc experiment ids are not stranded outside the hardcoded allow-list.
+        Fresh intents still inside the execution window are never expired.
+        """
         from quantara_engine.execution.timing import intent_past_execution_window
         from quantara_engine.models.trading import OrderIntent as OrmOrderIntentModel
+
+        filters = [
+            OrmOrderIntentModel.status == OrderIntentStatus.PENDING_EXECUTION,
+            OrmOrderIntentModel.backtest_run_id.is_(None),
+        ]
+        if experiment_id is not None:
+            filters.append(OrmStrategyInstance.experiment_id == _uuid(experiment_id))
 
         rows = self.session.scalars(
             select(OrmOrderIntentModel)
             .join(OrmStrategyInstance, OrmStrategyInstance.id == OrmOrderIntentModel.strategy_instance_id)
-            .where(
-                OrmStrategyInstance.experiment_id == _uuid(experiment_id),
-                OrmOrderIntentModel.status == OrderIntentStatus.PENDING_EXECUTION,
-                OrmOrderIntentModel.backtest_run_id.is_(None),
-            )
+            .where(*filters)
         ).all()
 
         cancelled = 0
         for row in rows:
             instance = self.session.get(OrmStrategyInstance, row.strategy_instance_id)
             if not instance:
+                continue
+            if row.signal_candle_timestamp is None:
+                # Cannot evaluate window without a signal bar — expire only if ancient.
+                age_hours = (now - row.created_at).total_seconds() / 3600.0 if row.created_at else 0
+                if age_hours < 24:
+                    continue
+                row.status = OrderIntentStatus.EXPIRED
+                row.rejection_reason = "execution_window_passed_missing_signal_ts"
+                cancelled += 1
                 continue
             tf = instance.timeframe.value if hasattr(instance.timeframe, "value") else str(instance.timeframe)
             if intent_past_execution_window(

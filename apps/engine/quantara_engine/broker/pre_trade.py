@@ -149,21 +149,31 @@ def evaluate_broker_order(
     )
 
     qty = request.quantity
-    qty_err = validate_quantity(qty, spec)
-    if qty_err:
-        return _reject(BrokerRejectionReason.INVALID_QUANTITY, qty_err, account=account)
-    normalized = normalize_quantity(qty, spec)
-    if normalized != qty:
-        return _reject(
-            BrokerRejectionReason.INVALID_QUANTITY,
-            f"quantity {qty} requires exact step {spec.quantity_step} (no silent normalization)",
-            account=account,
-        )
-
     direction = request.direction.lower()
     order_signed = _signed_qty(direction, qty)
     risk_reducing = _is_risk_reducing(current_qty, order_signed)
     pure_close = risk_reducing and abs(current_qty + order_signed) <= abs(current_qty)
+    # Full residual flatten of a dust position may be below min_quantity / off-step
+    # (e.g. ETH rem 0.00005 < min 0.0001). Allow exact abs(current) closes only.
+    residual_dust_close = (
+        pure_close
+        and current_qty != 0
+        and qty == abs(current_qty)
+        and qty > 0
+    )
+    if not residual_dust_close:
+        qty_err = validate_quantity(qty, spec)
+        if qty_err:
+            return _reject(BrokerRejectionReason.INVALID_QUANTITY, qty_err, account=account)
+        normalized = normalize_quantity(qty, spec)
+        if normalized != qty:
+            return _reject(
+                BrokerRejectionReason.INVALID_QUANTITY,
+                f"quantity {qty} requires exact step {spec.quantity_step} (no silent normalization)",
+                account=account,
+            )
+    elif qty <= 0:
+        return _reject(BrokerRejectionReason.INVALID_QUANTITY, "quantity must be positive", account=account)
 
     # Account state gates — risk-increasing blocked in call/liquidation
     if account.account_state == AccountState.PAUSED:
