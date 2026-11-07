@@ -225,7 +225,6 @@ def main() -> int:
                 UPDATE live_sim_positions
                 SET status = 'closed',
                     closed_at = COALESCE(closed_at, NOW()),
-                    quantity = 0,
                     updated_at = NOW()
                 WHERE id = CAST(:pid AS uuid)
                   AND status = 'open'
@@ -337,10 +336,10 @@ def main() -> int:
             {"pid": AMD_PID},
         ).scalar()
 
+        # Keep original shadow quantity (schema check forbids 0); status=closed is the book signal.
         post_ok = (
             amd_after
             and amd_after["status"] == "closed"
-            and D(amd_after["quantity"]) == 0
             and D(amd_broker_after) == D("-24")
             and eth_after
             and eth_after["status"] == "open"

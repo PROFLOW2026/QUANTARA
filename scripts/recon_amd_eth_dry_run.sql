@@ -77,8 +77,8 @@ BEGIN;
 UPDATE live_sim_positions
 SET status = 'closed',
     closed_at = COALESCE(closed_at, NOW()),
-    quantity = 0,
     updated_at = NOW()
+-- Keep quantity (schema check forbids 0); status=closed matches shadow_exit_sync.
 WHERE id = '11154b64-ee49-402f-9bbc-31885631fec2'
   AND status = 'open'
   AND NOT EXISTS (
