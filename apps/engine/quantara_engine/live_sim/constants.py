@@ -41,4 +41,12 @@ REJECTION_HE: dict[str, str] = {
     "V32_COMBINATION_NOT_IN_PORTFOLIO": "שילוב V3.2 לא ברשימת המועמדים המאושרים",
     "DYNAMIC_UNIVERSE_INACTIVE": "נכס מחוץ לקבוצת המסחר הדינמית הפעילה",
     "asset_new_entries_paused": "כניסות חדשות מושהות בנכס — ניהול פוזיציה פתוחה נמשך",
+    "ENTRY_STOP_BREACHED": "מחיר הכניסה בזמן ההוראה כבר חצה את ה-Stop Loss",
+    "ENTRY_PRICE_DRIFT": "המחיר זז מול מחיר האות לפני הביצוע — הכניסה בוטלה",
+    "SYMBOL_POSITION_OPEN": "קיימת כבר פוזיציה פתוחה בנכס — מדיניות פוזיציה אחת לנכס",
+    "NETTING_CONFLICT_OPPOSITE_SIGNAL": "אות הפוך לפוזיציה פתוחה בנכס — לא סוגרים פוזיציה של רובוט אחר",
 }
+
+# Maximum adverse move (as a fraction of the planned stop distance) between the signal
+# reference price and the decision-time fill price before the entry is cancelled.
+ENTRY_MAX_ADVERSE_DRIFT_R = 0.25

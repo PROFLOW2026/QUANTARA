@@ -10,6 +10,7 @@ from sqlalchemy import text
 
 from quantara_engine.broker.accounts import LIVE_SIM_VIRTUAL_PORTFOLIO_ID
 from quantara_engine.broker.execution_bridge import execute_through_broker
+from quantara_engine.broker.market_gate import candle_executable_for_instrument
 from quantara_engine.domain.types import Direction
 from quantara_engine.domain.types import Direction as D
 from quantara_engine.domain.types import Position as DomainPosition
@@ -121,6 +122,8 @@ def process_live_sim_exits(store: TradingStore, now: datetime) -> dict:
             if opened_utc is not None and candle_utc is not None and candle_utc < opened_utc:
                 continue
             if resume_utc is not None and candle_utc is not None and candle_utc <= resume_utc:
+                continue
+            if not candle_executable_for_instrument(instrument, candle.timestamp):
                 continue
             eligible.append(candle)
         if eligible:

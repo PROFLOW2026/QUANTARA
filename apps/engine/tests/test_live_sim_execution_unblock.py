@@ -24,6 +24,15 @@ from quantara_engine.risk.sizing import select_quantity_for_risk_budget
 TZ3 = timezone(timedelta(hours=3))
 
 
+@pytest.fixture(autouse=True)
+def _legacy_next_open_fill_model(monkeypatch):
+    """These tests exercise the legacy N+1-open resume plumbing (explicit opt-in model).
+
+    The default decision-time model is covered in test_live_sim_decision_time_fill.py.
+    """
+    monkeypatch.setenv("LIVE_SIM_FILL_MODEL", "next_open")
+
+
 def _btc() -> Instrument:
     return Instrument(
         id="btc-id",

@@ -669,10 +669,10 @@ class BrokerExecutionService:
                         INSERT INTO broker_orders (
                           id, broker_account_id, strategy_intent_id, strategy_portfolio_id,
                           instrument_id, direction, requested_quantity, status,
-                          idempotency_key, order_purpose, submitted_at
+                          idempotency_key, order_purpose, submitted_at, created_at
                         ) VALUES (
                           :id, :aid, :iid, :pid, :inst, :dir, :qty, 'validating',
-                          :key, :purpose, :sub
+                          :key, :purpose, :sub, :sub
                         )
                         """
                     ),

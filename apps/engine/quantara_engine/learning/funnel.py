@@ -30,6 +30,36 @@ def robot_label_for_slug(slug: str | None) -> str | None:
     return ROBOT_BY_SLUG.get(slug)
 
 
+_FILTER_REJECTION_MARKERS = (
+    "no_setup",
+    "no_compression",
+    "no_mean_reversion",
+    "no_momentum",
+    "no_hourly",
+    "insufficient",
+    "overextended",
+    "strong_trend_no",
+    "already_consumed",
+)
+
+
+def terminal_stage_for_no_signal(reason: str | None) -> str:
+    """Every non-BUY/SELL evaluation must end in a classified terminal stage.
+
+    ``strategy_filter_rejection`` — a concrete filter said no (trend/EMA/strength/consumed).
+    ``hold_no_setup`` — still waiting (range building, no pullback/rally yet, etc.).
+    Previously the generic path only wrote ``strategy_evaluation`` for these, leaving thousands
+    of evaluations with no terminal outcome in the decision funnel.
+    """
+    r = (reason or "").strip()
+    low = r.lower()
+    if r.startswith("NO_SETUP") or r.startswith("INSUFFICIENT"):
+        return "strategy_filter_rejection"
+    if any(marker in low for marker in _FILTER_REJECTION_MARKERS):
+        return "strategy_filter_rejection"
+    return "hold_no_setup"
+
+
 def record_funnel_event(
     store,
     *,

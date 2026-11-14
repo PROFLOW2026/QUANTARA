@@ -275,7 +275,7 @@ async function main() {
       "AI Trader (paper)",
       aiRunning,
       aiRunning
-        ? `PID=${aiPid} — logs: day-trader-skill-trial\\trader\\paper-runner.log`
+        ? `PID=${aiPid} — logs: QUANTARA-AI-Trader\\trader\\paper-runner.log`
         : aiTraderResult.error
           ? `not started — ${aiTraderResult.error}`
           : "not started"

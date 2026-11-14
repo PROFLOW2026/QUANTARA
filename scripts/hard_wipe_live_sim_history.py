@@ -223,6 +223,18 @@ def wipe(store: TradingStore, *, archive_id: str, reset_at: datetime) -> dict:
         {"aids": aids},
     ).rowcount
 
+    actions["learning_planned_vs_actual_risk_live_sim"] = store.session.execute(
+        text("DELETE FROM learning_planned_vs_actual_risk WHERE source_type = 'live_sim'")
+    ).rowcount
+
+    # Runtime pointers that reference deleted positions (exit-resume cursors etc.).
+    store.session.execute(
+        text(
+            "DELETE FROM settings WHERE key IN "
+            "('live_sim_exit_resume_after', 'live_sim_slot_symbol_history')"
+        )
+    )
+
     actions["live_sim_dynamic_universe_snapshots"] = store.session.execute(
         text("DELETE FROM live_sim_dynamic_universe_snapshots")
     ).rowcount
@@ -294,6 +306,7 @@ def wipe(store: TradingStore, *, archive_id: str, reset_at: datetime) -> dict:
             else (LIVE_SIM_IBKR_TOTAL if "ibkr" in slug else LIVE_SIM_KRAKEN_TOTAL)
         )
         risk["high_water_mark"] = risk["daily_start_equity"]
+        risk["daily_start_date"] = reset_at.astimezone(timezone.utc).strftime("%Y-%m-%d")
         store.session.execute(
             text(
                 """
@@ -319,11 +332,38 @@ def wipe(store: TradingStore, *, archive_id: str, reset_at: datetime) -> dict:
                 SET current_cash = starting_allocated_capital,
                     realized_pnl = 0, unrealized_pnl = 0, fees_paid = 0,
                     funding_paid = 0, gross_exposure = 0, open_sl_risk_usd = 0,
+                    -- Risk baselines + counters belong to the experiment: a stale HWM /
+                    -- daily start / trade_count from the previous run would keep old
+                    -- losses alive inside the new experiment's drawdown & daily gates.
+                    trade_count = 0,
+                    high_water_mark = starting_allocated_capital,
+                    daily_start_equity = starting_allocated_capital,
+                    daily_start_date = (NOW() AT TIME ZONE 'UTC')::date::text,
+                    live_sim_new_entries_allowed = TRUE,
                     updated_at = NOW()
                 WHERE owner_portfolio_id = CAST(:pid AS uuid)
                 """
             ),
             {"pid": portfolio_id},
+        )
+        # Owner master risk baselines (HWM / daily start) live in risk_settings JSON.
+        owner_row = store.session.execute(
+            text("SELECT risk_settings FROM owner_trading_portfolios WHERE id = CAST(:pid AS uuid)"),
+            {"pid": portfolio_id},
+        ).scalar()
+        owner_risk = dict(owner_row or {})
+        owner_risk["high_water_mark"] = float(LIVE_SIM_TARGET_CAPITAL)
+        owner_risk["daily_start_equity"] = float(LIVE_SIM_TARGET_CAPITAL)
+        owner_risk["daily_start_date"] = reset_at.astimezone(timezone.utc).strftime("%Y-%m-%d")
+        store.session.execute(
+            text(
+                """
+                UPDATE owner_trading_portfolios
+                SET risk_settings = CAST(:risk AS jsonb), updated_at = NOW()
+                WHERE id = CAST(:pid AS uuid)
+                """
+            ),
+            {"pid": portfolio_id, "risk": json.dumps(owner_risk)},
         )
         store.session.execute(
             text(

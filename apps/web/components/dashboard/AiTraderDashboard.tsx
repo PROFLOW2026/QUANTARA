@@ -389,6 +389,26 @@ export function AiTraderDashboard({ data, loading }: Props) {
           <p><span className="text-muted">{t("ai_trader.max_risk_per_trade")}: </span>${data.max_risk_per_trade_usd}</p>
           <p><span className="text-muted">{t("ai_trader.max_daily_loss")}: </span>${data.max_daily_loss_usd}</p>
           <p><span className="text-muted">{t("ai_trader.starting_capital")}: </span>{formatCurrency(data.starting_capital)}</p>
+          {data.ai_status && Object.keys(data.ai_status).length > 0 ? (
+            <p className="sm:col-span-2">
+              <span className="text-muted">AI: </span>
+              {String(data.ai_status.mode_label ?? data.ai_status.mode ?? data.ai_status.provider ?? "—")}
+              {data.ai_status.model ? ` · ${String(data.ai_status.model)}` : ""}
+              {data.ai_status.last_decided_by ? ` · decided_by=${String(data.ai_status.last_decided_by)}` : ""}
+            </p>
+          ) : null}
+          {data.strategies_used && data.strategies_used.length > 0 ? (
+            <p className="sm:col-span-2">
+              <span className="text-muted">Strategies traded: </span>
+              {data.strategies_used.join(", ")}
+            </p>
+          ) : null}
+          {data.experiment_start ? (
+            <p className="sm:col-span-2">
+              <span className="text-muted">Experiment start: </span>
+              {data.experiment_start}
+            </p>
+          ) : null}
         </CardContent>
       </Card>
 

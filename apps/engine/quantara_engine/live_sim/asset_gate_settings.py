@@ -47,6 +47,70 @@ def reset_asset_gate_baselines_to_current_equity(store: TradingStore, asset_id: 
     )
 
 
+def reanchor_pre_experiment_asset_baseline(
+    store: TradingStore,
+    asset_row: dict[str, Any],
+    *,
+    broker_account_id: str | None,
+) -> bool:
+    """Self-heal: discard HWM / daily-start baselines stamped BEFORE the experiment anchor.
+
+    Any reset path (hard wipe, manual SQL, profile switch) that forgets to re-anchor the
+    per-asset risk baseline would otherwise let a previous experiment's equity peak or
+    day-start keep gating (or loosening) the new run. If the allocation row has not been
+    touched since the current experiment anchor, its baselines are by definition stale and
+    are re-anchored to the row's current equity. Mutates ``asset_row`` in place.
+    """
+    from datetime import timezone
+
+    from sqlalchemy import text
+
+    if not broker_account_id or not asset_row.get("id"):
+        return False
+    anchor_raw = store.session.execute(
+        text(
+            """
+            SELECT COALESCE(account_metadata->>'v32_observation_anchor',
+                            account_metadata->>'baseline_reset_at')
+            FROM broker_accounts WHERE id = CAST(:aid AS uuid)
+            """
+        ),
+        {"aid": broker_account_id},
+    ).scalar()
+    if not anchor_raw:
+        return False
+    try:
+        anchor = datetime.fromisoformat(str(anchor_raw).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if anchor.tzinfo is None:
+        anchor = anchor.replace(tzinfo=timezone.utc)
+    row = store.session.execute(
+        text(
+            """
+            SELECT updated_at, current_cash, unrealized_pnl, high_water_mark,
+                   daily_start_equity, daily_start_date
+            FROM owner_portfolio_asset_allocations
+            WHERE id = CAST(:id AS uuid)
+            """
+        ),
+        {"id": asset_row["id"]},
+    ).mappings().first()
+    if not row or row["updated_at"] is None:
+        return False
+    updated = row["updated_at"]
+    if updated.tzinfo is None:
+        updated = updated.replace(tzinfo=timezone.utc)
+    if updated >= anchor:
+        return False
+    reset_asset_gate_baselines_to_current_equity(store, str(asset_row["id"]))
+    equity = asset_equity(dict(row))
+    asset_row["high_water_mark"] = equity
+    asset_row["daily_start_equity"] = equity
+    asset_row["daily_start_date"] = datetime.now(timezone.utc).date().isoformat()
+    return True
+
+
 def load_asset_gate_settings(
     asset_row: dict[str, Any],
     broker_limits: LiveSimRiskSettings,

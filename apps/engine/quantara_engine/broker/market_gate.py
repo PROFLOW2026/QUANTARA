@@ -35,6 +35,25 @@ def market_open_for_instrument(instrument: Instrument, at: datetime) -> bool:
     return True
 
 
+def candle_executable_for_instrument(instrument: Instrument, candle_timestamp: datetime) -> bool:
+    """True when a protective/strategy exit may be *executed* during this candle.
+
+    Premarket / after-hours equity candles (and weekend FX candles) are valid market data
+    but the simulated broker rejects equity closes while the market is closed
+    (``market_closed``). Detecting an SL/TP in such a candle would create a protective order
+    that can never fill and loops forever. Exit detection therefore only considers candles
+    whose open time is inside an executable session; the first executable candle then
+    applies the open-first rule, so an overnight/premarket gap fills at the real open.
+    """
+    ts = candle_timestamp
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    try:
+        return market_open_for_instrument(instrument, ts)
+    except Exception:  # noqa: BLE001 — never block protection on a session-lookup error
+        return True
+
+
 def data_fresh_for_instrument(
     store: TradingStore,
     instrument: Instrument,

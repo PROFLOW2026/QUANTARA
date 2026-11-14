@@ -1,9 +1,14 @@
 """
 AI Trader Paper Runner — read-only API endpoint.
 
-Reads JSON files produced by paper_runner.py (day-trader-skill-trial).
+Reads JSON files produced by paper_runner.py in the canonical QUANTARA-AI-Trader repo
+(the single live source — `day-trader-skill-trial` is retired).
 No writes. No DB access. No trading logic changes.
 Authentication: same X-API-Key used by all engine routes.
+
+Statistics (closed_count, win rate, profit factor, history, P&L, equity curve) are computed
+from the FULL-HISTORY ledger (`paper_trades` in paper-journal-v2.json) — never from the
+daily-reset `fills` list in paper-state.json, which only holds today's activity.
 
 Path: GET /api/v1/ai-trader/summary
 """
@@ -26,9 +31,8 @@ from quantara_engine.api.deps import verify_api_key
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 # Override by setting AI_TRADER_DATA_DIR environment variable.
-_DEFAULT_DIR = (
-    r"C:\Users\ERAN YOSEF\Desktop\final projects"
-    r"\FINAL-WEB\day-trader-skill-trial\trader"
+_DEFAULT_DIR = str(
+    Path(__file__).resolve().parents[4].parent / "QUANTARA-AI-Trader" / "trader"
 )
 AI_TRADER_DIR = Path(os.environ.get("AI_TRADER_DATA_DIR", _DEFAULT_DIR))
 
@@ -145,11 +149,17 @@ class AiTraderFill(BaseModel):
     r: Optional[float] = None
     filled_at: Optional[str] = None
     closed_at: Optional[str] = None
+    # Decision provenance (AI engine)
+    strategy: Optional[str] = None
+    decided_by: Optional[str] = None
+    confidence: Optional[float] = None
+    reasoning: Optional[str] = None
 
 
 class AiTraderEquityPoint(BaseModel):
     date: str
     equity: float
+    time: Optional[str] = None
 
 
 class AiTraderSummary(BaseModel):
@@ -208,8 +218,19 @@ class AiTraderSummary(BaseModel):
     # Signals
     signals_seen: list[str]
 
+    # AI engine status (provider, mode, last decision, skills in use) — from state/ai-status
+    ai_status: dict = {}
+    last_cycle: Optional[dict] = None
+    experiment_start: Optional[str] = None
+    total_trades: int = 0
+    avg_win: Optional[float] = None
+    avg_loss: Optional[float] = None
+    best_trade: Optional[float] = None
+    worst_trade: Optional[float] = None
+    strategies_used: list[str] = []
+
     # Source info
-    source: str = "paper-state.json + paper-journal-v2.json"
+    source: str = "paper-state.json + paper-journal-v2.json (full-history ledger)"
     data_dir_accessible: bool = True
 
 
@@ -252,16 +273,37 @@ async def get_ai_trader_summary() -> AiTraderSummary:
     else:
         runner_status_text = "פועל — הבורסה סגורה, ממתין למסחר"
 
-    starting_capital = float(journal.get("capital_usd") or 10_000)
-    cash             = float(state.get("cash") or starting_capital)
-    realized         = float(state.get("realized_pnl") or journal.get("realized_pnl") or 0)
+    starting_capital = float(
+        state.get("capital") or journal.get("capital") or journal.get("capital_usd") or 10_000
+    )
+    cash             = float(state.get("cash") if state.get("cash") is not None else starting_capital)
     peak_eq          = float(state.get("peak_equity") or starting_capital)
     prices_as_of     = state.get("last_updated")   # last time prices were written by runner
 
     # ── Fills ──
-    fills_raw = state.get("fills") or []
-    open_fills_raw   = [f for f in fills_raw if f.get("status") == "open"]
-    closed_fills_raw = [f for f in fills_raw if f.get("status") != "open"]
+    # Open positions: live state. Closed trades: FULL-HISTORY ledger (paper_trades) merged with
+    # anything still only in today's state (by id) — state["fills"] resets daily and must never be
+    # the source of lifetime statistics.
+    state_fills = state.get("fills") or []
+    ledger_trades = journal.get("paper_trades") or []
+    by_id: dict[str, dict] = {}
+    for t in ledger_trades:
+        if t.get("id"):
+            by_id[str(t["id"])] = t
+    for t in state_fills:
+        if t.get("id"):
+            by_id[str(t["id"])] = t
+    open_fills_raw = [f for f in state_fills if f.get("status") == "open"]
+    closed_fills_raw = [
+        t for t in by_id.values() if t.get("status") == "closed"
+    ] or [f for f in state_fills if f.get("status") not in ("open", None)]
+    closed_fills_raw.sort(key=lambda t: str(t.get("exit_time") or t.get("exit_time_et") or ""))
+    journal_stats = journal.get("stats") or {}
+    realized = float(
+        journal_stats.get("realized_pnl")
+        if journal_stats.get("realized_pnl") is not None
+        else (state.get("realized_pnl") or journal.get("realized_pnl") or 0)
+    )
 
     # ── Unrealized P&L: sum open_pnl from open fills ──
     # open_pnl is written by paper_runner.py when prices are available.
@@ -315,6 +357,10 @@ async def get_ai_trader_summary() -> AiTraderSummary:
             entry_time=str(f.get("entry_time")) if f.get("entry_time") else None,
             note=str(f.get("note")) if f.get("note") else None,
             filled_at=str(f.get("entry_time")) if f.get("entry_time") else None,
+            strategy=str(f.get("strategy")) if f.get("strategy") else None,
+            decided_by=str(f.get("decided_by")) if f.get("decided_by") else None,
+            confidence=_opt_float(f.get("confidence")),
+            reasoning=str(f.get("reasoning") or f.get("explanation") or "")[:400] or None,
         )
 
     def _parse_closed_fill(f: dict) -> AiTraderFill:
@@ -328,11 +374,17 @@ async def get_ai_trader_summary() -> AiTraderSummary:
             exit_price=_opt_float(f.get("exit_price")),
             exit_reason=str(f.get("exit_reason")) if f.get("exit_reason") else None,
             pnl=_opt_float(f.get("pnl")),
-            r=_opt_float(f.get("r")),
+            r=_opt_float(f.get("R") if f.get("R") is not None else f.get("r")),
             entry_time=str(f.get("entry_time")) if f.get("entry_time") else None,
             filled_at=str(f.get("entry_time")) if f.get("entry_time") else None,
-            closed_at=str(f.get("exit_time")) if f.get("exit_time") else None,
+            closed_at=str(f.get("exit_time") or f.get("exit_time_et"))
+            if (f.get("exit_time") or f.get("exit_time_et"))
+            else None,
             note=str(f.get("note")) if f.get("note") else None,
+            strategy=str(f.get("strategy")) if f.get("strategy") else None,
+            decided_by=str(f.get("decided_by")) if f.get("decided_by") else None,
+            confidence=_opt_float(f.get("confidence")),
+            reasoning=str(f.get("reasoning") or f.get("explanation") or "")[:400] or None,
         )
 
     open_fills   = [_parse_open_fill(f)   for f in open_fills_raw]
@@ -359,26 +411,69 @@ async def get_ai_trader_summary() -> AiTraderSummary:
     elif gross_wins > 0:
         profit_factor = 999.0   # no losses → infinite PF
 
-    # ── Equity history from sessions_log ──
-    sessions_log = journal.get("sessions_log") or []
+    # Cross-check against the ledger's own computed stats (same source, so they must agree).
+    ai_status_doc = _read_json(AI_TRADER_DIR / "ai-status.json")
+    if journal_stats and journal_stats.get("closed") is not None:
+        closed_count = int(journal_stats.get("closed") or closed_count)
+
+    # ── Equity history: closed-trade equity curve from the full ledger ──
     equity_history: list[AiTraderEquityPoint] = []
-    running_equity = starting_capital
-    for s in sessions_log:
-        date = s.get("date")
-        net  = s.get("net_pnl") or s.get("net") or 0
-        if date:
-            running_equity += float(net)
-            equity_history.append(AiTraderEquityPoint(date=date, equity=round(running_equity, 2)))
-    # Always add today's equity as the last point if not already present
-    today_str = state.get("date") or datetime.date.today().isoformat()
-    if equity and (not equity_history or equity_history[-1].date != today_str):
-        equity_history.append(AiTraderEquityPoint(date=today_str, equity=round(equity, 2)))
+    for pt in journal.get("equity_history") or []:
+        d = str(pt.get("date") or str(pt.get("time") or "")[:10])
+        if d and pt.get("equity") is not None:
+            equity_history.append(
+                AiTraderEquityPoint(
+                    date=d, equity=round(float(pt["equity"]), 2), time=str(pt.get("time") or "") or None
+                )
+            )
+    if not equity_history:
+        running_equity = starting_capital
+        for s in journal.get("sessions_log") or []:
+            d = s.get("date")
+            net = s.get("net_pnl") or s.get("net") or 0
+            if d:
+                running_equity += float(net)
+                equity_history.append(AiTraderEquityPoint(date=d, equity=round(running_equity, 2)))
+    # Always add the live equity (cash + open market value) as the last point.
+    now_label = state.get("last_updated") or datetime.date.today().isoformat()
+    if equity:
+        equity_history.append(
+            AiTraderEquityPoint(
+                date=str(state.get("date") or datetime.date.today().isoformat()),
+                equity=round(equity, 2),
+                time=str(now_label),
+            )
+        )
 
     # ── Config ──
-    strategy      = journal.get("strategy")  or "E: or-low stop / 1R target"
-    target_stocks = journal.get("target_stocks") or []
-    max_risk      = float(config.get("max_loss_per_trade_usd") or journal.get("max_risk_per_trade_usd") or 50)
-    max_daily     = float(config.get("max_daily_loss_usd")    or journal.get("max_daily_loss_usd")    or 150)
+    ai_status = state.get("ai_status") or ai_status_doc.get("ai_status") or {}
+    last_cycle = state.get("last_cycle") or ai_status_doc.get("last_cycle")
+    strategies_used = sorted(
+        {str(t.get("strategy")) for t in list(by_id.values()) if t.get("strategy")}
+    )
+    strategy = (
+        journal.get("strategy")
+        or ai_status.get("mode_label")
+        or "AI multi-strategy scanner (ORB + trend/pullback/mean-reversion/breakout)"
+    )
+    target_stocks = (
+        journal.get("target_stocks")
+        or ai_status.get("universe")
+        or state.get("universe")
+        or []
+    )
+    max_risk = float(
+        config.get("max_loss_per_trade")
+        or config.get("max_loss_per_trade_usd")
+        or journal.get("max_risk_per_trade_usd")
+        or 50
+    )
+    max_daily = float(
+        config.get("max_daily_loss")
+        or config.get("max_daily_loss_usd")
+        or journal.get("max_daily_loss_usd")
+        or 150
+    )
 
     return AiTraderSummary(
         runner_alive=runner_alive,
@@ -420,6 +515,15 @@ async def get_ai_trader_summary() -> AiTraderSummary:
         max_risk_per_trade_usd=max_risk,
         max_daily_loss_usd=max_daily,
         signals_seen=state.get("signals_seen") or [],
-        source="paper-state.json + paper-journal-v2.json",
+        ai_status=ai_status if isinstance(ai_status, dict) else {},
+        last_cycle=last_cycle if isinstance(last_cycle, dict) else None,
+        experiment_start=state.get("experiment_start") or journal.get("experiment_start"),
+        total_trades=int(journal_stats.get("total_trades") or (closed_count + len(open_fills))),
+        avg_win=_opt_float(journal_stats.get("avg_win")),
+        avg_loss=_opt_float(journal_stats.get("avg_loss")),
+        best_trade=_opt_float(journal_stats.get("best_trade")),
+        worst_trade=_opt_float(journal_stats.get("worst_trade")),
+        strategies_used=strategies_used,
+        source="paper-state.json + paper-journal-v2.json (full-history ledger)",
         data_dir_accessible=True,
     )

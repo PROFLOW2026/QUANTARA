@@ -17,7 +17,9 @@ from quantara_engine.domain.types import Direction, IntentStatus, OrderIntent, S
 from quantara_engine.execution.cost_profile import execution_assumptions_for
 from quantara_engine.execution.paper_broker import PaperBrokerAdapter
 from quantara_engine.execution.timing import (
+    LIVE_SIM_FILL_MODEL_DECISION_TIME,
     is_execution_candle_ready,
+    live_sim_fill_model,
     live_sim_freshness_max_age_minutes,
     is_terminal_execution_rejection,
     next_execution_timestamp,
@@ -53,6 +55,7 @@ from quantara_engine.live_sim.opportunity import (
 from quantara_engine.live_sim.asset_gate_settings import (
     load_asset_gate_settings,
     maybe_roll_asset_daily_start,
+    reanchor_pre_experiment_asset_baseline,
     update_asset_high_water_mark,
 )
 from quantara_engine.live_sim.risk_policy import (
@@ -113,6 +116,9 @@ def _resolve_live_sim_entry_economics(
     broker_limits = load_risk_settings(dict(account))
     asset_row = v2.asset_row
     if asset_row:
+        reanchor_pre_experiment_asset_baseline(
+            store, asset_row, broker_account_id=v2.broker_account_id
+        )
         settings = load_asset_gate_settings(asset_row, broker_limits)
         settings = maybe_roll_asset_daily_start(
             store, asset_row["id"], settings, asset_equity(asset_row), execution_now
@@ -316,6 +322,44 @@ def _remaining_sl_gate_budget(
     return max(Decimal("0"), rem)
 
 
+def entry_fill_guard_reason(
+    *,
+    direction: str,
+    fill_price: Decimal,
+    entry_ref: Decimal,
+    stop_loss: Decimal,
+    quote_price: Decimal | None = None,
+) -> str | None:
+    """Sanity-check the decision-time fill against the signal's planned geometry.
+
+    Returns a rejection code when the fill is already through the stop, or when the price
+    moved adversely by more than ENTRY_MAX_ADVERSE_DRIFT_R x the planned stop distance
+    between the signal reference and the executable price (planned risk would be invalid).
+    """
+    from quantara_engine.live_sim.constants import ENTRY_MAX_ADVERSE_DRIFT_R
+
+    fill_price = Decimal(str(fill_price))
+    entry_ref = Decimal(str(entry_ref))
+    stop_loss = Decimal(str(stop_loss))
+    # Drift is measured on the raw market quote (not the cost-adjusted fill) so normal
+    # spread/slippage never trips the guard; the stop-breach test uses the real fill.
+    quote = Decimal(str(quote_price)) if quote_price is not None else fill_price
+    planned_dist = abs(entry_ref - stop_loss)
+    if planned_dist <= 0:
+        return "INVALID_STOP_LOSS"
+    if direction == "long":
+        if fill_price <= stop_loss:
+            return "ENTRY_STOP_BREACHED"
+        adverse = quote - entry_ref
+    else:
+        if fill_price >= stop_loss:
+            return "ENTRY_STOP_BREACHED"
+        adverse = entry_ref - quote
+    if adverse > planned_dist * Decimal(str(ENTRY_MAX_ADVERSE_DRIFT_R)):
+        return "ENTRY_PRICE_DRIFT"
+    return None
+
+
 def _execute_accepted_allocation(
     store: TradingStore,
     *,
@@ -364,6 +408,31 @@ def _execute_accepted_allocation(
         status=IntentStatus.PENDING_EXECUTION,
     )
     _, fill = broker_adapter.execute_entry(intent, exec_candle)
+    guard_reason = entry_fill_guard_reason(
+        direction=direction,
+        fill_price=fill.fill_price,
+        entry_ref=entry_ref,
+        stop_loss=sl,
+        quote_price=exec_candle.close,
+    )
+    if guard_reason:
+        mark_allocation_rejected(
+            store,
+            log_id,
+            rejection_reason=guard_reason,
+            rejection_detail=REJECTION_HE.get(guard_reason, guard_reason),
+        )
+        update_allocation_metadata(
+            store,
+            log_id,
+            {
+                "fill_guard": guard_reason,
+                "decision_fill_price": str(fill.fill_price),
+                "signal_reference_price": str(entry_ref),
+                "quote_source": getattr(exec_candle, "quote_source", None),
+            },
+        )
+        return {"status": "rejected", "reason": guard_reason, "log_id": log_id}
     idem = live_sim_execution_idempotency_key(account_slug, canonical_key)
     # Pre-assign strategy position id so attribution lots bind before any exit path runs.
     pos_id = str(uuid.uuid4())
@@ -634,21 +703,39 @@ def _resume_pending_allocation(
         if isinstance(stored_exec_ts, str)
         else stored_exec_ts
     ) if stored_exec_ts else None
-    exec_candle, exec_ts = resolve_execution_candle(
-        candles,
-        signal_ts,
-        timeframe,
-        execution_candle_timestamp=exec_ts_hint,
-    )
-    if exec_candle is None:
-        return {"status": "queued", "log_id": existing["id"], "reason": "execution_candle_missing"}
+    if live_sim_fill_model() == LIVE_SIM_FILL_MODEL_DECISION_TIME:
+        from quantara_engine.live_sim.decision_quote import resolve_decision_time_candle
 
-    allowed, reject_reason = is_execution_candle_ready(
-        signal_candle_timestamp=signal_ts,
-        execution_candle_timestamp=exec_ts,
-        timeframe=timeframe,
-        now=execution_now,
-    )
+        signal_close = None
+        for _c in candles:
+            if _c.timestamp == signal_ts:
+                signal_close = _c.close
+                break
+        exec_candle, reject_reason = resolve_decision_time_candle(
+            store,
+            instrument,
+            signal_candle_timestamp=signal_ts,
+            signal_candle_close=signal_close,
+            timeframe=timeframe,
+            now=execution_now,
+        )
+        allowed = exec_candle is not None
+    else:
+        exec_candle, exec_ts = resolve_execution_candle(
+            candles,
+            signal_ts,
+            timeframe,
+            execution_candle_timestamp=exec_ts_hint,
+        )
+        if exec_candle is None:
+            return {"status": "queued", "log_id": existing["id"], "reason": "execution_candle_missing"}
+
+        allowed, reject_reason = is_execution_candle_ready(
+            signal_candle_timestamp=signal_ts,
+            execution_candle_timestamp=exec_ts,
+            timeframe=timeframe,
+            now=execution_now,
+        )
     if not allowed:
         if reject_reason and "execution_window_passed" in reject_reason:
             mark_allocation_expired(store, existing["id"], reason=reject_reason)
@@ -1133,6 +1220,47 @@ def maybe_allocate_live_sim(
             )
         return {"status": "skipped", "reason": lifecycle}
 
+    from quantara_engine.live_sim.position_policy import evaluate_symbol_position_policy
+
+    pos_policy = evaluate_symbol_position_policy(
+        store,
+        symbol=instrument.symbol,
+        direction=direction,
+        canonical_key=canonical_key,
+    )
+    if not pos_policy.allowed:
+        policy_reason = pos_policy.reason or "SYMBOL_POSITION_OPEN"
+        log_allocation(
+            store,
+            account_id=account_id,
+            canonical_key=canonical_key,
+            opportunity_key=opportunity_key,
+            strategy_slug=strategy_slug,
+            strategy_version=strategy_version,
+            robot_label=robot_label,
+            symbol=instrument.symbol,
+            timeframe=instance.timeframe,
+            direction=direction,
+            signal_candle_timestamp=candle.timestamp,
+            proposed_entry=candle.close,
+            stop_loss=signal.suggested_sl,
+            take_profit=signal.suggested_tp,
+            calculated_risk_usd=None,
+            calculated_quantity=None,
+            accepted=False,
+            rejection_reason=policy_reason,
+            rejection_detail=(
+                f"{REJECTION_HE.get(policy_reason, policy_reason)} "
+                f"(בעלים: {pos_policy.owner_strategy_slug}, {pos_policy.owner_direction})"
+            ),
+            metadata={
+                "funnel_category": funnel_category(policy_reason),
+                "owner_strategy_slug": pos_policy.owner_strategy_slug,
+                "owner_direction": pos_policy.owner_direction,
+            },
+        )
+        return {"status": "rejected", "reason": policy_reason}
+
     if signal_age_minutes(candle.timestamp, execution_now) > live_sim_freshness_max_age_minutes(
         instance.timeframe
     ):
@@ -1516,7 +1644,8 @@ def maybe_allocate_live_sim(
         pending_meta["v32_candidate_key"] = str(v32_candidate_key)
     if strategy_slug in PHASE3_STRATEGY_SLUGS:
         pending_meta["phase3_experiment_id"] = EXPERIMENT_ID_BY_SLUG.get(strategy_slug, strategy_slug)
-    if candle_index + 1 >= len(candles):
+    decision_time_model = live_sim_fill_model() == LIVE_SIM_FILL_MODEL_DECISION_TIME
+    if not decision_time_model and candle_index + 1 >= len(candles):
         log_id = log_allocation(
             store,
             account_id=account_id,
@@ -1540,22 +1669,35 @@ def maybe_allocate_live_sim(
         )
         return {"status": "queued", "log_id": log_id}
 
-    exec_candle, exec_ts = resolve_execution_candle(
-        candles,
-        candle.timestamp,
-        instance.timeframe,
-        execution_candle_timestamp=exec_ts,
-    )
-    allowed, reject_reason = (
-        is_execution_candle_ready(
+    if decision_time_model:
+        from quantara_engine.live_sim.decision_quote import resolve_decision_time_candle
+
+        exec_candle, reject_reason = resolve_decision_time_candle(
+            store,
+            instrument,
             signal_candle_timestamp=candle.timestamp,
-            execution_candle_timestamp=exec_ts,
+            signal_candle_close=candle.close,
             timeframe=instance.timeframe,
             now=execution_now,
         )
-        if exec_candle is not None
-        else (False, "execution_candle_missing")
-    )
+        allowed = exec_candle is not None
+    else:
+        exec_candle, exec_ts = resolve_execution_candle(
+            candles,
+            candle.timestamp,
+            instance.timeframe,
+            execution_candle_timestamp=exec_ts,
+        )
+        allowed, reject_reason = (
+            is_execution_candle_ready(
+                signal_candle_timestamp=candle.timestamp,
+                execution_candle_timestamp=exec_ts,
+                timeframe=instance.timeframe,
+                now=execution_now,
+            )
+            if exec_candle is not None
+            else (False, "execution_candle_missing")
+        )
     if not allowed:
         if is_terminal_execution_rejection(reject_reason):
             reason_code = (

@@ -241,6 +241,40 @@ def _prioritize_live_sim_forwards(
     return [(entry, signal) for _, entry, signal in ordered]
 
 
+def _record_live_sim_not_forwarded(
+    s: TradingStore,
+    *,
+    instrument,
+    timeframe: str,
+    candle,
+    entry: dict,
+    signal,
+    reason: str,
+) -> None:
+    """Give every BUY/SELL setup a documented outcome even when it never reaches the allocator."""
+    try:
+        action = getattr(getattr(signal, "action", None), "value", getattr(signal, "action", None))
+        if str(action).upper() not in {"BUY", "SELL"}:
+            return
+        from quantara_engine.learning.activation import get_active_baseline
+        from quantara_engine.learning.funnel import record_funnel_event
+
+        baseline = get_active_baseline(s)
+        record_funnel_event(
+            s,
+            baseline_id=baseline["id"] if baseline else None,
+            stage="live_sim_not_forwarded",
+            reason=reason,
+            strategy_slug=entry["instance"].strategy_slug,
+            symbol=instrument.symbol,
+            timeframe=timeframe,
+            direction="long" if str(action).upper() == "BUY" else "short",
+            candle_timestamp=candle.timestamp,
+        )
+    except Exception:
+        logger.exception("not-forwarded funnel record failed (non-fatal)")
+
+
 def _canonical_strategy_representatives(group: list[dict]) -> list[dict]:
     """One Research entry per distinct strategy_slug (first risk-tier clone wins).
 
@@ -331,6 +365,16 @@ def _process_candle_batch(
 
             if template["instance"].strategy_slug not in LIVE_SIM_PAUSED_STRATEGY_SLUGS:
                 live_sim_forwards.append((template, shared_signal))
+            else:
+                _record_live_sim_not_forwarded(
+                    s,
+                    instrument=instrument,
+                    timeframe=timeframe,
+                    candle=candle,
+                    entry=template,
+                    signal=shared_signal,
+                    reason="ROBOT_LIVE_PAUSED",
+                )
             try:
                 from quantara_engine.learning.hooks import observe_generic_eval, observe_robot_a_candle
 
@@ -445,9 +489,22 @@ def _process_candle_batch(
     if allow_live_execution and live_sim_forwards:
         from quantara_engine.live_sim.allocator import maybe_allocate_live_sim
 
+        _all_forwards = list(live_sim_forwards)
         live_sim_forwards = _prioritize_live_sim_forwards(
             live_sim_forwards, symbol=instrument.symbol
         )
+        _kept_ids = {id(sig) for _, sig in live_sim_forwards}
+        for _entry, _sig in _all_forwards:
+            if id(_sig) not in _kept_ids:
+                _record_live_sim_not_forwarded(
+                    s,
+                    instrument=instrument,
+                    timeframe=timeframe,
+                    candle=candle,
+                    entry=_entry,
+                    signal=_sig,
+                    reason="DEDUP_BETTER_TIMEFRAME_FORWARDED",
+                )
         for entry, signal in live_sim_forwards:
             maybe_allocate_live_sim(
                 s,

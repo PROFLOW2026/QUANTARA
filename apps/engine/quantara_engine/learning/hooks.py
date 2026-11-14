@@ -197,11 +197,9 @@ def observe_robot_a_candle(
                 candle_timestamp=candle.timestamp,
             )
         else:
-            stage = (
-                "strategy_filter_rejection"
-                if active.reason.startswith("NO_SETUP")
-                else "hold_no_setup"
-            )
+            from quantara_engine.learning.funnel import terminal_stage_for_no_signal
+
+            stage = terminal_stage_for_no_signal(active.reason)
             record_funnel_event(
                 store,
                 baseline_id=baseline_id,
@@ -354,6 +352,19 @@ def observe_generic_eval(
                 symbol=instrument.symbol,
                 timeframe=timeframe,
                 direction="long" if action == "BUY" else "short",
+                candle_timestamp=candle.timestamp,
+            )
+        else:
+            from quantara_engine.learning.funnel import terminal_stage_for_no_signal
+
+            record_funnel_event(
+                store,
+                baseline_id=baseline_id,
+                stage=terminal_stage_for_no_signal(active_signal.reason),
+                reason=active_signal.reason,
+                strategy_slug=strategy_slug,
+                symbol=instrument.symbol,
+                timeframe=timeframe,
                 candle_timestamp=candle.timestamp,
             )
     except Exception:

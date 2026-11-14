@@ -127,6 +127,8 @@ def _management_candles(
         since=floor,
         limit=MAX_CANDLES_PER_POSITION_PER_RUN,
     )
+    from quantara_engine.broker.market_gate import candle_executable_for_instrument
+
     pending: list = []
     for candle in candles:
         if not is_bar_complete(candle.timestamp, timeframe, now):
@@ -134,6 +136,8 @@ def _management_candles(
         if last_managed is not None and candle.timestamp <= last_managed:
             continue
         if position.opened_at is not None and candle.timestamp < position.opened_at:
+            continue
+        if not candle_executable_for_instrument(instrument, candle.timestamp):
             continue
         pending.append(candle)
     return pending

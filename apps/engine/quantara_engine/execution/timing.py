@@ -129,6 +129,59 @@ def is_execution_candle_ready(
     )
 
 
+# ---------------------------------------------------------------------------
+# Decision-time fills (Live Sim)
+#
+# The legacy Live Sim model waited for the N+1 candle to *complete* before it
+# created the order, yet priced the fill at that candle's OPEN and stamped the
+# fill with the candle's start time. The order was therefore created one full bar
+# after its own fill price/timestamp (a stale, back-dated fill).
+#
+# Decision-time model: the order is created as soon as the signal candle (N) has
+# closed. The fill price is the latest price that was actually AVAILABLE at that
+# moment (latest completed 1m candle close, falling back to the signal candle
+# close) plus the configured adverse spread/slippage, and the fill timestamp is
+# the decision time (+ simulated broker latency) so a fill can never precede the
+# creation of its order.
+# ---------------------------------------------------------------------------
+LIVE_SIM_FILL_MODEL_DECISION_TIME = "decision_time"
+LIVE_SIM_FILL_MODEL_NEXT_OPEN = "next_open"
+DECISION_QUOTE_MAX_AGE_MINUTES = 5
+
+
+def live_sim_fill_model() -> str:
+    """Return the active Live Sim entry fill model (env LIVE_SIM_FILL_MODEL)."""
+    import os
+
+    raw = (os.environ.get("LIVE_SIM_FILL_MODEL") or LIVE_SIM_FILL_MODEL_DECISION_TIME).strip().lower()
+    if raw == LIVE_SIM_FILL_MODEL_NEXT_OPEN:
+        return LIVE_SIM_FILL_MODEL_NEXT_OPEN
+    return LIVE_SIM_FILL_MODEL_DECISION_TIME
+
+
+def decision_time_fill_allowed(
+    *,
+    signal_candle_timestamp: datetime,
+    timeframe: str,
+    now: datetime,
+    quote_timestamp: datetime | None,
+) -> tuple[bool, str | None]:
+    """Gate for decision-time entries: signal bar closed, signal fresh, quote fresh."""
+    now = _as_utc(now)
+    signal_ts = _as_utc(signal_candle_timestamp)
+    if not is_bar_complete(signal_ts, timeframe, now):
+        return False, "signal_bar_not_complete"
+    age_min = (now - signal_ts).total_seconds() / 60
+    if age_min > stale_signal_max_age_minutes(timeframe):
+        return False, f"stale_signal_age ({round(age_min, 1)}m)"
+    if quote_timestamp is None:
+        return False, "decision_quote_missing"
+    quote_age = (now - _as_utc(quote_timestamp)).total_seconds() / 60
+    if quote_age > DECISION_QUOTE_MAX_AGE_MINUTES + timeframe_minutes("1m"):
+        return False, "decision_quote_stale"
+    return True, None
+
+
 def next_execution_timestamp(signal_candle_timestamp: datetime, timeframe: str) -> datetime:
     minutes = timeframe_minutes(timeframe)
     if signal_candle_timestamp.tzinfo is None:

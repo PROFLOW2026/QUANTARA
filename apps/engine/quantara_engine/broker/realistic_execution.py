@@ -58,13 +58,13 @@ def insert_broker_order(
               instrument_id, direction, requested_quantity, status,
               idempotency_key, client_order_id, execution_product, execution_model,
               order_type, time_in_force, reduce_only, remaining_quantity,
-              order_purpose, submitted_at
+              order_purpose, submitted_at, created_at
             ) VALUES (
               :id, :aid, :iid, :pid, :inst, :dir, :qty, 'validating',
               :key, :cid, CAST(:product AS execution_product),
               CAST(:model AS execution_model_version),
               'market', 'day', :reduce_only, :qty,
-              :purpose, :sub
+              :purpose, :sub, :sub
             )
             """
         ),

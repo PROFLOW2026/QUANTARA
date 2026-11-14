@@ -3,7 +3,7 @@ setlocal
 chcp 65001 >nul
 cd /d "%~dp0"
 
-title AI TRADER â€” Paper Runner
+title AI TRADER — Paper Runner
 
 where node >nul 2>&1
 if errorlevel 1 (
@@ -24,15 +24,15 @@ if errorlevel 1 (
 )
 
 echo.
-echo AI TRADER â€” Paper Runner
+echo AI TRADER — Paper Runner
 echo ========================
-echo Strategy E  ^|  COP SLB IBM XOM LMT  ^|  $10,000 paper  ^|  No real money
+echo AI-driven multi-strategy scanner  ^|  $10,000 paper  ^|  No real money
 echo.
 
 node scripts/ai-trader-manager.mjs start
 
 echo.
-echo Output log: day-trader-skill-trial\trader\paper-runner.log
+echo Output log: ..\QUANTARA-AI-Trader\trader\paper-runner.log
 echo Status:     node scripts/ai-trader-manager.mjs status
 echo Stop:       STOP_AI_TRADER.bat
 echo.

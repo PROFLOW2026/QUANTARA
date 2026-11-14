@@ -23,9 +23,12 @@ import { fileURLToPath } from "url";
 import { isProcessAlive } from "./process-utils.mjs";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
-// Absolute path to the AI Trader folder. Adjust only if you move the folder.
-const AI_TRADER_DIR =
-  "C:\\Users\\ERAN YOSEF\\Desktop\\final projects\\FINAL-WEB\\day-trader-skill-trial";
+// The ONE canonical live source for System A is the QUANTARA-AI-Trader repo (sibling of
+// this repo). `day-trader-skill-trial` was a stale second clone and is no longer used.
+// Override with AI_TRADER_DIR if the folder is moved.
+const AI_TRADER_DIR = process.env.AI_TRADER_DIR
+  ? path.resolve(process.env.AI_TRADER_DIR)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "QUANTARA-AI-Trader");
 const AI_TRADER_SCRIPT  = "paper_runner.py";
 
 // These files live inside the trader/ subfolder (already used by paper_runner.py)

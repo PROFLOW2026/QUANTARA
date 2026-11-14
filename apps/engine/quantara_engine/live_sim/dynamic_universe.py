@@ -291,6 +291,83 @@ def _idle_rotatable_slots(store: TradingStore) -> list[dict[str, Any]]:
     return out
 
 
+SLOT_HISTORY_KEY = "live_sim_slot_symbol_history"
+SLOT_HISTORY_MAX = 500
+# A slot that just rotated keeps its new symbol for at least this long. Without hysteresis
+# the scan flip-flopped ~440 times a week, so P&L / trade counters / daily-risk baselines
+# were attributed to symbols that only held the slot for minutes.
+MIN_SLOT_DWELL_MINUTES = 240
+
+
+def _load_slot_history(store: TradingStore) -> list[dict[str, Any]]:
+    raw = store.get_settings_dict().get(SLOT_HISTORY_KEY) or []
+    return list(raw) if isinstance(raw, list) else []
+
+
+def _slot_in_dwell(history: list[dict[str, Any]], slot_id: str, now: datetime) -> bool:
+    for rec in reversed(history):
+        if str(rec.get("slot_id")) != slot_id:
+            continue
+        try:
+            at = datetime.fromisoformat(str(rec["rotated_at"]).replace("Z", "+00:00"))
+        except (KeyError, ValueError):
+            return False
+        if at.tzinfo is None:
+            at = at.replace(tzinfo=timezone.utc)
+        return (now - at).total_seconds() < MIN_SLOT_DWELL_MINUTES * 60
+    return False
+
+
+def _archive_slot_symbol_history(
+    store: TradingStore,
+    slot: dict[str, Any],
+    *,
+    old: str,
+    new: str,
+    at: datetime,
+) -> None:
+    """Close the outgoing symbol's tenancy of a slot and reset per-symbol counters.
+
+    The slot's cash / realized P&L stay on the envelope (capital is conserved), but the
+    per-symbol trade_count restarts at 0 for the incoming symbol and the outgoing symbol's
+    tenancy totals are archived, so history is attributable to the symbol that earned it.
+    Per-symbol trade P&L remains queryable from live_sim_positions.
+    """
+    row = store.session.execute(
+        text(
+            """
+            SELECT trade_count, realized_pnl, fees_paid
+            FROM owner_portfolio_asset_allocations
+            WHERE id = CAST(:id AS uuid)
+            """
+        ),
+        {"id": slot["id"]},
+    ).mappings().first()
+    record = {
+        "slot_id": str(slot["id"]),
+        "from_symbol": old,
+        "to_symbol": new,
+        "rotated_at": at.isoformat(),
+        "outgoing_trade_count": int(row["trade_count"] or 0) if row else 0,
+        "slot_realized_pnl_at_rotation": float(row["realized_pnl"] or 0) if row else 0.0,
+        "slot_fees_paid_at_rotation": float(row["fees_paid"] or 0) if row else 0.0,
+    }
+    history = _load_slot_history(store)
+    history.append(record)
+    store.update_settings(
+        SLOT_HISTORY_KEY,
+        history[-SLOT_HISTORY_MAX:],
+        description="Dynamic-universe slot symbol tenancy history (rotation archive)",
+    )
+    store.session.execute(
+        text(
+            "UPDATE owner_portfolio_asset_allocations SET trade_count = 0 "
+            "WHERE id = CAST(:id AS uuid)"
+        ),
+        {"id": slot["id"]},
+    )
+
+
 def sync_dynamic_live_sim_universe(store: TradingStore) -> dict[str, Any]:
     """
     Rotate idle IBKR slots toward scan leaders; persist snapshot (not settings-only).
@@ -336,13 +413,22 @@ def sync_dynamic_live_sim_universe(store: TradingStore) -> dict[str, Any]:
         and _symbol_has_global_broker_routing(store, s)
     ]
 
-    for slot in idle_slots[:MAX_SCAN_ROTATIONS_PER_CYCLE]:
+    slot_history = _load_slot_history(store)
+    now_utc = datetime.now(timezone.utc)
+    rotated_this_cycle = 0
+    for slot in idle_slots:
+        if rotated_this_cycle >= MAX_SCAN_ROTATIONS_PER_CYCLE:
+            break
         if not picks:
             break
+        if _slot_in_dwell(slot_history, str(slot["id"]), now_utc):
+            continue
         target = picks.pop(0)
         old = _sym(str(slot["canonical_symbol"]))
         if old == target:
             continue
+        rotated_this_cycle += 1
+        _archive_slot_symbol_history(store, slot, old=old, new=target, at=now_utc)
         label = LIVE_SIM_EQUAL_ASSET_DEFINITIONS.get(target, (BrokerVendor.IBKR, target))[1]
         store.session.execute(
             text(

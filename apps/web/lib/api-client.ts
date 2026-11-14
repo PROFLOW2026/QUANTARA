@@ -1369,6 +1369,16 @@ export interface AiTraderSummary {
   max_daily_loss_usd: number;
   // Signals
   signals_seen: string[];
+  // AI engine / ledger extras (optional — older runners omit them)
+  ai_status?: Record<string, unknown>;
+  last_cycle?: Record<string, unknown> | null;
+  experiment_start?: string | null;
+  total_trades?: number;
+  avg_win?: number | null;
+  avg_loss?: number | null;
+  best_trade?: number | null;
+  worst_trade?: number | null;
+  strategies_used?: string[];
   // Source
   source?: string;
   data_dir_accessible?: boolean;
