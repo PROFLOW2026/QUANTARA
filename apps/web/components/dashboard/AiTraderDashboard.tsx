@@ -390,12 +390,25 @@ export function AiTraderDashboard({ data, loading }: Props) {
           <p><span className="text-muted">{t("ai_trader.max_daily_loss")}: </span>${data.max_daily_loss_usd}</p>
           <p><span className="text-muted">{t("ai_trader.starting_capital")}: </span>{formatCurrency(data.starting_capital)}</p>
           {data.ai_status && Object.keys(data.ai_status).length > 0 ? (
-            <p className="sm:col-span-2">
-              <span className="text-muted">AI: </span>
-              {String(data.ai_status.mode_label ?? data.ai_status.mode ?? data.ai_status.provider ?? "—")}
-              {data.ai_status.model ? ` · ${String(data.ai_status.model)}` : ""}
-              {data.ai_status.last_decided_by ? ` · decided_by=${String(data.ai_status.last_decided_by)}` : ""}
-            </p>
+            <>
+              <p>
+                <span className="text-muted">{t("ai_trader.model")}: </span>
+                {String(data.ai_status.model ?? "—")}
+                {data.ai_status.provider ? ` (${String(data.ai_status.provider)})` : ""}
+              </p>
+              <p>
+                <span className="text-muted">{t("ai_trader.ai_decisions")}: </span>
+                {String(data.ai_status.ai_decisions ?? 0)}
+              </p>
+              <p>
+                <span className="text-muted">{t("ai_trader.fallback_decisions")}: </span>
+                {String(data.ai_status.fallback_decisions ?? data.ai_status.fallback_count ?? 0)}
+              </p>
+              <p>
+                <span className="text-muted">{t("ai_trader.ai_error")}: </span>
+                {data.ai_status.last_error ? String(data.ai_status.last_error) : t("ai_trader.ai_error_none")}
+              </p>
+            </>
           ) : null}
           {data.strategies_used && data.strategies_used.length > 0 ? (
             <p className="sm:col-span-2">
