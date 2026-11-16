@@ -306,7 +306,17 @@ class AlpacaMarketDataProvider:
         while cursor < end:
             page_token: str | None = None
             window_rows: list[dict[str, Any]] = []
+            pages = 0
             while True:
+                pages += 1
+                if pages > 25:
+                    logger.warning(
+                        "Alpaca gap fill page cap symbol=%s tf=%s cursor=%s",
+                        symbol,
+                        timeframe,
+                        cursor.isoformat(),
+                    )
+                    break
                 batch, page_token = self._fetch_bars(
                     symbol=symbol,
                     timeframe=timeframe,
@@ -327,7 +337,17 @@ class AlpacaMarketDataProvider:
                 last_ts = last_ts.replace(tzinfo=timezone.utc)
             if last_ts >= end - bar_step:
                 break
-            cursor = last_ts + bar_step
+            next_cursor = last_ts + bar_step
+            if next_cursor <= cursor:
+                logger.warning(
+                    "Alpaca gap fill stopped — cursor did not advance symbol=%s tf=%s cursor=%s last=%s",
+                    symbol,
+                    timeframe,
+                    cursor.isoformat(),
+                    last_ts.isoformat(),
+                )
+                break
+            cursor = next_cursor
 
         return self._to_candles(all_rows, instrument_id, timeframe, since=since)
 

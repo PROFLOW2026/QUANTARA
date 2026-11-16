@@ -181,7 +181,7 @@ def record_provider_error(
         mark_cooldown(store, provider, reason=error[:500])
 
 
-def record_request(
+def _apply_request_record(
     store: TradingStore | None,
     provider: str,
     *,
@@ -201,6 +201,7 @@ def record_request(
     if success:
         state["last_success"] = now
         state["status"] = "healthy"
+        state["last_error"] = None
     else:
         state["last_error"] = error or "unknown"
         state["status"] = "error"
@@ -214,6 +215,63 @@ def record_request(
         state["used_hour"],
         state["used_day"],
     )
+
+
+def _orm_session(store: TradingStore | None):
+    """Real SQLAlchemy session only — test doubles stay on the in-place path."""
+    from sqlalchemy.orm import Session
+
+    session = getattr(store, "session", None)
+    return session if isinstance(session, Session) else None
+
+
+def record_request(
+    store: TradingStore | None,
+    provider: str,
+    *,
+    symbol: str,
+    caller: str,
+    count: int = 1,
+    success: bool = True,
+    error: str | None = None,
+) -> None:
+    """Record provider usage without pinning the budget row to a long ingest transaction.
+
+    Candle fetches call this while their own DB transaction is still open. Writing the
+    shared ``provider_budget:*`` row on that same transaction deadlocks the moment a
+    second session (or the same thread's nested session) updates the row. Budget
+    accounting therefore commits on a short autonomous transaction.
+    """
+    kwargs = {
+        "symbol": symbol,
+        "caller": caller,
+        "count": count,
+        "success": success,
+        "error": error,
+    }
+    if store is None or _orm_session(store) is None:
+        _apply_request_record(store, provider, **kwargs)
+        return
+
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+
+    from quantara_engine.db.session import session_scope
+
+    try:
+        with session_scope() as fresh:
+            fresh.execute(text("SET LOCAL lock_timeout = '2000ms'"))
+            _apply_request_record(TradingStore(fresh), provider, **kwargs)
+    except OperationalError as exc:
+        logger.warning(
+            "provider budget record skipped (%s/%s): %s",
+            provider,
+            symbol,
+            exc,
+        )
+        return
+    if hasattr(store, "invalidate_settings_cache"):
+        store.invalidate_settings_cache()
 
 
 def status_payload(store: TradingStore | None, provider: str) -> dict[str, Any]:
@@ -250,6 +308,143 @@ def status_payload(store: TradingStore | None, provider: str) -> dict[str, Any]:
         "last_success": state.get("last_success"),
         "last_error": state.get("last_error"),
     }
+
+
+def provider_candle_freshness(
+    latest: dict[tuple[str, str], datetime],
+    now: datetime,
+) -> dict[str, dict[str, Any]]:
+    """Whether each provider's open-session symbols have a fresh canonical candle.
+
+    API reachability is not enough: a provider is fresh only when the candles
+    strategies actually read are inside the staleness limit.
+    """
+    from quantara_engine.execution.crypto_mark_valuation import FAST_ALL_1M_SYMBOLS
+    from quantara_engine.market_data.polling import is_market_data_fresh
+    from quantara_engine.market_data.registry import AssetClass, ProviderName, list_target_assets
+    from quantara_engine.market_data.sessions import is_forex_session, is_us_equity_rth
+
+    def _ts(symbol: str, timeframe: str) -> datetime | None:
+        ts = latest.get((symbol, timeframe))
+        if ts is None:
+            return None
+        if ts.tzinfo is None:
+            return ts.replace(tzinfo=timezone.utc)
+        return ts.astimezone(timezone.utc)
+
+    def _session_open(asset) -> bool:
+        if asset.asset_class == AssetClass.CRYPTO:
+            return True
+        if asset.asset_class in (AssetClass.STOCK, AssetClass.INDEX):
+            return is_us_equity_rth(now)
+        return is_forex_session(now)
+
+    def _symbol_fresh(symbol: str) -> tuple[bool, float | None]:
+        timeframe = "1m" if symbol in FAST_ALL_1M_SYMBOLS else "5m"
+        ts = _ts(symbol, timeframe)
+        if ts is None and timeframe == "1m":
+            ts = _ts(symbol, "5m")
+            timeframe = "5m"
+        if ts is None:
+            return False, None
+        age = round((now - ts).total_seconds() / 60, 1)
+        return is_market_data_fresh(ts, timeframe, now), age
+
+    groups: dict[str, list[tuple[str, bool]]] = {
+        "alpaca": [],
+        "tiingo": [],
+        "coinbase": [],
+        "twelvedata": [],
+        "finnhub": [],
+    }
+    for asset in list_target_assets():
+        open_now = _session_open(asset)
+        if (
+            asset.primary_provider == ProviderName.ALPACA
+            and asset.asset_class in (AssetClass.STOCK, AssetClass.INDEX)
+        ):
+            groups["alpaca"].append((asset.db_symbol, open_now))
+            groups["finnhub"].append((asset.db_symbol, open_now))
+        elif asset.primary_provider == ProviderName.TIINGO:
+            groups["tiingo"].append((asset.db_symbol, open_now))
+            if asset.secondary_provider == ProviderName.TWELVE_DATA:
+                groups["twelvedata"].append((asset.db_symbol, open_now))
+        elif asset.primary_provider == ProviderName.COINBASE:
+            groups["coinbase"].append((asset.db_symbol, open_now))
+
+    out: dict[str, dict[str, Any]] = {}
+    for name, rows in groups.items():
+        open_rows = [symbol for symbol, open_now in rows if open_now]
+        if not open_rows:
+            out[name] = {
+                "session_open": False,
+                "fresh": True,
+                "stale_symbols": [],
+                "max_age_minutes": None,
+            }
+            continue
+        stale: list[str] = []
+        max_age: float | None = None
+        for symbol in open_rows:
+            fresh, age = _symbol_fresh(symbol)
+            if age is not None:
+                max_age = age if max_age is None else max(max_age, age)
+            if not fresh:
+                stale.append(symbol)
+        out[name] = {
+            "session_open": True,
+            "fresh": not stale,
+            "stale_symbols": stale,
+            "max_age_minutes": max_age,
+        }
+    return out
+
+
+def _apply_provider_candle_freshness(
+    store: TradingStore | None,
+    result: dict[str, dict[str, Any]],
+) -> None:
+    """Downgrade HEALTHY when open-session candles are older than the trading limit."""
+    session = _orm_session(store)
+    if session is None:
+        return
+    from sqlalchemy import text
+
+    try:
+        rows = session.execute(
+            text(
+                """
+                SELECT i.symbol, c.timeframe::text AS tf, max(c.timestamp) AS ts
+                FROM candles c
+                JOIN instruments i ON i.id = c.instrument_id
+                WHERE c.timeframe::text IN ('1m', '5m')
+                GROUP BY i.symbol, c.timeframe
+                """
+            )
+        ).all()
+    except Exception:
+        logger.warning("provider candle freshness query failed", exc_info=True)
+        return
+
+    latest: dict[tuple[str, str], datetime] = {}
+    for symbol, timeframe, ts in rows:
+        if ts is not None:
+            latest[(str(symbol), str(timeframe))] = ts
+    verdicts = provider_candle_freshness(latest, datetime.now(timezone.utc))
+    for name, payload in result.items():
+        info = verdicts.get(name)
+        if not info or not info["session_open"]:
+            payload["data_fresh"] = None
+            continue
+        payload["data_fresh"] = info["fresh"]
+        payload["stale_symbols"] = info["stale_symbols"]
+        payload["candle_age_minutes"] = info["max_age_minutes"]
+        payload["status_basis"] = "candle_age"
+        status = str(payload.get("status") or "unknown")
+        if not info["fresh"] and status not in {"blocked", "exhausted", "cooldown"}:
+            payload["status"] = "stale"
+        elif info["fresh"] and status in {"unknown", ""}:
+            payload["status"] = "healthy"
 
 
 def all_provider_status(store: TradingStore | None) -> dict[str, dict[str, Any]]:
@@ -360,4 +555,7 @@ def all_provider_status(store: TradingStore | None) -> dict[str, dict[str, Any]]
             }
         )
         result["finnhub"] = finnhub
+    result["coinbase"] = status_payload(store, "coinbase")
+    result["coinbase"].update({"role": "crypto_primary", "role_he": "קריפטו"})
+    _apply_provider_candle_freshness(store, result)
     return result

@@ -380,6 +380,7 @@
     "provider_health_title": "בריאות ספקי נתונים",
     "provider_status_label": "סטטוס",
     "provider_status_healthy": "תקין",
+    "provider_status_stale": "נתונים לא מעודכנים",
     "provider_status_temp_error": "תקלה זמנית",
     "provider_status_quota_blocked": "חסום במכסה",
     "provider_status_conservation": "מצב חיסכון",

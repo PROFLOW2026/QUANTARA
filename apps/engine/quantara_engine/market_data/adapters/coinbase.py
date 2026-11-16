@@ -138,9 +138,14 @@ class CoinbaseMarketDataProvider:
         since: datetime | None = None,
     ) -> list[Candle]:
         end = datetime.now(timezone.utc)
-        if since is not None:
-            if since.tzinfo is None:
-                since = since.replace(tzinfo=timezone.utc)
+        if since is None:
+            return self.fetch_candles(instrument_id, timeframe, end=end, limit=30)
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        # Coinbase rejects a window whose bar count exceeds 300.
+        step = timedelta(minutes=timeframe_minutes(timeframe))
+        span_bars = int((end - since).total_seconds() / 60 / timeframe_minutes(timeframe))
+        if span_bars <= 280:
             return self.fetch_candles(
                 instrument_id,
                 timeframe,
@@ -148,7 +153,33 @@ class CoinbaseMarketDataProvider:
                 end=end,
                 limit=BOOTSTRAP_OUTPUT_SIZE,
             )
-        return self.fetch_candles(instrument_id, timeframe, end=end, limit=30)
+        collected: list[Candle] = []
+        seen: set[datetime] = set()
+        chunk_end = end
+        for _ in range(12):
+            if chunk_end <= since:
+                break
+            chunk_start = max(since, chunk_end - step * 280)
+            batch = self.fetch_candles(
+                instrument_id,
+                timeframe,
+                start=chunk_start,
+                end=chunk_end,
+                limit=280,
+            )
+            if not batch:
+                break
+            for candle in batch:
+                if candle.timestamp not in seen and candle.timestamp > since:
+                    collected.append(candle)
+                    seen.add(candle.timestamp)
+            oldest = min(c.timestamp for c in batch)
+            nxt = oldest - step
+            if nxt >= chunk_end:
+                break
+            chunk_end = nxt
+        collected.sort(key=lambda c: c.timestamp)
+        return collected
 
     def fetch_range(
         self,

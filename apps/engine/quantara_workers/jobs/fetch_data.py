@@ -753,14 +753,8 @@ def _fetch_asset_live(
             elif used_provider == ProviderName.TIINGO:
                 with session_scope() as mark_session:
                     _mark_tiingo_fetch(TradingStore(mark_session), asset.db_symbol, now)
-            if gap_fill and used_provider == ProviderName.ALPACA:
-                from quantara_engine.market_data.registry import provider_symbol
-
-                _record_budget_best_effort(
-                    ProviderName.ALPACA.value,
-                    symbol=provider_symbol(asset, ProviderName.ALPACA),
-                    caller="fetch_live_job:gap_fill",
-                )
+            # Provider adapters already commit budget usage autonomously.
+            # A second nested write of the same settings row deadlocks the open ingest transaction.
             timings["derive_ms"] = timings.get("derive_ms", 0.0) + (time.perf_counter() - persist_t0) * 1000
             timings["persist_5m_ms"] = timings.get("persist_5m_ms", 0.0) + (time.perf_counter() - persist_t0) * 1000
             return count, derived, error, used_provider.value if used_provider else None
@@ -1407,13 +1401,22 @@ def fetch_live_job(store: TradingStore | None = None) -> None:
                     error=error,
                 )
             else:
-                count, derived, error, status = _fetch_live_asset_isolated(
-                    asset,
-                    now,
-                    timings,
-                    plan=plan,
-                    batch_result=batch_results.get(asset.db_symbol),
-                )
+                try:
+                    count, derived, error, status = _fetch_live_asset_isolated(
+                        asset,
+                        now,
+                        timings,
+                        plan=plan,
+                        batch_result=batch_results.get(asset.db_symbol),
+                    )
+                except Exception as exc:
+                    logger.exception("Live fetch failed for %s", asset.db_symbol)
+                    errors.append(f"{asset.db_symbol}: {exc}")
+                    asset_status[asset.db_symbol] = {
+                        "status": "error",
+                        "error": str(exc)[:300],
+                    }
+                    continue
 
             total_count += count
             total_derived += derived
@@ -1534,9 +1537,14 @@ def fetch_bulk_job(store: TradingStore | None = None) -> None:
                 and latest
                 and not is_market_data_fresh(latest, PROVIDER_TIMEFRAME, now)
             ):
-                gap_count, gap_derived, gap_error, gap_status = _fetch_live_asset_isolated(
-                    asset, now, repair_timings
-                )
+                try:
+                    gap_count, gap_derived, gap_error, gap_status = _fetch_live_asset_isolated(
+                        asset, now, repair_timings
+                    )
+                except Exception as exc:
+                    logger.exception("Bulk gap repair failed for %s", asset.db_symbol)
+                    errors.append(f"{asset.db_symbol}: {exc}")
+                    continue
                 if gap_count or gap_derived:
                     total_count += gap_count
                     total_derived += gap_derived

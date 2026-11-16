@@ -44,6 +44,7 @@ function providerLabel(name: string) {
   if (name === "tiingo") return "Tiingo";
   if (name === "alpaca") return "Alpaca";
   if (name === "finnhub") return "Finnhub";
+  if (name === "coinbase") return "Coinbase";
   return name;
 }
 
@@ -53,7 +54,7 @@ function providerStatusBadge(status: string) {
       ? "success"
       : status === "blocked" || status === "exhausted"
         ? "danger"
-        : status === "conservation" || status === "error"
+        : status === "conservation" || status === "error" || status === "stale"
           ? "warning"
           : "muted";
   return <Badge variant={variant}>{translateProviderStatus(status)}</Badge>;
@@ -347,7 +348,7 @@ export function ProviderHealthPanel({
   marketStatus: MarketProviderStatus | null;
 }) {
   const providers = marketStatus?.providers ?? {};
-  const order = ["twelvedata", "tiingo", "alpaca"];
+  const order = ["twelvedata", "tiingo", "alpaca", "coinbase"];
   const finnhubEnabled = marketStatus?.finnhub_enabled === true;
 
   return (

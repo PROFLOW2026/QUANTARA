@@ -248,6 +248,7 @@ const DATA_STATUS_KEYS: Record<string, string> = {
 
 const PROVIDER_STATUS_KEYS: Record<string, string> = {
   healthy: "home.provider_status_healthy",
+  stale: "home.provider_status_stale",
   error: "home.provider_status_temp_error",
   blocked: "home.provider_status_quota_blocked",
   conservation: "home.provider_status_conservation",
