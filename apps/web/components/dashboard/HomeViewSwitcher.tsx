@@ -4,12 +4,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
-export type HomeView = "research" | "live-sim" | "compare";
+export type HomeView = "research" | "live-sim" | "options" | "compare";
 export type LiveSimSubView = "quantara" | "ai-trader" | "ai-compare";
 
 const VIEWS: { id: HomeView; labelKey: string }[] = [
   { id: "research", labelKey: "home.view_research" },
   { id: "live-sim", labelKey: "home.view_live_sim" },
+  { id: "options", labelKey: "home.view_options" },
   { id: "compare", labelKey: "home.view_compare" },
 ];
 
@@ -20,7 +21,7 @@ const LIVE_SIM_SUBVIEWS: { id: LiveSimSubView; labelKey: string }[] = [
 ];
 
 export function parseHomeView(raw: string | null): HomeView {
-  if (raw === "live-sim" || raw === "compare") return raw;
+  if (raw === "live-sim" || raw === "options" || raw === "compare") return raw;
   return "research";
 }
 

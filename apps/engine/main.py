@@ -11,6 +11,7 @@ from quantara_engine.api.cors import cors_response_headers, is_allowed_origin, r
 from quantara_engine.api.ai_trader_routes import router as ai_trader_router
 from quantara_engine.api.live_stream_routes import live_stream_router
 from quantara_engine.api.routes import router
+from quantara_options.api.router import router as options_router
 from quantara_engine.core.config import settings
 from quantara_engine.db.session import init_db
 from quantara_engine.api.dashboard_cache import clear_dashboard_caches
@@ -75,6 +76,7 @@ app.add_middleware(QuantaCORSMiddleware)  # CORS on success and error responses
 app.include_router(router)
 app.include_router(live_stream_router)
 app.include_router(ai_trader_router)  # read-only AI Trader paper data endpoint
+app.include_router(options_router)  # isolated options simulation lab endpoints
 
 
 if __name__ == "__main__":

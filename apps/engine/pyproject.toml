@@ -25,7 +25,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["quantara_engine*", "quantara_workers*"]
+include = ["quantara_engine*", "quantara_workers*", "quantara_options*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -13,6 +13,7 @@ from quantara_workers.jobs.crypto_fast_protection import crypto_fast_protection_
 from quantara_workers.jobs.finnhub_equity_live_mark import finnhub_equity_live_mark_job
 from quantara_workers.jobs.finnhub_validation import finnhub_validation_job
 from quantara_workers.jobs.non_crypto_fast_protection import non_crypto_fast_protection_job
+from quantara_workers.jobs.options_cycle import options_cycle_job
 from quantara_workers.jobs.execute_intents import execute_intents_job
 from quantara_workers.jobs.fetch_data import fetch_bulk_job, fetch_live_job
 from quantara_workers.jobs.learning_maintenance import learning_maintenance_job
@@ -65,6 +66,14 @@ _HISTORICAL_STRATEGY_OPTS = {
     "misfire_grace_time": 300,
 }
 
+# Isolated Options Lab cycle — dedicated single worker; never touches equity jobs.
+_OPTIONS_ENGINE_OPTS = {
+    "executor": "options_engine",
+    "max_instances": 1,
+    "coalesce": True,
+    "misfire_grace_time": 240,
+}
+
 
 class WorkerScheduler:
     def __init__(self) -> None:
@@ -74,6 +83,7 @@ class WorkerScheduler:
             "housekeeping": ThreadPoolExecutor(max_workers=1),
             "strategy_live": ThreadPoolExecutor(max_workers=1),
             "strategy_historical": ThreadPoolExecutor(max_workers=1),
+            "options_engine": ThreadPoolExecutor(max_workers=1),
         }
         self.scheduler = BackgroundScheduler(
             timezone="UTC",
@@ -173,6 +183,14 @@ class WorkerScheduler:
             id="learning_maintenance",
             replace_existing=True,
             **_HOUSEKEEPING_OPTS,
+        )
+        # Isolated Options Lab cycle — runs only when opt_engine_state.enabled is True.
+        self.scheduler.add_job(
+            options_cycle_job,
+            CronTrigger(minute="2-59/5", second=35),
+            id="options_cycle",
+            replace_existing=True,
+            **_OPTIONS_ENGINE_OPTS,
         )
 
     def start(self) -> None:

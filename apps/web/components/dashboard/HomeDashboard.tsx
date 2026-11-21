@@ -13,6 +13,7 @@ import {
   parseLiveSimSubView,
 } from "@/components/dashboard/HomeViewSwitcher";
 import { LiveSimDashboard } from "@/components/dashboard/LiveSimDashboard";
+import { OptionsLabDashboard } from "@/components/options/OptionsLabDashboard";
 import { HomeSummaryCard, HomeSummaryValue } from "@/components/dashboard/HomeSummaryCard";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import { LatestDecisionsPanel } from "@/components/trading/LatestDecisionsPanel";
@@ -162,6 +163,18 @@ function HomeDashboardContent() {
         ) : (
           <LiveSimDashboard data={liveSimAccount} loading={loading} />
         )}
+      </>
+    );
+  }
+
+  if (view === "options") {
+    return (
+      <>
+        <PageHeader titleKey="home.title" />
+        <Suspense fallback={null}>
+          <HomeViewSwitcher engineHealthy={engineHealthy} />
+        </Suspense>
+        <OptionsLabDashboard />
       </>
     );
   }
