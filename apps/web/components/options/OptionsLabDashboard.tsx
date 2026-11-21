@@ -425,13 +425,6 @@ export function OptionsLabDashboard() {
 
   return (
     <div dir="rtl" className="w-full max-w-full space-y-4">
-      <div className="rounded-lg border border-warning-border bg-warning-bg px-4 py-2.5 text-xs leading-relaxed text-warning">
-        <span className="font-semibold">סימולציה פרטית בלבד.</span> לא נשלחות פקודות לבורסה או לברוקר. נתונים מסומנים
-        במפורש: <span className="font-semibold">Indicative</span> = הערכה/השהיה,{" "}
-        <span className="font-semibold">Fixture</span> = נתוני דמה סגורים, <span className="font-semibold">OPRA חי</span>{" "}
-        = ציטוטים בזמן אמת. גם עם OPRA — המילויים מדומים ואינם מסחר אמיתי.
-      </div>
-
       <EngineHeader
         status={status}
         useFixtures={useFixtures}
