@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   Bar,
   BarChart,
@@ -23,7 +23,6 @@ import { cn, formatCurrency, formatPercent, formatRiskPercent } from "@/lib/util
 
 type ExpectedCohort = { key: string; label: string; match: RegExp };
 
-/** Display order of the independent comparison cohorts. */
 const EXPECTED_COHORTS: ExpectedCohort[] = [
   { key: "options_5k", label: "Options 5K (AI)", match: /(^|[^0-9])5k|(^|[^0-9])5000/ },
   { key: "options_10k", label: "Options 10K (AI)", match: /^options-10k$|\b10k\b/ },
@@ -35,7 +34,6 @@ const EXPECTED_COHORTS: ExpectedCohort[] = [
   { key: "iron_condor", label: "Iron Condor $10K", match: /iron|condor/ },
 ];
 
-/** Most specific matchers first so "Rules Mode $10K" doesn't land in "Options 10K". */
 const MATCH_PRIORITY = [
   "rules_mode",
   "long_only",
@@ -70,18 +68,14 @@ type SortKey =
   | "win_rate_pct"
   | "profit_factor";
 
-const COLUMNS: { key: Exclude<SortKey, "order">; label: string }[] = [
-  { key: "equity", label: "הון" },
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: "order", label: "סדר ברירת מחדל" },
   { key: "return_pct", label: "תשואה" },
+  { key: "equity", label: "הון" },
   { key: "realized_pnl", label: "ממומש" },
-  { key: "unrealized_pnl", label: "לא ממומש" },
-  { key: "premium_collected_gross", label: "פרמיה ברוטו" },
-  { key: "premium_realized_net", label: "פרמיה נטו" },
-  { key: "open_liability_usd", label: "התחייבויות" },
-  { key: "collateral_locked_usd", label: "בטוחות" },
   { key: "max_drawdown_pct", label: "DD מקס׳" },
-  { key: "win_rate_pct", label: "Win%" },
   { key: "profit_factor", label: "PF" },
+  { key: "win_rate_pct", label: "Win%" },
 ];
 
 type Props = {
@@ -89,6 +83,23 @@ type Props = {
   selectedSlug?: string | null;
   onSelectAccount?: (slug: string) => void;
 };
+
+function Metric({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("min-w-0", className)}>
+      <p className="text-[11px] text-muted">{label}</p>
+      <div className="mt-0.5 font-mono text-sm tabular-nums">{children}</div>
+    </div>
+  );
+}
 
 export function OptionsComparisonPanel({ rows, selectedSlug, onSelectAccount }: Props) {
   const colors = useChartTheme();
@@ -126,36 +137,50 @@ export function OptionsComparisonPanel({ rows, selectedSlug, onSelectAccount }: 
   }, [rows]);
 
   const chartData = useMemo(
-    () => ordered.map((r) => ({ label: r.label, return_pct: Math.round(r.return_pct * 100) / 100 })),
+    () =>
+      ordered.map((r) => ({
+        label: r.label.length > 18 ? `${r.label.slice(0, 16)}…` : r.label,
+        return_pct: Math.round(r.return_pct * 100) / 100,
+      })),
     [ordered]
   );
-
-  const toggleSort = (key: SortKey) => {
-    if (sort === key) setDesc((d) => !d);
-    else {
-      setSort(key);
-      setDesc(key !== "max_drawdown_pct");
-    }
-  };
 
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader className="flex-wrap gap-2">
           <CardTitle>השוואת אסטרטגיות וקבוצות ניסוי</CardTitle>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {best ? (
               <Badge variant="success">
                 מוביל: {best.label} ({formatPercent(best.return_pct)})
               </Badge>
             ) : null}
+            <label className="flex items-center gap-2 text-xs text-muted">
+              מיון
+              <select
+                value={sort}
+                onChange={(e) => {
+                  const key = e.target.value as SortKey;
+                  setSort(key);
+                  setDesc(key !== "max_drawdown_pct");
+                }}
+                className="rounded-md border border-input-border bg-surface-inner px-2 py-1 text-sm text-foreground"
+              >
+                {SORT_OPTIONS.map((o) => (
+                  <option key={o.key} value={o.key}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             {sort !== "order" ? (
               <button
                 type="button"
-                onClick={() => setSort("order")}
+                onClick={() => setDesc((d) => !d)}
                 className="rounded border border-border px-2.5 py-1 text-xs text-muted hover:bg-surface-active"
               >
-                סדר ברירת מחדל
+                {desc ? "יורד ↓" : "עולה ↑"}
               </button>
             ) : null}
           </div>
@@ -164,103 +189,93 @@ export function OptionsComparisonPanel({ rows, selectedSlug, onSelectAccount }: 
           {rows.length === 0 ? (
             <EmptyState message="אין עדיין נתוני השוואה. כל קבוצה רצה כחשבון סימולציה עצמאי." />
           ) : (
-            <div className="overflow-x-auto rounded-md border border-table-border scrollbar-thin">
-              <table className="w-full min-w-max text-sm">
-                <thead className="bg-table-header text-xs text-table-header-text">
-                  <tr>
-                    <th className="sticky start-0 z-10 bg-table-header px-3 py-2 text-start font-medium">קבוצה</th>
-                    {COLUMNS.map((c) => (
-                      <th key={c.key} className="px-3 py-2 text-start font-medium">
-                        <button
-                          type="button"
-                          onClick={() => toggleSort(c.key)}
-                          className={cn("hover:text-foreground", sort === c.key && "text-accent")}
-                        >
-                          {c.label}
-                          {sort === c.key ? (desc ? " ↓" : " ↑") : ""}
-                        </button>
-                      </th>
-                    ))}
-                    <th className="px-3 py-2 text-start font-medium">פתוחות/סגורות</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ordered.map((r) => {
-                    const selected = selectedSlug === r.account_slug;
-                    return (
-                      <tr
-                        key={r.cohort_key}
-                        onClick={() => onSelectAccount?.(r.account_slug)}
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {ordered.map((r) => {
+                const selected = selectedSlug === r.account_slug;
+                const isBest = best?.cohort_key === r.cohort_key;
+                return (
+                  <button
+                    key={r.cohort_key}
+                    type="button"
+                    onClick={() => onSelectAccount?.(r.account_slug)}
+                    className={cn(
+                      "min-w-0 rounded-lg border p-3 text-start transition-colors",
+                      selected
+                        ? "border-primary bg-primary-soft ring-1 ring-primary"
+                        : "border-border bg-surface hover:bg-surface-active",
+                      onSelectAccount && "cursor-pointer"
+                    )}
+                  >
+                    <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-foreground">
+                          {r.label}
+                          {isBest ? " ★" : ""}
+                        </p>
+                        <p className="text-xs text-muted">
+                          {r.mode === "ai" ? "AI" : "חוקים"} ·{" "}
+                          {r.strategy_scope && r.strategy_scope !== "all" && r.strategy_scope !== "multi"
+                            ? strategyLabel(r.strategy_scope)
+                            : "רב־אסטרטגי"}{" "}
+                          · {formatCurrency(r.starting_capital)}
+                        </p>
+                      </div>
+                      <span
                         className={cn(
-                          "border-b border-table-border bg-table-row hover:bg-table-hover",
-                          onSelectAccount && "cursor-pointer",
-                          selected && "bg-surface-highlight"
+                          "shrink-0 font-mono text-sm font-semibold tabular-nums",
+                          r.return_pct >= 0 ? "text-profit" : "text-loss"
                         )}
                       >
-                        <td className="sticky start-0 z-10 bg-inherit px-3 py-2">
-                          <div className="flex flex-col">
-                            <span className="font-medium">
-                              {r.label}
-                              {best?.cohort_key === r.cohort_key ? " 🏆" : ""}
-                            </span>
-                            <span className="text-xs text-muted">
-                              {r.mode === "ai" ? "AI" : "חוקים"} ·{" "}
-                              {r.strategy_scope && r.strategy_scope !== "all" && r.strategy_scope !== "multi"
-                                ? strategyLabel(r.strategy_scope)
-                                : "רב־אסטרטגי"}{" "}
-                              · {formatCurrency(r.starting_capital)}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 font-mono">{formatCurrency(r.equity)}</td>
-                        <td className={cn("px-3 py-2 font-mono", r.return_pct >= 0 ? "text-profit" : "text-loss")}>
-                          {formatPercent(r.return_pct)}
-                        </td>
-                        <td className="px-3 py-2">
-                          <PnLDisplay value={r.realized_pnl} size="sm" />
-                        </td>
-                        <td className="px-3 py-2">
-                          <PnLDisplay value={r.unrealized_pnl} size="sm" />
-                        </td>
-                        <td className="px-3 py-2 font-mono">{formatCurrency(r.premium_collected_gross)}</td>
-                        <td
-                          className={cn(
-                            "px-3 py-2 font-mono",
-                            r.premium_realized_net >= 0 ? "text-profit" : "text-loss"
-                          )}
-                        >
+                        {formatPercent(r.return_pct)}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      <Metric label="הון">{formatCurrency(r.equity)}</Metric>
+                      <Metric label="ממומש">
+                        <PnLDisplay value={r.realized_pnl} size="sm" />
+                      </Metric>
+                      <Metric label="לא ממומש">
+                        <PnLDisplay value={r.unrealized_pnl} size="sm" />
+                      </Metric>
+                      <Metric label="פרמיה נטו">
+                        <span className={r.premium_realized_net >= 0 ? "text-profit" : "text-loss"}>
                           {formatCurrency(r.premium_realized_net)}
-                        </td>
-                        <td className="px-3 py-2 font-mono text-loss">{formatCurrency(r.open_liability_usd)}</td>
-                        <td className="px-3 py-2 font-mono text-warning">{formatCurrency(r.collateral_locked_usd)}</td>
-                        <td className="px-3 py-2 font-mono text-loss">{formatRiskPercent(r.max_drawdown_pct)}</td>
-                        <td className="px-3 py-2 font-mono">
-                          {r.win_rate_pct != null ? `${r.win_rate_pct.toFixed(1)}%` : "—"}
-                        </td>
-                        <td className="px-3 py-2 font-mono">
-                          {r.profit_factor != null ? (r.profit_factor >= 999 ? "∞" : r.profit_factor.toFixed(2)) : "—"}
-                        </td>
-                        <td className="px-3 py-2 font-mono text-xs">
-                          {r.open_count} / {r.closed_count}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {missing.map((m) => (
-                    <tr key={m.key} className="border-b border-table-border bg-table-row opacity-60">
-                      <td className="sticky start-0 z-10 bg-inherit px-3 py-2 font-medium">{m.label}</td>
-                      <td colSpan={COLUMNS.length + 1} className="px-3 py-2 text-xs text-muted">
-                        אין נתונים עדיין — הקבוצה טרם הופעלה או טרם החזירה תוצאות
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        </span>
+                      </Metric>
+                      <Metric label="התחייבויות">
+                        <span className="text-loss">{formatCurrency(r.open_liability_usd)}</span>
+                      </Metric>
+                      <Metric label="בטוחות">
+                        <span className="text-warning">{formatCurrency(r.collateral_locked_usd)}</span>
+                      </Metric>
+                      <Metric label="DD מקס׳">
+                        <span className="text-loss">{formatRiskPercent(r.max_drawdown_pct)}</span>
+                      </Metric>
+                      <Metric label="Win% / PF">
+                        {r.win_rate_pct != null ? `${r.win_rate_pct.toFixed(1)}%` : "—"} /{" "}
+                        {r.profit_factor != null ? (r.profit_factor >= 999 ? "∞" : r.profit_factor.toFixed(2)) : "—"}
+                      </Metric>
+                      <Metric label="פתוחות/סגורות">
+                        {r.open_count} / {r.closed_count}
+                      </Metric>
+                    </div>
+                  </button>
+                );
+              })}
+              {missing.map((m) => (
+                <div
+                  key={m.key}
+                  className="min-w-0 rounded-lg border border-dashed border-border bg-surface-inner p-3 opacity-70"
+                >
+                  <p className="text-sm font-medium text-foreground">{m.label}</p>
+                  <p className="mt-1 text-xs text-muted">אין נתונים עדיין — הקבוצה טרם הופעלה</p>
+                </div>
+              ))}
             </div>
           )}
           <p className="text-xs text-muted">
-            כל קבוצה היא חשבון סימולציה נפרד עם הון ותקציב סיכון משלה — אין העברת כספים או התחשבנות בין קבוצות.
-            לחיצה על שורה בוחרת את החשבון.
+            כל קבוצה היא חשבון סימולציה נפרד עם הון ותקציב סיכון משלה — אין העברת כספים בין קבוצות. לחיצה בוחרת
+            חשבון.
           </p>
         </CardContent>
       </Card>
@@ -271,9 +286,9 @@ export function OptionsComparisonPanel({ rows, selectedSlug, onSelectAccount }: 
             <CardTitle>תשואה לפי קבוצה</CardTitle>
           </CardHeader>
           <CardContent>
-            <div dir="ltr">
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <div dir="ltr" className="w-full">
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 48 }}>
                   <CartesianGrid {...grid} />
                   <XAxis
                     dataKey="label"
@@ -281,16 +296,16 @@ export function OptionsComparisonPanel({ rows, selectedSlug, onSelectAccount }: 
                     axisLine={axis.axisLine}
                     tickLine={axis.tickLine}
                     interval={0}
-                    angle={-20}
+                    angle={-25}
                     textAnchor="end"
-                    height={56}
+                    height={64}
                   />
                   <YAxis
                     tickFormatter={(v: number) => `${v}%`}
                     tick={axis.tick}
                     axisLine={axis.axisLine}
                     tickLine={axis.tickLine}
-                    width={48}
+                    width={44}
                   />
                   <Tooltip
                     contentStyle={tooltip.contentStyle}

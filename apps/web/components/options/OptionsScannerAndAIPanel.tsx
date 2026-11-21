@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/table";
@@ -98,36 +98,33 @@ function CandidateDetail({ c }: { c: StrategyCandidate }) {
       <div className="grid gap-3 lg:grid-cols-[1fr_1.4fr]">
         <div className="space-y-2">
           <p className="text-xs font-medium text-foreground">רגליים</p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="text-muted">
-                <tr>
-                  <th className="py-1 text-start font-medium">צד</th>
-                  <th className="py-1 text-start font-medium">סוג</th>
-                  <th className="py-1 text-start font-medium">Strike</th>
-                  <th className="py-1 text-start font-medium">Bid/Ask</th>
-                  <th className="py-1 text-start font-medium">Δ</th>
-                  <th className="py-1 text-start font-medium">IV</th>
-                </tr>
-              </thead>
-              <tbody>
-                {c.legs.map((leg, i) => (
-                  <tr key={leg.occ_symbol ?? `${leg.leg_role}-${i}`} className="border-t border-border/40">
-                    <td className={cn("py-1", leg.side === "long" ? "text-profit" : "text-loss")}>
-                      {leg.side === "long" ? "קנייה" : "מכירה"} ×{leg.ratio * c.contracts_qty}
-                    </td>
-                    <td className="py-1">{leg.right ? leg.right.toUpperCase() : "מניה"}</td>
-                    <td className="py-1 font-mono">{leg.strike != null ? formatPrice(toNum(leg.strike) ?? 0) : "—"}</td>
-                    <td className="py-1 font-mono">
-                      {toNum(leg.bid) != null ? formatPrice(toNum(leg.bid)!) : "—"} /{" "}
-                      {toNum(leg.ask) != null ? formatPrice(toNum(leg.ask)!) : "—"}
-                    </td>
-                    <td className="py-1 font-mono">{leg.greeks.delta != null ? leg.greeks.delta.toFixed(2) : "—"}</td>
-                    <td className="py-1 font-mono">{pct(leg.implied_volatility)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-2">
+            {c.legs.map((leg, i) => (
+              <div
+                key={leg.occ_symbol ?? `${leg.leg_role}-${i}`}
+                className="rounded border border-border/50 bg-surface px-2.5 py-2 text-xs"
+              >
+                <div className="mb-1 flex flex-wrap items-center justify-between gap-1">
+                  <span className={leg.side === "long" ? "text-profit" : "text-loss"}>
+                    {leg.side === "long" ? "קנייה" : "מכירה"} ×{leg.ratio * c.contracts_qty}
+                  </span>
+                  <span className="text-muted">{leg.right ? leg.right.toUpperCase() : "מניה"}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono tabular-nums">
+                  <span className="text-muted">Strike</span>
+                  <span className="text-end">{leg.strike != null ? formatPrice(toNum(leg.strike) ?? 0) : "—"}</span>
+                  <span className="text-muted">Bid/Ask</span>
+                  <span className="text-end">
+                    {toNum(leg.bid) != null ? formatPrice(toNum(leg.bid)!) : "—"} /{" "}
+                    {toNum(leg.ask) != null ? formatPrice(toNum(leg.ask)!) : "—"}
+                  </span>
+                  <span className="text-muted">Δ / IV</span>
+                  <span className="text-end">
+                    {leg.greeks.delta != null ? leg.greeks.delta.toFixed(2) : "—"} / {pct(leg.implied_volatility)}
+                  </span>
+                </div>
+              </div>
+            ))}
           </div>
           <div className="grid grid-cols-3 gap-2 text-xs">
             <div>
@@ -360,117 +357,44 @@ export function OptionsScannerAndAIPanel({
           {filtered.length === 0 ? (
             <EmptyState message="אין הזדמנויות תואמות. הרץ מחזור סריקה או שנה את הסינון." />
           ) : (
-            <>
-              {/* Desktop table */}
-              <div className="hidden overflow-x-auto rounded-md border border-table-border md:block">
-                <table className="w-full text-sm">
-                  <thead className="bg-table-header text-xs text-table-header-text">
-                    <tr>
-                      <th className="px-3 py-2 text-start font-medium">אסטרטגיה</th>
-                      <th className="px-3 py-2 text-start font-medium">נכס</th>
-                      <th className="px-3 py-2 text-start font-medium">DTE</th>
-                      <th className="px-3 py-2 text-start font-medium">פרמיה נטו</th>
-                      <th className="px-3 py-2 text-start font-medium">רווח מקס׳</th>
-                      <th className="px-3 py-2 text-start font-medium">הפסד מקס׳</th>
-                      <th className="px-3 py-2 text-start font-medium">בטוחות</th>
-                      <th className="px-3 py-2 text-start font-medium">PoP</th>
-                      <th className="px-3 py-2 text-start font-medium">IV Rank</th>
-                      <th className="px-3 py-2 text-start font-medium">נתונים</th>
-                      <th className="px-3 py-2 text-start font-medium" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((c) => {
-                      const premium = toNum(c.estimated_net_premium_total) ?? 0;
-                      const maxProfit = toNum(c.max_profit_usd);
-                      return (
-                        <Fragment key={c.candidate_id}>
-                          <tr className="border-b border-table-border bg-table-row hover:bg-table-hover">
-                            <td className="px-3 py-2">
-                              <span className="font-medium">{strategyLabel(c.strategy_type)}</span>
-                              <Badge variant={c.is_credit ? "success" : "outline"} className="ms-2">
-                                {c.is_credit ? "Credit" : "Debit"}
-                              </Badge>
-                            </td>
-                            <td className="px-3 py-2 font-mono">
-                              {c.underlying_symbol}
-                              <span className="ms-1 text-xs text-muted">×{c.contracts_qty}</span>
-                            </td>
-                            <td className="px-3 py-2 font-mono">{c.dte}</td>
-                            <td className={cn("px-3 py-2 font-mono", premium >= 0 ? "text-profit" : "text-loss")}>
-                              {premium >= 0 ? "+" : ""}
-                              {formatCurrency(premium)}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-profit">
-                              {maxProfit == null ? "לא מוגבל" : formatCurrency(maxProfit)}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-loss">{usd(toNum(c.max_loss_usd))}</td>
-                            <td className="px-3 py-2 font-mono">{usd(toNum(c.collateral_required_usd))}</td>
-                            <td className="px-3 py-2 font-mono">{pct(c.probability_of_profit)}</td>
-                            <td className="px-3 py-2 font-mono">{pct(c.iv_rank, 0)}</td>
-                            <td className="px-3 py-2">
-                              <FeedTierBadge tier={c.feed_tier} isIndicative={c.is_indicative} />
-                            </td>
-                            <td className="px-3 py-2">
-                              <div className="flex gap-1.5">
-                                {inspectBtn(c)}
-                                {simulateBtn(c)}
-                              </div>
-                            </td>
-                          </tr>
-                          {expanded === c.candidate_id ? (
-                            <tr>
-                              <td colSpan={11} className="p-2">
-                                <CandidateDetail c={c} />
-                              </td>
-                            </tr>
-                          ) : null}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Mobile cards */}
-              <div className="space-y-2 md:hidden">
-                {filtered.map((c) => {
-                  const premium = toNum(c.estimated_net_premium_total) ?? 0;
-                  const maxProfit = toNum(c.max_profit_usd);
-                  return (
-                    <div key={c.candidate_id} className="rounded-md border border-border-nested bg-surface-inner p-3">
-                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-medium">{c.underlying_symbol}</span>
-                          <span className="text-sm">{strategyLabel(c.strategy_type)}</span>
-                        </div>
-                        <Badge variant={c.is_credit ? "success" : "outline"}>{c.is_credit ? "Credit" : "Debit"}</Badge>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {filtered.map((c) => {
+                const premium = toNum(c.estimated_net_premium_total) ?? 0;
+                const maxProfit = toNum(c.max_profit_usd);
+                return (
+                  <div key={c.candidate_id} className="min-w-0 rounded-md border border-border-nested bg-surface-inner p-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <span className="font-mono font-medium">{c.underlying_symbol}</span>
+                        <span className="truncate text-sm">{strategyLabel(c.strategy_type)}</span>
+                        <span className="text-xs text-muted">×{c.contracts_qty}</span>
                       </div>
-                      <div className="grid grid-cols-3 gap-2 text-xs">
-                        <Metric label="פרמיה נטו" value={formatCurrency(premium)} tone={premium >= 0 ? "profit" : "loss"} />
-                        <Metric label="רווח מקס׳" value={maxProfit == null ? "לא מוגבל" : formatCurrency(maxProfit)} tone="profit" />
-                        <Metric label="הפסד מקס׳" value={usd(toNum(c.max_loss_usd))} tone="loss" />
-                        <Metric label="בטוחות" value={usd(toNum(c.collateral_required_usd))} />
-                        <Metric label="PoP" value={pct(c.probability_of_profit)} />
-                        <Metric label="IV Rank · DTE" value={`${pct(c.iv_rank, 0)} · ${c.dte}`} />
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                        <FeedTierBadge tier={c.feed_tier} isIndicative={c.is_indicative} />
-                        <div className="flex gap-1.5">
-                          {inspectBtn(c)}
-                          {simulateBtn(c)}
-                        </div>
-                      </div>
-                      {expanded === c.candidate_id ? (
-                        <div className="mt-2">
-                          <CandidateDetail c={c} />
-                        </div>
-                      ) : null}
+                      <Badge variant={c.is_credit ? "success" : "outline"}>{c.is_credit ? "Credit" : "Debit"}</Badge>
                     </div>
-                  );
-                })}
-              </div>
-            </>
+                    <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+                      <Metric label="פרמיה נטו" value={formatCurrency(premium)} tone={premium >= 0 ? "profit" : "loss"} />
+                      <Metric label="רווח מקס׳" value={maxProfit == null ? "לא מוגבל" : formatCurrency(maxProfit)} tone="profit" />
+                      <Metric label="הפסד מקס׳" value={usd(toNum(c.max_loss_usd))} tone="loss" />
+                      <Metric label="בטוחות" value={usd(toNum(c.collateral_required_usd))} />
+                      <Metric label="PoP" value={pct(c.probability_of_profit)} />
+                      <Metric label="IV · DTE" value={`${pct(c.iv_rank, 0)} · ${c.dte}`} />
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      <FeedTierBadge tier={c.feed_tier} isIndicative={c.is_indicative} />
+                      <div className="flex flex-wrap gap-1.5">
+                        {inspectBtn(c)}
+                        {simulateBtn(c)}
+                      </div>
+                    </div>
+                    {expanded === c.candidate_id ? (
+                      <div className="mt-2">
+                        <CandidateDetail c={c} />
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </CardContent>
       </Card>

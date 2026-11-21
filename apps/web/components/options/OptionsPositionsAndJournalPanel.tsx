@@ -1,18 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { PnLDisplay } from "@/components/trading/PnLDisplay";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  EmptyState,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { EmptyState } from "@/components/ui/table";
 import { OptionsPayoffChart } from "@/components/options/OptionsPayoffChart";
 import type {
   OptionsExpirationItem,
@@ -56,7 +48,7 @@ const WARNING_HE: Record<string, string> = {
   normal: "רגיל",
 };
 
-function signedUsd(v: number): React.ReactNode {
+function signedUsd(v: number): ReactNode {
   if (v === 0) return <span className="font-mono text-muted">{formatCurrency(0)}</span>;
   return <PnLDisplay value={v} size="sm" />;
 }
@@ -196,55 +188,47 @@ function OpenStrategyCard({
 
       {expanded ? (
         <div className="mt-3 space-y-3">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>OCC</TableHead>
-                <TableHead>צד</TableHead>
-                <TableHead>סוג</TableHead>
-                <TableHead>Strike</TableHead>
-                <TableHead>כמות</TableHead>
-                <TableHead>כניסה</TableHead>
-                <TableHead>Mark</TableHead>
-                <TableHead>Bid/Ask</TableHead>
-                <TableHead>Δ</TableHead>
-                <TableHead>Θ</TableHead>
-                <TableHead>IV</TableHead>
-                <TableHead>לא ממומש</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {g.legs.map((leg) => (
-                <TableRow key={leg.id}>
-                  <TableCell className="font-mono text-xs" dir="ltr">
+          <div className="grid gap-2 sm:grid-cols-2">
+            {g.legs.map((leg) => (
+              <div key={leg.id} className="rounded-md border border-border-nested bg-surface-inner p-3 text-xs">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-mono text-[11px]" dir="ltr">
                     {leg.occ_symbol ?? `${leg.underlying_symbol} (מניה)`}
-                  </TableCell>
-                  <TableCell className={leg.side === "long" ? "text-profit" : "text-loss"}>
-                    {leg.side === "long" ? "Long" : "Short"}
-                  </TableCell>
-                  <TableCell>{leg.right ? String(leg.right).toUpperCase() : "STOCK"}</TableCell>
-                  <TableCell className="font-mono">{leg.strike != null ? formatPrice(leg.strike) : "—"}</TableCell>
-                  <TableCell className="font-mono">
+                  </span>
+                  <span className={leg.side === "long" ? "text-profit" : "text-loss"}>
+                    {leg.side === "long" ? "Long" : "Short"} · {leg.right ? String(leg.right).toUpperCase() : "STOCK"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 font-mono tabular-nums">
+                  <span className="text-muted">Strike</span>
+                  <span className="text-end">{leg.strike != null ? formatPrice(leg.strike) : "—"}</span>
+                  <span className="text-muted">כמות</span>
+                  <span className="text-end">
                     {leg.quantity}
-                    {leg.multiplier !== 100 ? <span className="text-xs text-muted"> ×{leg.multiplier}</span> : null}
-                  </TableCell>
-                  <TableCell className="font-mono">{formatPrice(leg.entry_price)}</TableCell>
-                  <TableCell className="font-mono">{formatPrice(leg.current_mark)}</TableCell>
-                  <TableCell className="font-mono text-xs">
+                    {leg.multiplier !== 100 ? ` ×${leg.multiplier}` : ""}
+                  </span>
+                  <span className="text-muted">כניסה / Mark</span>
+                  <span className="text-end">
+                    {formatPrice(leg.entry_price)} / {formatPrice(leg.current_mark)}
+                  </span>
+                  <span className="text-muted">Bid / Ask</span>
+                  <span className="text-end">
                     {leg.bid != null ? formatPrice(leg.bid) : "—"} / {leg.ask != null ? formatPrice(leg.ask) : "—"}
-                  </TableCell>
-                  <TableCell className="font-mono">{leg.delta != null ? leg.delta.toFixed(2) : "—"}</TableCell>
-                  <TableCell className="font-mono">{leg.theta != null ? leg.theta.toFixed(3) : "—"}</TableCell>
-                  <TableCell className="font-mono">
+                  </span>
+                  <span className="text-muted">Δ / Θ / IV</span>
+                  <span className="text-end">
+                    {leg.delta != null ? leg.delta.toFixed(2) : "—"} /{" "}
+                    {leg.theta != null ? leg.theta.toFixed(3) : "—"} /{" "}
                     {leg.implied_volatility != null
                       ? `${(leg.implied_volatility > 3 ? leg.implied_volatility : leg.implied_volatility * 100).toFixed(1)}%`
                       : "—"}
-                  </TableCell>
-                  <TableCell>{signedUsd(leg.unrealized_pnl)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                  </span>
+                  <span className="text-muted">לא ממומש</span>
+                  <span className="text-end">{signedUsd(leg.unrealized_pnl)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
           <OptionsPayoffChart points={g.payoff_curve} spot={spot} height={240} />
         </div>
       ) : null}
@@ -421,60 +405,74 @@ function JournalTable({ events }: { events: OptionsJournalEventView[] }) {
           ))}
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-3">
         {rows.length === 0 ? (
           <EmptyState message="אין אירועי יומן." />
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>זמן</TableHead>
-                <TableHead>אירוע</TableHead>
-                <TableHead>נכס</TableHead>
-                <TableHead>אסטרטגיה</TableHead>
-                <TableHead>שינוי מזומן</TableHead>
-                <TableHead>רווח ממומש</TableHead>
-                <TableHead>שינוי בטוחות</TableHead>
-                <TableHead>עמלה</TableHead>
-                <TableHead>תיאור</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+          <>
+            <div className="grid gap-2">
               {rows.map((e) => {
                 const ev = EVENT_HE[e.event_type] ?? { label: e.event_type, variant: "muted" as const };
                 return (
-                  <TableRow key={e.id}>
-                    <TableCell className="whitespace-nowrap text-xs text-muted">{formatDateTime(e.created_at)}</TableCell>
-                    <TableCell>
+                  <div key={e.id} className="rounded-md border border-border-nested bg-surface-inner p-3">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
                       <Badge variant={ev.variant}>{ev.label}</Badge>
-                    </TableCell>
-                    <TableCell className="font-mono">{e.underlying_symbol}</TableCell>
-                    <TableCell className="text-xs">{strategyLabel(e.strategy_type)}</TableCell>
-                    <TableCell>{signedUsd(e.cash_delta)}</TableCell>
-                    <TableCell>{signedUsd(e.realized_pnl_delta)}</TableCell>
-                    <TableCell className={cn("font-mono text-xs", e.collateral_delta > 0 ? "text-warning" : "text-muted")}>
-                      {e.collateral_delta > 0 ? "🔒 " : e.collateral_delta < 0 ? "🔓 " : ""}
-                      {formatCurrency(e.collateral_delta)}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-loss">
-                      {e.fee_usd ? formatCurrency(-Math.abs(e.fee_usd)) : "—"}
-                    </TableCell>
-                    <TableCell className="max-w-xs text-xs text-foreground-secondary">{e.description}</TableCell>
-                  </TableRow>
+                      <span className="font-mono text-sm font-medium">{e.underlying_symbol}</span>
+                      <span className="text-xs text-muted">{strategyLabel(e.strategy_type)}</span>
+                      <span className="ms-auto text-xs text-muted">{formatDateTime(e.created_at)}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                      <div>
+                        <p className="text-muted">שינוי מזומן</p>
+                        {signedUsd(e.cash_delta)}
+                      </div>
+                      <div>
+                        <p className="text-muted">רווח ממומש</p>
+                        {signedUsd(e.realized_pnl_delta)}
+                      </div>
+                      <div>
+                        <p className="text-muted">בטוחות</p>
+                        <p className={cn("font-mono", e.collateral_delta > 0 ? "text-warning" : "text-muted")}>
+                          {e.collateral_delta > 0 ? "🔒 " : e.collateral_delta < 0 ? "🔓 " : ""}
+                          {formatCurrency(e.collateral_delta)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted">עמלה</p>
+                        <p className="font-mono text-loss">
+                          {e.fee_usd ? formatCurrency(-Math.abs(e.fee_usd)) : "—"}
+                        </p>
+                      </div>
+                    </div>
+                    {e.description ? (
+                      <p className="mt-2 break-words text-xs text-foreground-secondary">{e.description}</p>
+                    ) : null}
+                  </div>
                 );
               })}
-              <TableRow className="bg-surface-highlight font-medium">
-                <TableCell colSpan={4} className="text-xs">
-                  סה״כ ({rows.length} אירועים)
-                </TableCell>
-                <TableCell>{signedUsd(totals.cash)}</TableCell>
-                <TableCell>{signedUsd(totals.pnl)}</TableCell>
-                <TableCell className="font-mono text-xs">{formatCurrency(totals.collateral)}</TableCell>
-                <TableCell className="font-mono text-xs text-loss">{formatCurrency(-Math.abs(totals.fees))}</TableCell>
-                <TableCell />
-              </TableRow>
-            </TableBody>
-          </Table>
+            </div>
+            <div className="rounded-md border border-border bg-surface-highlight p-3 text-xs font-medium">
+              <p className="mb-2">סה״כ ({rows.length} אירועים)</p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div>
+                  <p className="text-muted">מזומן</p>
+                  {signedUsd(totals.cash)}
+                </div>
+                <div>
+                  <p className="text-muted">ממומש</p>
+                  {signedUsd(totals.pnl)}
+                </div>
+                <div>
+                  <p className="text-muted">בטוחות</p>
+                  <p className="font-mono">{formatCurrency(totals.collateral)}</p>
+                </div>
+                <div>
+                  <p className="text-muted">עמלות</p>
+                  <p className="font-mono text-loss">{formatCurrency(-Math.abs(totals.fees))}</p>
+                </div>
+              </div>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>
@@ -577,46 +575,43 @@ export function OptionsPositionsAndJournalPanel({
             {closedStrategies.length === 0 ? (
               <EmptyState message="אין עדיין אסטרטגיות סגורות." />
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>נכס</TableHead>
-                    <TableHead>אסטרטגיה</TableHead>
-                    <TableHead>סטטוס</TableHead>
-                    <TableHead>נפתחה</TableHead>
-                    <TableHead>נסגרה</TableHead>
-                    <TableHead>סיבה</TableHead>
-                    <TableHead>Credit/Debit בכניסה</TableHead>
-                    <TableHead>רווח ממומש</TableHead>
-                    <TableHead>עמלות</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {closedStrategies.map((g) => (
-                    <TableRow key={g.id}>
-                      <TableCell className="font-mono">{g.underlying_symbol}</TableCell>
-                      <TableCell className="text-xs">{g.strategy_label_he || strategyLabel(g.strategy_type)}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={g.status} />
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs text-muted">{formatDateTime(g.opened_at)}</TableCell>
-                      <TableCell className="whitespace-nowrap text-xs text-muted">
-                        {g.closed_at ? formatDateTime(g.closed_at) : "—"}
-                      </TableCell>
-                      <TableCell className="text-xs">{g.close_reason ?? "—"}</TableCell>
-                      <TableCell
-                        className={cn("font-mono text-xs", g.net_entry_cash_flow >= 0 ? "text-profit" : "text-loss")}
-                      >
-                        {formatCurrency(g.net_entry_cash_flow)}
-                      </TableCell>
-                      <TableCell>
-                        <PnLDisplay value={g.realized_pnl} size="sm" />
-                      </TableCell>
-                      <TableCell className="font-mono text-xs text-loss">{formatCurrency(-Math.abs(g.fees_paid))}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {closedStrategies.map((g) => (
+                  <div key={g.id} className="rounded-md border border-border-nested bg-surface-inner p-3">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-sm font-semibold">{g.underlying_symbol}</span>
+                      <span className="text-xs">{g.strategy_label_he || strategyLabel(g.strategy_type)}</span>
+                      <StatusBadge status={g.status} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <p className="text-muted">נפתחה</p>
+                        <p>{formatDateTime(g.opened_at)}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted">נסגרה</p>
+                        <p>{g.closed_at ? formatDateTime(g.closed_at) : "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted">Credit/Debit</p>
+                        <p className={cn("font-mono", g.net_entry_cash_flow >= 0 ? "text-profit" : "text-loss")}>
+                          {formatCurrency(g.net_entry_cash_flow)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted">ממומש · עמלות</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <PnLDisplay value={g.realized_pnl} size="sm" />
+                          <span className="font-mono text-loss">{formatCurrency(-Math.abs(g.fees_paid))}</span>
+                        </div>
+                      </div>
+                    </div>
+                    {g.close_reason ? (
+                      <p className="mt-2 break-words text-xs text-muted">סיבה: {g.close_reason}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
             )}
           </CardContent>
         </Card>

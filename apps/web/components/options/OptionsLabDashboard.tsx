@@ -1,9 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Badge } from "@/components/ui/badge";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Card, CardContent, SectionPanel } from "@/components/ui/card";
-import { Tabs } from "@/components/ui/tabs";
 import { OptionsAccountOverview } from "@/components/options/OptionsAccountOverview";
 import { FeedTierBadge, OptionsChainPanel, resolveFeedKind } from "@/components/options/OptionsChainPanel";
 import { OptionsComparisonPanel } from "@/components/options/OptionsComparisonPanel";
@@ -19,22 +17,30 @@ import type {
   StrategyCandidate,
 } from "@/lib/options-types";
 import { strategyLabel } from "@/lib/options-types";
-import { cn, formatPercent, formatRelativeTime } from "@/lib/utils";
+import { cn, formatCurrency, formatPercent, formatRelativeTime } from "@/lib/utils";
 
 type TabId = "overview" | "chain" | "scanner" | "calendar" | "compare";
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: "overview", label: "סקירה ופוזיציות" },
-  { id: "chain", label: "שרשרת אופציות" },
-  { id: "scanner", label: "סורק ו־AI" },
-  { id: "calendar", label: "לוח פקיעות ויומן" },
-  { id: "compare", label: "השוואת אסטרטגיות" },
+const TABS: { id: TabId; label: string; short: string }[] = [
+  { id: "overview", label: "סקירה ופוזיציות", short: "סקירה" },
+  { id: "chain", label: "שרשרת אופציות", short: "שרשרת" },
+  { id: "scanner", label: "סורק ו־AI", short: "סורק" },
+  { id: "calendar", label: "לוח פקיעות ויומן", short: "פקיעות" },
+  { id: "compare", label: "השוואת אסטרטגיות", short: "השוואה" },
 ];
 
 const POLL_MS = 30_000;
 const POLL_RUNNING_MS = 8_000;
 
 type Notice = { tone: "success" | "error" | "info"; text: string } | null;
+
+const COHORT_SHORT: Record<string, string> = {
+  "options-10k-rules": "Rules · הכל",
+  "options-10k-long-only": "Long Only",
+  "options-10k-credit-spreads": "Credit Spreads",
+  "options-10k-wheel": "Wheel",
+  "options-10k-iron-condor": "Iron Condor",
+};
 
 function describeError(e: unknown): string {
   if (e instanceof ApiError) {
@@ -52,17 +58,29 @@ function freshnessLabel(seconds: number | null | undefined): string {
   return `עודכן לפני ${(seconds / 3600).toFixed(1)} שע׳`;
 }
 
+const PRIMARY_SLUGS = new Set(["options-5k", "options-10k", "options-25k"]);
+
 function isPrimaryAccount(a: OptionAccountSummary): boolean {
+  if (PRIMARY_SLUGS.has(a.slug)) return true;
   const g = (a.experiment_group ?? "").toLowerCase();
-  return !g || g === "core" || g === "primary" || g === "capital" || g === "options_lab";
+  return g === "options_lab" && a.mode === "ai";
 }
 
-function ReadinessDot({ ok, label }: { ok: boolean; label: string }) {
+function shortAccountName(a: OptionAccountSummary, primary: boolean): string {
+  if (primary) {
+    if (a.slug.includes("25k")) return "Options $25K";
+    if (a.slug.includes("10k")) return "Options $10K";
+    if (a.slug.includes("5k")) return "Options $5K";
+  }
+  return COHORT_SHORT[a.slug] ?? a.name.replace(/^Options \$10K \(Rules,\s*/i, "").replace(/\)$/, "");
+}
+
+function StatusCell({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1 text-xs text-muted">
-      <span className={cn("h-2 w-2 rounded-full", ok ? "bg-profit" : "bg-warning")} />
-      {label}
-    </span>
+    <div className="min-w-0 rounded-md border border-border/70 bg-surface-inner px-3 py-2">
+      <p className="text-[11px] text-muted">{label}</p>
+      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-sm text-foreground">{children}</div>
+    </div>
   );
 }
 
@@ -81,100 +99,123 @@ function EngineHeader({
 }) {
   const marketOpen = status?.market_open ?? false;
   const feedKind = resolveFeedKind(status?.feed_tier, status?.is_indicative ?? true);
-  const engineBadge = !status
-    ? { label: "מנוע לא מחובר", variant: "danger" as const }
+  const engineLabel = !status
+    ? "לא מחובר"
     : status.running_cycle
-      ? { label: "מחזור רץ…", variant: "info" as const }
+      ? "מחזור רץ…"
       : status.enabled
-        ? { label: "מנוע אופציות פעיל", variant: "success" as const }
-        : { label: "מנוע אופציות כבוי", variant: "muted" as const };
+        ? "פעיל"
+        : "כבוי";
+  const engineTone = !status
+    ? "text-loss"
+    : status.running_cycle
+      ? "text-info"
+      : status.enabled
+        ? "text-profit"
+        : "text-muted";
 
   const btn =
-    "rounded px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+    "inline-flex h-10 min-w-[7.5rem] flex-1 items-center justify-center rounded-md px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none";
 
   return (
-    <Card className="space-y-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <h2 className="text-lg font-semibold text-foreground">מעבדת אופציות · Options Lab</h2>
-          <p className="text-xs text-muted">
-            מנוע אופציות מבודד — הפעלה/עצירה כאן אינה משפיעה על Live Sim, Research או AI Trader.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={!!busy || status?.enabled === true}
-            onClick={() => onControl("start")}
-            className={cn(btn, "bg-primary text-primary-foreground hover:bg-primary-hover")}
-          >
-            {busy === "start" ? "מפעיל…" : "הפעלה"}
-          </button>
-          <button
-            type="button"
-            disabled={!!busy || status?.enabled === false}
-            onClick={() => onControl("stop")}
-            className={cn(btn, "border border-loss-border bg-loss-bg text-loss")}
-          >
-            {busy === "stop" ? "עוצר…" : "עצירה"}
-          </button>
-          <button
-            type="button"
-            disabled={!!busy || status?.running_cycle === true}
-            onClick={() => onControl("run_once")}
-            className={cn(btn, "border border-border text-foreground hover:bg-surface-active")}
-          >
-            {busy === "run_once" ? "מריץ מחזור…" : "הרצת מחזור יחיד"}
-          </button>
-        </div>
+    <Card className="space-y-4 overflow-hidden">
+      <div className="space-y-1">
+        <h2 className="text-lg font-semibold text-foreground">מעבדת אופציות</h2>
+        <p className="text-sm text-muted">
+          מנוע מבודד — הפעלה כאן אינה משפיעה על Live Sim, Research או AI Trader.
+        </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge variant={engineBadge.variant}>{engineBadge.label}</Badge>
-        {status ? (
-          <Badge variant={status.mode === "ai" ? "info" : "muted"}>
-            {status.mode === "ai" ? "מצב החלטה: AI" : "מצב החלטה: חוקים"}
-          </Badge>
-        ) : null}
-        <FeedTierBadge
-          tier={status?.feed_tier}
-          isIndicative={status?.is_indicative ?? true}
-          isDelayedTrades={status?.is_delayed_trades ?? false}
-        />
-        <Badge variant={marketOpen ? "success" : "muted"}>{marketOpen ? "שוק פתוח" : "שוק סגור"}</Badge>
-        <span className="text-xs text-muted">{freshnessLabel(status?.data_freshness_seconds)}</span>
-        <Badge variant={status?.groq_available ? "info" : "warning"}>
-          Groq {status?.groq_model ?? "openai/gpt-oss-120b"} · {status?.groq_available ? "זמין" : "לא זמין — גיבוי חוקים"}
-        </Badge>
-        {status ? <span className="text-xs text-muted">{status.groq_calls_today} קריאות היום</span> : null}
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <ReadinessDot ok={status?.readiness_technical ?? false} label="מוכנות טכנית" />
-          <ReadinessDot ok={status?.readiness_market_data ?? false} label="נתוני שוק" />
-          <ReadinessDot ok={status?.readiness_forward_sim ?? false} label="סימולציה קדימה" />
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <StatusCell label="סטטוס מנוע">
+          <span className={cn("font-medium", engineTone)}>{engineLabel}</span>
+        </StatusCell>
+        <StatusCell label="סטטוס שוק">
+          <span className={marketOpen ? "font-medium text-profit" : "font-medium text-muted"}>
+            {marketOpen ? "שוק פתוח" : "שוק סגור"}
+          </span>
+          {status?.universe?.[0] ? (
+            <span className="font-mono text-xs text-muted">{status.universe[0]}</span>
+          ) : null}
+        </StatusCell>
+        <StatusCell label="מקור נתונים">
+          <FeedTierBadge
+            tier={status?.feed_tier}
+            isIndicative={status?.is_indicative ?? true}
+            isDelayedTrades={status?.is_delayed_trades ?? false}
+          />
+        </StatusCell>
+        <StatusCell label="מצב החלטה">
+          <span className="font-medium">{status?.mode === "ai" ? "AI" : "חוקים"}</span>
+          <span className="truncate text-xs text-muted">
+            Groq {status?.groq_available ? "זמין" : "גיבוי חוקים"}
+          </span>
+        </StatusCell>
+        <StatusCell label="עדכון אחרון">
+          <span className="text-sm">{freshnessLabel(status?.data_freshness_seconds)}</span>
           {status?.last_cycle_at ? (
-            <span className="text-xs text-muted">מחזור אחרון: {formatRelativeTime(status.last_cycle_at)}</span>
+            <span className="text-xs text-muted">מחזור: {formatRelativeTime(status.last_cycle_at)}</span>
           ) : null}
-          {status?.universe?.length ? (
-            <span className="font-mono text-xs text-muted">{status.universe.join(" · ")}</span>
-          ) : null}
-        </div>
-        <label
-          className={cn(
-            "inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 text-xs",
-            !marketOpen ? "border-info-border bg-info-bg text-info" : "border-border text-muted"
-          )}
+        </StatusCell>
+        <StatusCell label="מוכנות">
+          <span className="text-xs text-muted">
+            טכנית {status?.readiness_technical ? "✓" : "—"} · שוק{" "}
+            {status?.readiness_market_data ? "✓" : "—"} · קדימה{" "}
+            {status?.readiness_forward_sim ? "✓" : "—"}
+          </span>
+        </StatusCell>
+      </div>
+
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <button
+          type="button"
+          disabled={!!busy || status?.enabled === true}
+          onClick={() => onControl("start")}
+          className={cn(btn, "bg-primary text-primary-foreground hover:bg-primary-hover")}
         >
+          {busy === "start" ? "מפעיל…" : "הפעלה"}
+        </button>
+        <button
+          type="button"
+          disabled={!!busy || status?.enabled === false}
+          onClick={() => onControl("stop")}
+          className={cn(btn, "border border-loss-border bg-loss-bg text-loss")}
+        >
+          {busy === "stop" ? "עוצר…" : "עצירה"}
+        </button>
+        <button
+          type="button"
+          disabled={!!busy || status?.running_cycle === true}
+          onClick={() => onControl("run_once")}
+          className={cn(btn, "border border-border text-foreground hover:bg-surface-active")}
+        >
+          {busy === "run_once" ? "מריץ מחזור…" : "הרצת מחזור יחיד"}
+        </button>
+      </div>
+
+      <div
+        className={cn(
+          "rounded-md border px-3 py-3",
+          useFixtures || feedKind === "fixture"
+            ? "border-info-border bg-info-bg"
+            : "border-border bg-surface-inner"
+        )}
+      >
+        <label className="flex cursor-pointer items-start gap-3">
           <input
             type="checkbox"
             checked={useFixtures}
             onChange={(e) => onToggleFixtures(e.target.checked)}
-            className="accent-current"
+            className="mt-1 accent-current"
           />
-          שימוש ב־Fixtures (סימולציה סגורה)
-          {!marketOpen ? <span className="opacity-80">· מומלץ כשהשוק סגור</span> : null}
+          <span className="min-w-0 space-y-0.5">
+            <span className={cn("block text-sm font-medium", useFixtures ? "text-info" : "text-foreground")}>
+              מצב בדיקה · Fixtures
+            </span>
+            <span className={cn("block text-xs leading-relaxed", useFixtures ? "text-info" : "text-muted")}>
+              סימולציה סגורה עם נתוני דמה. מומלץ כשהשוק סגור. אינו משקף ציטוטי שוק חיים.
+            </span>
+          </span>
         </label>
       </div>
 
@@ -183,45 +224,57 @@ function EngineHeader({
           שגיאה אחרונה במנוע: {status.last_error}
         </div>
       ) : null}
-      {useFixtures || feedKind === "fixture" ? (
-        <div className="rounded-md border border-info-border bg-info-bg px-3 py-2 text-xs text-info">
-          מצב Fixture פעיל — כל הציטוטים, הסריקות והעסקאות מבוססים על נתוני דמה סגורים ואינם משקפים את השוק.
-        </div>
-      ) : null}
     </Card>
   );
 }
 
-function AccountPill({
+function AccountCard({
   account,
   active,
+  primary,
   onClick,
 }: {
   account: OptionAccountSummary;
   active: boolean;
+  primary: boolean;
   onClick: () => void;
 }) {
+  const title = shortAccountName(account, primary);
+  const subtitle = primary
+    ? account.mode === "ai"
+      ? "AI"
+      : "חוקים"
+    : account.strategy_scope
+      ? strategyLabel(account.strategy_scope)
+      : "רב־אסטרטגי";
+
   return (
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={cn(
-        "flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-sm transition-colors",
+        "flex min-w-0 w-full flex-col gap-1 rounded-lg border px-3 py-3 text-start transition-colors",
         active
-          ? "bg-primary text-primary-foreground"
-          : "border border-border bg-surface text-foreground hover:bg-surface-active"
+          ? "border-primary bg-primary text-primary-foreground shadow-sm"
+          : "border-border bg-surface text-foreground hover:bg-surface-active"
       )}
-      title={account.strategy_scope ? strategyLabel(account.strategy_scope) : "רב־אסטרטגי"}
     >
-      <span className="font-medium">{account.name}</span>
-      <span
-        className={cn(
-          "font-mono text-xs",
-          active ? "opacity-90" : account.return_pct >= 0 ? "text-profit" : "text-loss"
-        )}
-      >
-        {formatPercent(account.return_pct)}
-      </span>
+      <span className="truncate text-sm font-semibold leading-tight">{title}</span>
+      <span className={cn("truncate text-xs", active ? "opacity-90" : "text-muted")}>{subtitle}</span>
+      <div className="mt-1 flex items-baseline justify-between gap-2">
+        <span className={cn("font-mono text-xs tabular-nums", active ? "opacity-90" : "text-muted")}>
+          {formatCurrency(account.equity)}
+        </span>
+        <span
+          className={cn(
+            "font-mono text-xs tabular-nums",
+            active ? "opacity-90" : account.return_pct >= 0 ? "text-profit" : "text-loss"
+          )}
+        >
+          {formatPercent(account.return_pct)}
+        </span>
+      </div>
     </button>
   );
 }
@@ -312,10 +365,16 @@ export function OptionsLabDashboard() {
         tone: res.ok ? "success" : "error",
         text:
           action === "start"
-            ? res.ok ? "מנוע האופציות הופעל" : "הפעלת המנוע נכשלה"
+            ? res.ok
+              ? "מנוע האופציות הופעל"
+              : "הפעלת המנוע נכשלה"
             : action === "stop"
-              ? res.ok ? "מנוע האופציות נעצר" : "עצירת המנוע נכשלה"
-              : res.ok ? "מחזור יחיד הושלם" : "המחזור נכשל",
+              ? res.ok
+                ? "מנוע האופציות נעצר"
+                : "עצירת המנוע נכשלה"
+              : res.ok
+                ? "מחזור יחיד הושלם"
+                : "המחזור נכשל",
       });
       await load();
     } catch (e) {
@@ -365,8 +424,7 @@ export function OptionsLabDashboard() {
   const status = overview?.engine_status ?? null;
 
   return (
-    <div dir="rtl" className="space-y-4">
-      {/* Disclaimer */}
+    <div dir="rtl" className="w-full max-w-full space-y-4">
       <div className="rounded-lg border border-warning-border bg-warning-bg px-4 py-2.5 text-xs leading-relaxed text-warning">
         <span className="font-semibold">סימולציה פרטית בלבד.</span> לא נשלחות פקודות לבורסה או לברוקר. נתונים מסומנים
         במפורש: <span className="font-semibold">Indicative</span> = הערכה/השהיה,{" "}
@@ -403,41 +461,71 @@ export function OptionsLabDashboard() {
         <div className="rounded-md border border-loss-border bg-loss-bg px-3 py-2 text-sm text-loss">{error}</div>
       ) : null}
 
-      {/* Accounts */}
-      <SectionPanel className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted">חשבונות הון:</span>
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+      <SectionPanel className="space-y-4 overflow-hidden">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-sm font-medium text-foreground">חשבונות AI</p>
+            <p className="text-xs text-muted">$5K · $10K · $25K</p>
+          </div>
+          <div className="grid grid-cols-1 gap-2 min-[375px]:grid-cols-3">
             {primaryAccounts.length ? (
               primaryAccounts.map((a) => (
-                <AccountPill key={a.slug} account={a} active={a.slug === accountSlug} onClick={() => selectAccount(a.slug)} />
+                <AccountCard
+                  key={a.slug}
+                  account={a}
+                  primary
+                  active={a.slug === accountSlug}
+                  onClick={() => selectAccount(a.slug)}
+                />
               ))
             ) : (
-              <span className="text-xs text-muted">{loading ? "טוען…" : "אין חשבונות"}</span>
+              <p className="col-span-full text-xs text-muted">{loading ? "טוען…" : "אין חשבונות"}</p>
             )}
           </div>
         </div>
+
         {cohortAccounts.length ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-muted">קבוצות השוואה:</span>
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+          <div className="space-y-2 border-t border-border pt-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-sm font-medium text-foreground">קבוצות השוואה</p>
+              <p className="text-xs text-muted">$10K · חוקים</p>
+            </div>
+            <div className="grid grid-cols-1 gap-2 min-[480px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
               {cohortAccounts.map((a) => (
-                <AccountPill key={a.slug} account={a} active={a.slug === accountSlug} onClick={() => selectAccount(a.slug)} />
+                <AccountCard
+                  key={a.slug}
+                  account={a}
+                  primary={false}
+                  active={a.slug === accountSlug}
+                  onClick={() => selectAccount(a.slug)}
+                />
               ))}
             </div>
           </div>
         ) : null}
       </SectionPanel>
 
-      {/* Sub-navigation */}
-      <div className="overflow-x-auto scrollbar-thin">
-        <Tabs
-          tabs={TABS}
-          active={tab}
-          onChange={(id) => setTab(id as TabId)}
-          className="min-w-max whitespace-nowrap"
-        />
-      </div>
+      <nav
+        aria-label="תצוגות אופציות"
+        className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-surface-inner p-1 sm:grid-cols-3 lg:grid-cols-5"
+      >
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={cn(
+              "min-w-0 rounded-md px-2 py-2.5 text-center text-xs font-medium transition-colors sm:text-sm",
+              tab === t.id
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted hover:bg-surface-active hover:text-foreground"
+            )}
+          >
+            <span className="hidden truncate sm:inline">{t.label}</span>
+            <span className="truncate sm:hidden">{t.short}</span>
+          </button>
+        ))}
+      </nav>
 
       {tab === "overview" ? (
         <div className="space-y-4">

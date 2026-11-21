@@ -21,8 +21,8 @@ export function resolveFeedKind(tier: DataFeedTier | null | undefined, isIndicat
 
 const FEED_LABEL: Record<FeedKind, string> = {
   opra: "OPRA חי",
-  indicative: "Indicative - נתוני השהיה/הערכה",
-  fixture: "Fixture - סימולציה סגורה",
+  indicative: "Indicative",
+  fixture: "Fixture",
   unavailable: "אין נתוני שוק",
 };
 
@@ -88,6 +88,69 @@ function spreadTone(pct: number | null): string {
 }
 
 type ChainRow = { strike: number; call?: OptionQuoteSnapshot; put?: OptionQuoteSnapshot };
+
+function SideQuote({
+  q,
+  label,
+  itm,
+  tone,
+  compact,
+}: {
+  q?: OptionQuoteSnapshot;
+  label: string;
+  itm: boolean;
+  tone: "profit" | "loss";
+  compact: boolean;
+}) {
+  if (!q) {
+    return (
+      <div className="rounded-md border border-border/60 bg-surface-inner px-2 py-2 text-xs text-muted">
+        <p className={cn("mb-1 font-medium", tone === "profit" ? "text-profit" : "text-loss")}>{label}</p>
+        <p>—</p>
+      </div>
+    );
+  }
+  const spread = spreadOf(q);
+  return (
+    <div
+      className={cn(
+        "rounded-md border px-2 py-2 text-xs",
+        itm ? "border-border bg-surface-inner" : "border-border/60 bg-surface",
+        q.is_stale && "opacity-60"
+      )}
+      title={q.data_warnings.length ? q.data_warnings.join(" · ") : q.contract.occ_symbol}
+    >
+      <p className={cn("mb-1.5 font-medium", tone === "profit" ? "text-profit" : "text-loss")}>
+        {label}
+        {itm ? " · ITM" : ""}
+      </p>
+      <div className="grid grid-cols-2 gap-x-2 gap-y-1 font-mono tabular-nums">
+        <span className="text-muted">Bid</span>
+        <span className="text-end text-profit">{px(toNum(q.bid))}</span>
+        <span className="text-muted">Ask</span>
+        <span className="text-end text-loss">{px(toNum(q.ask))}</span>
+        <span className="text-muted">Δ</span>
+        <span className="text-end">{q.greeks.delta != null ? q.greeks.delta.toFixed(2) : "—"}</span>
+        {!compact ? (
+          <>
+            <span className="text-muted">IV</span>
+            <span className="text-end">{ivPct(q.implied_volatility)}</span>
+            <span className="text-muted">Θ</span>
+            <span className="text-end">{q.greeks.theta != null ? q.greeks.theta.toFixed(3) : "—"}</span>
+            <span className="text-muted">Spread</span>
+            <span className={cn("text-end", spreadTone(spread))}>
+              {spread != null ? `${spread.toFixed(1)}%` : "—"}
+            </span>
+            <span className="text-muted">Vol/OI</span>
+            <span className="text-end">
+              {intFmt.format(q.volume)}/{intFmt.format(q.open_interest || q.contract.open_interest)}
+            </span>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 // ── Panel ────────────────────────────────────────────────────────────────────
 
@@ -190,42 +253,6 @@ export function OptionsChainPanel({ initialChain, useFixtures = false, defaultSy
     setSymbol(s);
     setChain(null);
     onSymbolChange?.(s);
-  };
-
-  const sideHeaders = compact ? ["Δ", "Bid", "Ask"] : ["Vol", "OI", "Θ", "Δ", "IV", "Spread%", "Bid", "Ask"];
-  const putHeaders = [...sideHeaders].reverse();
-  const colSpan = sideHeaders.length * 2 + 1;
-
-  const renderSide = (q: OptionQuoteSnapshot | undefined, side: "call" | "put", itm: boolean) => {
-    const bg = itm ? "bg-surface-inner" : "";
-    if (!q) {
-      return sideHeaders.map((h) => (
-        <td key={`${side}-${h}`} className={cn("px-2 py-1.5 text-center text-muted", bg)}>
-          —
-        </td>
-      ));
-    }
-    const spread = spreadOf(q);
-    const cells: Record<string, React.ReactNode> = {
-      Vol: intFmt.format(q.volume),
-      OI: intFmt.format(q.open_interest || q.contract.open_interest),
-      "Θ": q.greeks.theta != null ? q.greeks.theta.toFixed(3) : "—",
-      "Δ": q.greeks.delta != null ? q.greeks.delta.toFixed(2) : "—",
-      IV: ivPct(q.implied_volatility),
-      "Spread%": <span className={spreadTone(spread)}>{spread != null ? `${spread.toFixed(1)}%` : "—"}</span>,
-      Bid: <span className="text-profit">{px(toNum(q.bid))}</span>,
-      Ask: <span className="text-loss">{px(toNum(q.ask))}</span>,
-    };
-    const order = side === "call" ? sideHeaders : putHeaders;
-    return order.map((h) => (
-      <td
-        key={`${side}-${h}`}
-        className={cn("px-2 py-1.5 text-center font-mono tabular-nums", bg, q.is_stale && "opacity-60")}
-        title={q.data_warnings.length ? q.data_warnings.join(" · ") : q.contract.occ_symbol}
-      >
-        {cells[h]}
-      </td>
-    ));
   };
 
   return (
@@ -341,67 +368,38 @@ export function OptionsChainPanel({ initialChain, useFixtures = false, defaultSy
           <div className="rounded-md border border-loss-border bg-loss-bg px-3 py-2 text-sm text-loss">{error}</div>
         ) : null}
 
-        {/* Chain table — fixed LTR so CALLS stay left, PUTS right */}
         {loading && !chain ? (
           <p className="py-6 text-center text-sm text-muted">טוען שרשרת…</p>
         ) : rows.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted">אין חוזים זמינים לפקיעה/טווח שנבחר.</p>
         ) : (
-          <div dir="ltr" className="w-full overflow-x-auto rounded-md border border-table-border scrollbar-thin">
-            <table className="w-full min-w-max text-xs">
-              <thead className="bg-table-header text-table-header-text">
-                <tr>
-                  <th colSpan={sideHeaders.length} className="border-b border-table-border py-1.5 text-center text-profit">
-                    CALLS · קול
-                  </th>
-                  <th className="border-x border-b border-table-border px-2 py-1.5 text-center">Strike</th>
-                  <th colSpan={sideHeaders.length} className="border-b border-table-border py-1.5 text-center text-loss">
-                    PUTS · פוט
-                  </th>
-                </tr>
-                <tr>
-                  {sideHeaders.map((h) => (
-                    <th key={`ch-${h}`} className="px-2 py-1.5 text-center font-medium">
-                      {h}
-                    </th>
-                  ))}
-                  <th className="border-x border-table-border px-2 py-1.5 text-center font-medium">$</th>
-                  {putHeaders.map((h) => (
-                    <th key={`ph-${h}`} className="px-2 py-1.5 text-center font-medium">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, idx) => {
-                  const callItm = spot != null && row.strike < spot;
-                  const putItm = spot != null && row.strike > spot;
-                  return (
-                    <Fragment key={row.strike}>
-                      {idx === spotInsertIdx && spot != null ? (
-                        <tr>
-                          <td colSpan={colSpan} className="bg-primary-soft py-0.5 text-center text-[11px] font-medium text-accent">
-                            ▲ Spot ${formatPrice(spot)} ▼
-                          </td>
-                        </tr>
-                      ) : null}
-                      <tr className="border-b border-table-border bg-table-row hover:bg-table-hover">
-                        {renderSide(row.call, "call", callItm)}
-                        <td className="border-x border-table-border bg-surface-highlight px-3 py-1.5 text-center font-mono font-semibold text-foreground">
-                          {formatPrice(row.strike)}
-                        </td>
-                        {renderSide(row.put, "put", putItm)}
-                      </tr>
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="space-y-2">
+            {rows.map((row, idx) => {
+              const callItm = spot != null && row.strike < spot;
+              const putItm = spot != null && row.strike > spot;
+              return (
+                <Fragment key={row.strike}>
+                  {idx === spotInsertIdx && spot != null ? (
+                    <div className="rounded-md bg-primary-soft px-3 py-1.5 text-center text-xs font-medium text-accent">
+                      Spot ${formatPrice(spot)}
+                    </div>
+                  ) : null}
+                  <div className="rounded-lg border border-border bg-surface p-2.5">
+                    <div className="mb-2 text-center font-mono text-sm font-semibold tabular-nums">
+                      Strike {formatPrice(row.strike)}
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <SideQuote q={row.call} label="CALL" itm={!!callItm} tone="profit" compact={compact} />
+                      <SideQuote q={row.put} label="PUT" itm={!!putItm} tone="loss" compact={compact} />
+                    </div>
+                  </div>
+                </Fragment>
+              );
+            })}
           </div>
         )}
         <p className="text-xs text-muted">
-          רקע מודגש = In-The-Money. Θ ליום קלנדרי לכל מניה; Δ לכל חוזה. ציטוטים אינם ביצוע בבורסה — סימולציה פרטית בלבד.
+          ITM מסומן על החוזה. Θ ליום קלנדרי לכל מניה; Δ לכל חוזה. ציטוטים אינם ביצוע בבורסה — סימולציה פרטית בלבד.
         </p>
       </CardContent>
     </Card>
