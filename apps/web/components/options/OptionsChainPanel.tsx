@@ -107,7 +107,7 @@ export function OptionsChainPanel({ initialChain, useFixtures = false, defaultSy
   const [error, setError] = useState<string | null>(null);
   const [minDte, setMinDte] = useState(3);
   const [maxDte, setMaxDte] = useState(60);
-  const [expiration, setExpiration] = useState<string | null>(null);
+  const [expiration, setExpiration] = useState<string | null>(() => initialChain?.expirations?.[0] ?? null);
   const [compact, setCompact] = useState(false);
 
   const load = useCallback(async () => {
@@ -133,6 +133,12 @@ export function OptionsChainPanel({ initialChain, useFixtures = false, defaultSy
     return Array.from(new Set([...(chain.expirations ?? []), ...fromContracts])).sort();
   }, [chain]);
 
+  const effectiveExpiration = useMemo(() => {
+    if (!expirations.length) return null;
+    if (expiration && expirations.includes(expiration)) return expiration;
+    return expirations[0];
+  }, [expirations, expiration]);
+
   useEffect(() => {
     if (!expirations.length) {
       setExpiration(null);
@@ -147,10 +153,10 @@ export function OptionsChainPanel({ initialChain, useFixtures = false, defaultSy
   }, [chain]);
 
   const rows = useMemo<ChainRow[]>(() => {
-    if (!chain || !expiration) return [];
+    if (!chain || !effectiveExpiration) return [];
     const map = new Map<number, ChainRow>();
     for (const q of chain.contracts) {
-      if (q.contract.expiration_date !== expiration) continue;
+      if (q.contract.expiration_date !== effectiveExpiration) continue;
       const strike = toNum(q.contract.strike);
       if (strike == null) continue;
       const row = map.get(strike) ?? { strike };
@@ -159,7 +165,7 @@ export function OptionsChainPanel({ initialChain, useFixtures = false, defaultSy
       map.set(strike, row);
     }
     return Array.from(map.values()).sort((a, b) => a.strike - b.strike);
-  }, [chain, expiration]);
+  }, [chain, effectiveExpiration]);
 
   const spotInsertIdx = useMemo(() => {
     if (spot == null || !rows.length) return -1;
@@ -260,7 +266,7 @@ export function OptionsChainPanel({ initialChain, useFixtures = false, defaultSy
           <label className="flex flex-col gap-1">
             <span className="text-xs text-muted">פקיעה</span>
             <select
-              value={expiration ?? ""}
+              value={effectiveExpiration ?? ""}
               onChange={(e) => setExpiration(e.target.value || null)}
               className="rounded-md border border-input-border bg-surface-inner px-2 py-1.5 text-sm text-foreground"
               disabled={!expirations.length}

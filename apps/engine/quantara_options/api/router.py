@@ -263,8 +263,21 @@ def _cached_chain_preview(repo: OptionsRepository, symbol: str) -> Optional[Opti
     if not snaps:
         return None
     newest = max((s.snapshot_timestamp for s in snaps), default=datetime.now(timezone.utc))
-    exps = sorted({s.contract.expiration_date for s in snaps})
     first = snaps[0]
+    spot = float(first.underlying_price or 0)
+    exps_all = sorted({s.contract.expiration_date for s in snaps})
+    keep_exps = set(exps_all[:4])
+    if spot > 0:
+        filtered = [
+            s for s in snaps
+            if s.contract.expiration_date in keep_exps
+            and abs(float(s.contract.strike) - spot) / spot <= 0.12
+        ]
+        if filtered:
+            snaps = filtered
+    else:
+        snaps = [s for s in snaps if s.contract.expiration_date in keep_exps][:200]
+    exps = sorted({s.contract.expiration_date for s in snaps})
     warnings: list[str] = []
     if first.feed_tier == DataFeedTier.FIXTURE:
         warnings.append(WARN_SYNTHETIC_FIXTURE)
@@ -363,6 +376,7 @@ def get_options_chain(
     symbol: str = Query(..., min_length=1, max_length=16),
     min_dte: int = Query(default=3, ge=0, le=365),
     max_dte: int = Query(default=60, ge=1, le=730),
+    strike_range_pct: float = Query(default=0.15, ge=0.02, le=1.0),
     use_fixtures: bool = Query(default=False),
     session: Session = Depends(get_session),
 ) -> OptionChainResponse:
@@ -371,9 +385,13 @@ def get_options_chain(
         raise HTTPException(status_code=422, detail="min_dte must be <= max_dte")
 
     if use_fixtures:
-        return _make_fixture_provider().get_option_chain(sym, min_dte=min_dte, max_dte=max_dte)
+        return _make_fixture_provider().get_option_chain(
+            sym, min_dte=min_dte, max_dte=max_dte, strike_range_pct=strike_range_pct
+        )
 
-    chain = _make_alpaca_provider().get_option_chain(sym, min_dte=min_dte, max_dte=max_dte)
+    chain = _make_alpaca_provider().get_option_chain(
+        sym, min_dte=min_dte, max_dte=max_dte, strike_range_pct=strike_range_pct
+    )
     if chain.contracts:
         try:
             repo = OptionsRepository(session, autocommit=False)
