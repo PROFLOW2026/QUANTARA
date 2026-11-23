@@ -58,6 +58,61 @@ function freshnessLabel(seconds: number | null | undefined): string {
   return `עודכן לפני ${(seconds / 3600).toFixed(1)} שע׳`;
 }
 
+/** Fill activity fields from overview payload when the live engine process
+ *  has not yet loaded the enriched get_engine_state response. */
+function enrichEngineStatusFromOverview(
+  status: OptionsEngineStatusView,
+  overview: OptionsLabOverviewResponse
+): OptionsEngineStatusView {
+  const hourAgo = Date.now() - 60 * 60 * 1000;
+  const strategies = [...(overview.open_strategies ?? []), ...(overview.closed_strategies ?? [])];
+  const newestOpen = strategies
+    .filter((s) => s.opened_at)
+    .sort((a, b) => new Date(b.opened_at).getTime() - new Date(a.opened_at).getTime())[0];
+  const opensLastHour = strategies.filter(
+    (s) => s.opened_at && new Date(s.opened_at).getTime() >= hourAgo
+  ).length;
+  const riskBlocks1h = (overview.ai_decisions ?? []).filter(
+    (d) =>
+      d.action === "OPEN" &&
+      d.risk_guard_passed === false &&
+      new Date(d.created_at).getTime() >= hourAgo
+  ).length;
+  const opps1h = (overview.opportunities ?? []).length;
+
+  let idle_hint = status.idle_hint ?? null;
+  if (
+    idle_hint == null &&
+    status.enabled &&
+    !status.running_cycle &&
+    (status.sim_opens_last_hour ?? opensLastHour) === 0
+  ) {
+    if (!status.market_open) {
+      idle_hint = "השוק סגור — אין פתיחות סימולציה חדשות מחוץ לשעות המסחר";
+    } else if (opps1h === 0) {
+      idle_hint = "המנוע פעיל, אך לא נמצאו מועמדים חדשים בסריקה האחרונה";
+    } else if (riskBlocks1h > 0) {
+      idle_hint = `יש מועמדים, אך Risk Guard חסם ${riskBlocks1h} הצעות בשעה האחרונה`;
+    } else {
+      idle_hint = "המנוע פעיל; אין פתיחות סימולציה בשעה האחרונה";
+    }
+  }
+
+  const last_cycle_ok =
+    status.last_cycle_ok ??
+    (status.last_cycle_at == null ? null : status.last_error == null);
+
+  return {
+    ...status,
+    last_cycle_ok,
+    last_sim_trade_at: status.last_sim_trade_at ?? newestOpen?.opened_at ?? null,
+    last_sim_trade_account: status.last_sim_trade_account ?? newestOpen?.account_slug ?? null,
+    last_sim_trade_strategy: status.last_sim_trade_strategy ?? newestOpen?.strategy_type ?? null,
+    sim_opens_last_hour: status.sim_opens_last_hour ?? opensLastHour,
+    idle_hint,
+  };
+}
+
 const PRIMARY_SLUGS = new Set(["options-5k", "options-10k", "options-25k"]);
 
 function isPrimaryAccount(a: OptionAccountSummary): boolean {
@@ -476,7 +531,10 @@ export function OptionsLabDashboard() {
     }
   };
 
-  const status = overview?.engine_status ?? null;
+  const status = useMemo(() => {
+    if (!overview?.engine_status) return null;
+    return enrichEngineStatusFromOverview(overview.engine_status, overview);
+  }, [overview]);
 
   return (
     <div dir="rtl" className="w-full max-w-full space-y-4">
