@@ -131,6 +131,13 @@ class OptionsEngineStatusView(BaseModel):
     readiness_market_data: bool = False
     readiness_forward_sim: bool = False
     universe: list[str] = Field(default_factory=list)
+    # Activity snapshot for clear UI (simulation fills, not exchange latency)
+    last_cycle_ok: Optional[bool] = None
+    last_sim_trade_at: Optional[datetime] = None
+    last_sim_trade_account: Optional[str] = None
+    last_sim_trade_strategy: Optional[str] = None
+    sim_opens_last_hour: int = 0
+    idle_hint: Optional[str] = None
 
 
 class OptionsStrategyComparisonRow(BaseModel):

@@ -414,6 +414,12 @@ export interface OptionsEngineStatusView {
   readiness_market_data: boolean;
   readiness_forward_sim: boolean;
   universe: string[];
+  last_cycle_ok?: boolean | null;
+  last_sim_trade_at?: IsoDateTime | null;
+  last_sim_trade_account?: string | null;
+  last_sim_trade_strategy?: string | null;
+  sim_opens_last_hour?: number;
+  idle_hint?: string | null;
 }
 
 export interface OptionsStrategyComparisonRow {

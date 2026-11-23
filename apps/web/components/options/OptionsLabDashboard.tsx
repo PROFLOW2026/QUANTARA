@@ -84,6 +84,17 @@ function StatusCell({ label, children }: { label: string; children: ReactNode })
   );
 }
 
+function marketDataLabel(status: OptionsEngineStatusView | null): { text: string; tone: string } {
+  if (!status) return { text: "לא זמינים", tone: "text-loss" };
+  const kind = resolveFeedKind(status.feed_tier, status.is_indicative);
+  const fresh = status.data_freshness_seconds;
+  if (kind === "unavailable") return { text: "לא זמינים", tone: "text-loss" };
+  if (kind === "fixture") return { text: "Fixture (דמה)", tone: "text-info" };
+  if (fresh != null && fresh > 300) return { text: "לא עדכניים", tone: "text-loss" };
+  if (kind === "opra") return { text: "עדכניים · OPRA", tone: "text-profit" };
+  return { text: "עדכניים · פיד מושהה/מוערך", tone: "text-warning" };
+}
+
 function EngineHeader({
   status,
   useFixtures,
@@ -99,20 +110,42 @@ function EngineHeader({
 }) {
   const marketOpen = status?.market_open ?? false;
   const feedKind = resolveFeedKind(status?.feed_tier, status?.is_indicative ?? true);
+  const hasFault = Boolean(status?.last_error) || (status?.last_cycle_ok === false);
   const engineLabel = !status
-    ? "לא מחובר"
-    : status.running_cycle
-      ? "מחזור רץ…"
-      : status.enabled
-        ? "פעיל"
-        : "כבוי";
-  const engineTone = !status
+    ? "תקלה"
+    : hasFault && !status.enabled
+      ? "תקלה"
+      : status.running_cycle
+        ? "פעיל · מחזור רץ"
+        : status.enabled
+          ? hasFault
+            ? "פעיל · אזהרה"
+            : "פעיל"
+          : "כבוי";
+  const engineTone = !status || (hasFault && !status.enabled)
     ? "text-loss"
     : status.running_cycle
       ? "text-info"
       : status.enabled
-        ? "text-profit"
+        ? hasFault
+          ? "text-warning"
+          : "text-profit"
         : "text-muted";
+  const dataStatus = marketDataLabel(status);
+  const groqLabel = !status ? "לא זמין" : status.groq_available ? "מחובר" : "לא זמין · גיבוי חוקים";
+  const groqTone = status?.groq_available ? "text-profit" : "text-warning";
+  const cycleResult =
+    !status?.last_cycle_at
+      ? "טרם הורץ"
+      : status.last_cycle_ok === false || status.last_error
+        ? "נכשל"
+        : "הצליח";
+  const cycleTone =
+    cycleResult === "הצליח" ? "text-profit" : cycleResult === "נכשל" ? "text-loss" : "text-muted";
+  const lastTrade =
+    status?.last_sim_trade_at && status.last_sim_trade_account
+      ? `${status.last_sim_trade_account}${status.last_sim_trade_strategy ? ` · ${status.last_sim_trade_strategy}` : ""}`
+      : null;
 
   const btn =
     "inline-flex h-10 min-w-[7.5rem] flex-1 items-center justify-center rounded-md px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none";
@@ -129,42 +162,54 @@ function EngineHeader({
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <StatusCell label="סטטוס מנוע">
           <span className={cn("font-medium", engineTone)}>{engineLabel}</span>
+          <span className="text-xs text-muted">{marketOpen ? "שוק פתוח" : "שוק סגור"}</span>
         </StatusCell>
-        <StatusCell label="סטטוס שוק">
-          <span className={marketOpen ? "font-medium text-profit" : "font-medium text-muted"}>
-            {marketOpen ? "שוק פתוח" : "שוק סגור"}
+        <StatusCell label="סטטוס נתוני שוק">
+          <span className={cn("font-medium", dataStatus.tone)}>{dataStatus.text}</span>
+          <span className="text-xs text-muted">{freshnessLabel(status?.data_freshness_seconds)}</span>
+        </StatusCell>
+        <StatusCell label="סטטוס Groq">
+          <span className={cn("font-medium", groqTone)}>{groqLabel}</span>
+          <span className="truncate text-xs text-muted">
+            {status?.groq_model ?? "—"}
+            {status?.groq_calls_today != null ? ` · ${status.groq_calls_today} קריאות היום` : ""}
           </span>
-          {status?.universe?.[0] ? (
-            <span className="font-mono text-xs text-muted">{status.universe[0]}</span>
-          ) : null}
         </StatusCell>
-        <StatusCell label="מקור נתונים">
-          <FeedTierBadge
-            tier={status?.feed_tier}
-            isIndicative={status?.is_indicative ?? true}
-            isDelayedTrades={status?.is_delayed_trades ?? false}
-          />
+        <StatusCell label="מחזור אחרון">
+          <span className={cn("font-medium", cycleTone)}>{cycleResult}</span>
+          {status?.last_cycle_at ? (
+            <span className="text-xs text-muted">{formatRelativeTime(status.last_cycle_at)}</span>
+          ) : (
+            <span className="text-xs text-muted">אין מחזור</span>
+          )}
+        </StatusCell>
+        <StatusCell label="עסקה אחרונה (סימולציה)">
+          {lastTrade ? (
+            <>
+              <span className="break-all text-sm font-medium">{lastTrade}</span>
+              <span className="text-xs text-muted">
+                {formatRelativeTime(status!.last_sim_trade_at!)}
+                {typeof status?.sim_opens_last_hour === "number"
+                  ? ` · ${status.sim_opens_last_hour} פתיחות בשעה`
+                  : ""}
+              </span>
+            </>
+          ) : (
+            <span className="text-sm text-muted">אין עדיין עסקאות סימולציה</span>
+          )}
         </StatusCell>
         <StatusCell label="מצב החלטה">
           <span className="font-medium">{status?.mode === "ai" ? "AI" : "חוקים"}</span>
-          <span className="truncate text-xs text-muted">
-            Groq {status?.groq_available ? "זמין" : "גיבוי חוקים"}
-          </span>
-        </StatusCell>
-        <StatusCell label="עדכון אחרון">
-          <span className="text-sm">{freshnessLabel(status?.data_freshness_seconds)}</span>
-          {status?.last_cycle_at ? (
-            <span className="text-xs text-muted">מחזור: {formatRelativeTime(status.last_cycle_at)}</span>
-          ) : null}
-        </StatusCell>
-        <StatusCell label="מוכנות">
-          <span className="text-xs text-muted">
-            טכנית {status?.readiness_technical ? "✓" : "—"} · שוק{" "}
-            {status?.readiness_market_data ? "✓" : "—"} · קדימה{" "}
-            {status?.readiness_forward_sim ? "✓" : "—"}
-          </span>
+          <FeedTierBadge tier={status?.feed_tier} isIndicative={status?.is_indicative ?? true} />
         </StatusCell>
       </div>
+
+      {status?.idle_hint ? (
+        <div className="rounded-md border border-border bg-surface-inner px-3 py-2 text-xs text-muted">
+          <span className="font-medium text-foreground">למה אין עסקאות חדשות: </span>
+          {status.idle_hint}
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         <button

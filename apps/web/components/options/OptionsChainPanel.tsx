@@ -21,7 +21,7 @@ export function resolveFeedKind(tier: DataFeedTier | null | undefined, isIndicat
 
 const FEED_LABEL: Record<FeedKind, string> = {
   opra: "OPRA חי",
-  indicative: "Indicative",
+  indicative: "פיד מושהה/מוערך",
   fixture: "Fixture",
   unavailable: "אין נתוני שוק",
 };
@@ -37,12 +37,13 @@ export function FeedTierBadge({
   tier,
   isIndicative = true,
   isStale = false,
-  isDelayedTrades = false,
+  isDelayedTrades: _isDelayedTrades = false,
   className,
 }: {
   tier: DataFeedTier | null | undefined;
   isIndicative?: boolean;
   isStale?: boolean;
+  /** @deprecated Kept for API compat — refers to delayed market quotes, not sim execution lag. */
   isDelayedTrades?: boolean;
   className?: string;
 }) {
@@ -50,7 +51,6 @@ export function FeedTierBadge({
   return (
     <span className={cn("inline-flex flex-wrap items-center gap-1", className)}>
       <Badge variant={FEED_VARIANT[kind]}>{FEED_LABEL[kind]}</Badge>
-      {isDelayedTrades && kind !== "fixture" ? <Badge variant="outline">עסקאות בהשהיה</Badge> : null}
       {isStale ? <Badge variant="danger">נתונים לא עדכניים</Badge> : null}
     </span>
   );

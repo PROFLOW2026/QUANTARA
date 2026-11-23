@@ -1966,7 +1966,51 @@ class OptionsRepository:
             FROM opt_engine_state s WHERE s.id = 1
             """
         ).mappings().one()
+        activity = (
+            self._exec(
+                """
+                SELECT
+                  (SELECT opened_at FROM opt_strategies ORDER BY opened_at DESC NULLS LAST LIMIT 1)
+                    AS last_sim_trade_at,
+                  (SELECT account_slug FROM opt_strategies ORDER BY opened_at DESC NULLS LAST LIMIT 1)
+                    AS last_sim_trade_account,
+                  (SELECT strategy_type FROM opt_strategies ORDER BY opened_at DESC NULLS LAST LIMIT 1)
+                    AS last_sim_trade_strategy,
+                  (SELECT COUNT(*) FROM opt_strategies
+                     WHERE opened_at > NOW() - INTERVAL '1 hour') AS sim_opens_last_hour,
+                  (SELECT COUNT(*) FROM opt_ai_decisions
+                     WHERE created_at > NOW() - INTERVAL '1 hour'
+                       AND action = 'OPEN' AND risk_guard_passed = false) AS risk_blocks_last_hour,
+                  (SELECT COUNT(*) FROM opt_opportunities
+                     WHERE scanned_at > NOW() - INTERVAL '1 hour') AS opportunities_last_hour
+                """
+            )
+            .mappings()
+            .one()
+        )
         self._maybe_commit()
+        last_cycle_at = r["last_cycle_at"]
+        last_error = r["last_error"]
+        last_cycle_ok: bool | None
+        if last_cycle_at is None:
+            last_cycle_ok = None
+        else:
+            last_cycle_ok = last_error is None
+
+        opens_1h = int(activity["sim_opens_last_hour"] or 0)
+        risk_blocks_1h = int(activity["risk_blocks_last_hour"] or 0)
+        opps_1h = int(activity["opportunities_last_hour"] or 0)
+        idle_hint: str | None = None
+        if bool(r["enabled"]) and not bool(r["running_cycle"]) and opens_1h == 0:
+            if not bool(r["market_open"]):
+                idle_hint = "השוק סגור — אין פתיחות סימולציה חדשות מחוץ לשעות המסחר"
+            elif opps_1h == 0:
+                idle_hint = "המחזור רץ, אך לא נמצאו מועמדים חדשים בסריקה האחרונה"
+            elif risk_blocks_1h > 0:
+                idle_hint = f"יש מועמדים, אך Risk Guard חסם {risk_blocks_1h} הצעות בשעה האחרונה"
+            else:
+                idle_hint = "המנוע פעיל; אין פתיחות סימולציה בשעה האחרונה"
+
         return OptionsEngineStatusView(
             enabled=bool(r["enabled"]),
             running_cycle=bool(r["running_cycle"]),
@@ -1976,22 +2020,28 @@ class OptionsRepository:
             is_delayed_trades=bool(r["is_delayed_trades"]),
             market_open=bool(r["market_open"]),
             data_freshness_seconds=r["data_freshness_seconds"],
-            last_cycle_at=r["last_cycle_at"],
-            last_error=r["last_error"],
+            last_cycle_at=last_cycle_at,
+            last_error=last_error,
             groq_available=bool(r["groq_available"]),
             groq_model=r["groq_model"],
             groq_calls_today=int(r["groq_calls_today"]) if r["groq_today"] else 0,
             readiness_technical=True,
             readiness_market_data=(
-                r["last_cycle_at"] is not None
+                last_cycle_at is not None
                 and r["feed_tier"] not in (DataFeedTier.UNAVAILABLE.value, DataFeedTier.FIXTURE.value)
             ),
             readiness_forward_sim=(
                 bool(r["has_orders"])
-                and r["last_cycle_at"] is not None
+                and last_cycle_at is not None
                 and r["feed_tier"] not in (DataFeedTier.UNAVAILABLE.value, DataFeedTier.FIXTURE.value)
             ),
             universe=[str(s) for s in _json_load(r["universe"], [])],
+            last_cycle_ok=last_cycle_ok,
+            last_sim_trade_at=activity["last_sim_trade_at"],
+            last_sim_trade_account=activity["last_sim_trade_account"],
+            last_sim_trade_strategy=activity["last_sim_trade_strategy"],
+            sim_opens_last_hour=opens_1h,
+            idle_hint=idle_hint,
         )
 
     def set_engine_state(self, patch: Mapping[str, Any]) -> OptionsEngineStatusView:
