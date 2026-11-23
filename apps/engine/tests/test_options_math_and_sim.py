@@ -577,6 +577,24 @@ class TestCollateralAndMarginConservation:
         assert drop == pytest.approx(width * 100 - net_credit + fees, abs=0.05)
         assert drop <= f(cand.max_loss_usd) + _spread_cost_total(cand) + fees + 1  # max loss + costs
 
+    def test_credit_spread_equity_not_inflated_when_short_liability_counted(self, options_lab):
+        """Regression: long MV without short liability would fake a large equity jump at open."""
+        lab = options_lab
+        chain = build_chain("SPY")
+        slug = lab.new_account(25_000)
+        cand = candidate_for(StrategyType.BULL_PUT_CREDIT_SPREAD, chain)
+        lab.open(slug, cand)
+        a = lab.acct(slug)
+        assert_equity_identity(a)
+        assert f(a.short_options_liability) > 0
+        assert f(a.long_options_market_value) > 0
+        # At entry marks, equity stays near starting capital (fees only), not +long MV.
+        assert f(a.equity) <= 25_000 + 1.0
+        assert f(a.equity) >= 25_000 - f(a.fees_paid) - 5.0
+        inflated = f(a.cash_balance) + f(a.long_options_market_value)
+        assert inflated - f(a.equity) == pytest.approx(f(a.short_options_liability), abs=0.05)
+        assert inflated - 25_000 > 100, "sanity: missing liability would look like a large phantom gain"
+
     def test_iron_condor_reserves_single_side_max_width(self, options_lab):
         lab = options_lab
         chain = build_chain("SPY")

@@ -247,6 +247,8 @@ function AccountCard({
     : account.strategy_scope
       ? strategyLabel(account.strategy_scope)
       : "רב־אסטרטגי";
+  const returnTone =
+    account.return_pct > 0 ? "text-profit" : account.return_pct < 0 ? "text-loss" : "text-muted";
 
   return (
     <button
@@ -254,27 +256,35 @@ function AccountCard({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "flex min-w-0 w-full flex-col gap-1 rounded-lg border px-3 py-3 text-start transition-colors",
+        "flex min-w-0 w-full flex-col gap-2 rounded-lg border px-3 py-3 text-start transition-colors",
         active
           ? "border-primary bg-primary text-primary-foreground shadow-sm"
           : "border-border bg-surface text-foreground hover:bg-surface-active"
       )}
     >
-      <span className="truncate text-sm font-semibold leading-tight">{title}</span>
-      <span className={cn("truncate text-xs", active ? "opacity-90" : "text-muted")}>{subtitle}</span>
-      <div className="mt-1 flex items-baseline justify-between gap-2">
-        <span className={cn("font-mono text-xs tabular-nums", active ? "opacity-90" : "text-muted")}>
-          {formatCurrency(account.equity)}
-        </span>
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="break-words text-sm font-semibold leading-snug">{title}</p>
+          <p className={cn("mt-0.5 text-xs", active ? "opacity-90" : "text-muted")}>{subtitle}</p>
+        </div>
         <span
           className={cn(
-            "font-mono text-xs tabular-nums",
-            active ? "opacity-90" : account.return_pct >= 0 ? "text-profit" : "text-loss"
+            "shrink-0 font-mono text-xs font-semibold tabular-nums",
+            active ? "opacity-95" : returnTone
           )}
         >
           {formatPercent(account.return_pct)}
         </span>
       </div>
+      <p
+        className={cn(
+          "font-mono text-base font-semibold tabular-nums leading-none",
+          active ? "opacity-95" : "text-financial"
+        )}
+        dir="ltr"
+      >
+        {formatCurrency(account.equity)}
+      </p>
     </button>
   );
 }
@@ -460,7 +470,7 @@ export function OptionsLabDashboard() {
             <p className="text-sm font-medium text-foreground">חשבונות AI</p>
             <p className="text-xs text-muted">$5K · $10K · $25K</p>
           </div>
-          <div className="grid grid-cols-1 gap-2 min-[375px]:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {primaryAccounts.length ? (
               primaryAccounts.map((a) => (
                 <AccountCard
