@@ -236,8 +236,11 @@ class OptionsRepository:
     def ensure_lab_seeded(self) -> int:
         """Idempotently create lab accounts + engine_state row. Returns #accounts created.
 
-        Existing accounts (and their balances) are never modified.
+        Existing account balances / trades are never modified. Risk profile fields are
+        synced forward to the current policy version without resetting equity.
         """
+        from quantara_options.policy import POLICY_VERSION
+
         created = 0
         for seed in LAB_ACCOUNT_SEEDS:
             cap = _q2(seed.starting_capital)
@@ -267,6 +270,24 @@ class OptionsRepository:
             )
             if res.first() is not None:
                 created += 1
+            # Forward-only risk-profile sync (no balance/trade mutation).
+            self._exec(
+                """
+                UPDATE opt_accounts SET
+                  rule_profile = CAST(:profile AS jsonb),
+                  runtime_meta = COALESCE(runtime_meta, '{}'::jsonb)
+                    || CAST(:meta AS jsonb),
+                  updated_at = NOW()
+                WHERE slug = :slug
+                  AND COALESCE(runtime_meta->>'policy_version', '') <> :ver
+                """,
+                {
+                    "slug": seed.slug,
+                    "profile": _json(seed.rule_profile_json()),
+                    "meta": _json({"policy_version": POLICY_VERSION}),
+                    "ver": POLICY_VERSION,
+                },
+            )
         self._exec("INSERT INTO opt_engine_state (id) VALUES (1) ON CONFLICT (id) DO NOTHING")
         self._maybe_commit()
         return created

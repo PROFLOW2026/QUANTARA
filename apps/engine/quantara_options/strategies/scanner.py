@@ -30,6 +30,12 @@ from quantara_options.contracts import (
     WheelState,
 )
 from quantara_options.math_pricing import bsm_greeks, compute_payoff_curve, implied_volatility, norm_cdf
+from quantara_options.policy import (
+    ENTRY_THRESHOLDS,
+    POLICY_VERSION,
+    credit_after_fees_per_share,
+    min_natural_credit_to_width,
+)
 from quantara_options.strategies.catalog import (
     CREDIT_VERTICALS,
     STRATEGY_CATALOG,
@@ -63,10 +69,14 @@ class ScannerConfig:
     risk_free_rate: float = 0.045
     max_expirations_per_strategy: int = 2
     max_candidates_per_strategy: int = 2
-    min_credit_to_width: float = 0.15
+    min_credit_to_width: float = 0.15  # mid screen (legacy); natural gate uses policy thresholds
     max_debit_to_width: float = 0.70
     min_credit_per_share: float = 0.10
     min_debit_per_share: float = 0.05
+    # Reject legs whose (ask-bid)/mid exceeds this (single-name underlyings use the looser cap).
+    max_leg_spread_pct: float = ENTRY_THRESHOLDS.max_leg_spread_pct
+    max_leg_spread_pct_single_name: float = ENTRY_THRESHOLDS.max_leg_spread_pct_single_name
+    enforce_natural_credit_gate: bool = True
     payoff_points: int = 21
     default_contracts_qty: int = 1
 
@@ -453,9 +463,22 @@ class OptionsOpportunityScanner:
         dte = legs[0][0].dte
         warnings: list[str] = []
 
-        # Net option premium per share (+credit / -debit), at mid.
+        # Net option premium per share (+credit / -debit), at mid (display / PoP).
         net = sum((q.mid if side == OptionSide.SHORT else -q.mid) for q, _, side in legs)
+        # Executable natural premium: sell @ bid, buy @ ask.
+        net_natural = sum((q.bid if side == OptionSide.SHORT else -q.ask) for q, _, side in legs)
         is_credit_opts = net > 0
+
+        # Liquidity / quote integrity gate per option leg.
+        index_like = sym.upper() in {"SPY", "QQQ", "IWM"}
+        spread_cap = cfg.max_leg_spread_pct if index_like else cfg.max_leg_spread_pct_single_name
+        for q, _, _ in legs:
+            if q.bid <= 0 or q.ask <= 0 or q.ask < q.bid:
+                return None
+            if q.spread_pct > spread_cap:
+                return None
+            if getattr(q.quote, "is_stale", False) and not cfg.allow_stale_quotes:
+                return None
 
         k = {role: q.strike for q, role, _ in legs}
         iv_for_pop = atm_iv or (sum(q.iv for q, _, _ in legs) / len(legs))
@@ -522,6 +545,14 @@ class OptionsOpportunityScanner:
                 return None
             if credit >= width:
                 return None
+            # Natural fill gate (post-cost): reject mid-looking trades that fill poorly.
+            if cfg.enforce_natural_credit_gate:
+                nat = credit_after_fees_per_share(
+                    net_natural, n_option_legs=len(legs), multiplier=mult, qty=qty
+                )
+                floor = min_natural_credit_to_width(st)
+                if nat < cfg.min_credit_per_share or nat < width * floor:
+                    return None
             max_profit, max_loss = credit, width - credit
             collateral = max_loss
             if st == StrategyType.BULL_PUT_CREDIT_SPREAD:
@@ -536,6 +567,13 @@ class OptionsOpportunityScanner:
                 return None
             if credit >= width:
                 return None
+            if cfg.enforce_natural_credit_gate:
+                nat = credit_after_fees_per_share(
+                    net_natural, n_option_legs=len(legs), multiplier=mult, qty=qty
+                )
+                floor = min_natural_credit_to_width(st)
+                if nat < cfg.min_credit_per_share or nat < width * floor:
+                    return None
             max_profit, max_loss = credit, width - credit
             collateral = max_loss
             bes = [k[LegRole.SHORT_PUT] - credit, k[LegRole.SHORT_CALL] + credit]
@@ -580,7 +618,17 @@ class OptionsOpportunityScanner:
             warnings.append("wide_spread_leg")
 
         net_per_unit = net - stock_cost
-        evidence: dict[str, Any] = {"atm_iv": atm_iv, "wing_width": width}
+        nat_after_fees = credit_after_fees_per_share(
+            net_natural, n_option_legs=len(legs), multiplier=mult, qty=qty
+        ) if is_credit_opts else net_natural
+        evidence: dict[str, Any] = {
+            "atm_iv": atm_iv,
+            "wing_width": width,
+            "policy_version": POLICY_VERSION,
+            "mid_net_per_share": round(net, 4),
+            "natural_net_per_share": round(net_natural, 4),
+            "natural_net_after_fees_per_share": round(nat_after_fees, 4),
+        }
         sk = ctx.skills_evidence.get(sym) or {}
         if sk:
             evidence["skills"] = sk

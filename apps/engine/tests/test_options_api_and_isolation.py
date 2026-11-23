@@ -634,7 +634,11 @@ class _WriteSentinel:
 
 
 def _run_options_workload(lab):
-    """A representative options session: scan -> decide (rules) -> guard -> open -> mark -> close -> roll."""
+    """A representative options session: scan -> decide (rules) -> guard -> open -> mark -> close.
+
+    Under v2 entry/risk gates, rules may OPEN an expensive long that the guard rejects.
+    Fall through the full candidate list so isolation still exercises a real trade path.
+    """
     from quantara_options.ai import GroqOptionsAdvisor, OptionsRiskGuard
     from quantara_options.contracts import DecisionMode
 
@@ -645,9 +649,18 @@ def _run_options_workload(lab):
     res = advisor.decide(account=lab.acct(slug), candidates=cands[:6], mode=DecisionMode.RULES)
     guard = OptionsRiskGuard()
     opened = []
+    ordered = []
     for d in res.decisions:
-        cand = next(c for c in cands if c.candidate_id == d.candidate_id)
-        if guard.validate_open(cand, account=lab.acct(slug), chain=chain, open_strategies=lab.groups(slug, "open")).passed:
+        ordered.append(next(c for c in cands if c.candidate_id == d.candidate_id))
+    for c in cands:
+        if all(x.candidate_id != c.candidate_id for x in ordered):
+            ordered.append(c)
+    for cand in ordered:
+        if len(opened) >= 1:
+            break
+        if guard.validate_open(
+            cand, account=lab.acct(slug), chain=chain, open_strategies=lab.groups(slug, "open")
+        ).passed:
             opened.append(lab.open(slug, cand, chain=chain))
     lab.mtm(slug, chain)
     for gid in opened:

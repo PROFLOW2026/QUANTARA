@@ -340,41 +340,119 @@ def evaluate_early_assignment(
 
 @dataclass(frozen=True)
 class ExitPolicy:
-    credit_stop_multiple: Optional[Decimal] = Decimal("2.0")   # loss >= N x entry credit (spreads / IC)
-    debit_stop_fraction: Optional[Decimal] = None              # loss >= fraction x debit paid
-    max_loss_trigger_pct: Decimal = Decimal("0.98")            # loss >= 98% of defined max loss
-    stop_capital_secured: bool = False                         # CSP / CC / wheel default: ride to assignment
+    """v2 defaults: credit stops keyed to max_loss, not tiny post-fill credit multiples.
+
+    Soft breaches require `soft_confirm_cycles` consecutive mark hits before auto-close.
+    Emergency breaches close immediately. Capital-secured structures ride by default.
+    """
+
+    credit_stop_multiple: Optional[Decimal] = None  # deprecated; kept for override compatibility
+    debit_stop_fraction: Optional[Decimal] = Decimal("0.35")
+    credit_soft_stop_of_max_loss: Decimal = Decimal("0.45")
+    credit_emergency_of_max_loss: Decimal = Decimal("0.75")
+    soft_confirm_cycles: int = 2
+    max_loss_trigger_pct: Decimal = Decimal("0.98")
+    stop_capital_secured: bool = False
+    capital_secured_emergency_of_max_loss: Optional[Decimal] = Decimal("0.90")
+    require_fresh_marks_for_soft: bool = True
 
 
 def evaluate_exit_breach(strategy: SimStrategy, policy: ExitPolicy = ExitPolicy()) -> tuple[Optional[str], dict[str, Any]]:
-    """Detect stop / max-loss / take-profit breaches on the current marks (catches gaps)."""
+    """Detect stop / max-loss / take-profit breaches on the current marks.
+
+    Returns reason codes:
+      - take_profit / max_loss_breach / stop_loss_emergency → close immediately
+      - stop_loss_pending → soft breach (caller increments confirm counter; do not close yet)
+      - stop_loss_breach → soft breach confirmed across cycles → close
+    """
+    from quantara_options.policy import EXIT_THRESHOLDS, POLICY_VERSION
+
     pnl = strategy.option_unrealized()
     meta = strategy.metadata or {}
-    info: dict[str, Any] = {"unrealized_pnl": float(pnl)}
+    info: dict[str, Any] = {
+        "unrealized_pnl": float(pnl),
+        "policy_version": POLICY_VERSION,
+        "exit_policy": "v2_max_loss_anchored",
+    }
 
     tp = to_decimal(meta.get("take_profit_usd"))
     if tp is not None and tp > ZERO and pnl >= tp:
         return "take_profit", {**info, "take_profit_usd": float(tp)}
 
-    stop = to_decimal(meta.get("stop_loss_usd"))
     capital_secured = strategy.strategy_type in (
         StrategyType.CASH_SECURED_PUT, StrategyType.COVERED_CALL, StrategyType.WHEEL
     )
-    if stop is None and (not capital_secured or policy.stop_capital_secured):
-        entry = strategy.net_entry_cash_flow
-        if entry > ZERO and policy.credit_stop_multiple is not None:
-            stop = money(entry * policy.credit_stop_multiple)
-        elif entry < ZERO and policy.debit_stop_fraction is not None:
+    max_loss = strategy.max_loss_usd if strategy.max_loss_usd and strategy.max_loss_usd > ZERO else ZERO
+    entry = strategy.net_entry_cash_flow
+    loss_usd = money(-pnl) if pnl < ZERO else ZERO
+
+    # Explicit per-trade override still wins.
+    stop = to_decimal(meta.get("stop_loss_usd"))
+    emergency = to_decimal(meta.get("stop_loss_emergency_usd"))
+
+    if stop is None and not capital_secured:
+        if entry < ZERO and policy.debit_stop_fraction is not None:
+            # Long / debit structures: fraction of debit paid.
             stop = money(-entry * policy.debit_stop_fraction)
-    if stop is not None and strategy.max_loss_usd > ZERO and not capital_secured:
-        stop = min(stop, strategy.max_loss_usd)
+        elif entry > ZERO and max_loss > ZERO:
+            # Credit structures: fraction of defined max loss (width - credit), not 2× tiny credit.
+            soft_pct = to_decimal(meta.get("credit_soft_stop_of_max_loss")) or policy.credit_soft_stop_of_max_loss
+            stop = money(max_loss * soft_pct)
+            # Legacy override: if caller still sets credit_stop_multiple, use max(soft, multiple*credit)
+            # but never below soft-of-max-loss floor when max_loss is known.
+            if policy.credit_stop_multiple is not None:
+                stop = max(stop, money(entry * policy.credit_stop_multiple))
+        elif entry > ZERO and policy.credit_stop_multiple is not None:
+            stop = money(entry * policy.credit_stop_multiple)
 
-    if stop is not None and stop > ZERO and pnl <= -stop:
-        gap = money(-pnl - stop)
-        return "stop_loss_breach", {**info, "stop_loss_usd": float(stop), "gap_through_stop_usd": float(gap)}
+    if emergency is None and max_loss > ZERO:
+        if capital_secured and policy.capital_secured_emergency_of_max_loss is not None:
+            emergency = money(max_loss * policy.capital_secured_emergency_of_max_loss)
+        elif not capital_secured:
+            emergency = money(max_loss * policy.credit_emergency_of_max_loss)
 
-    if not capital_secured and strategy.max_loss_usd > ZERO and -pnl >= strategy.max_loss_usd * policy.max_loss_trigger_pct:
-        return "max_loss_breach", {**info, "max_loss_usd": float(strategy.max_loss_usd)}
+    if stop is not None and max_loss > ZERO and not capital_secured:
+        stop = min(stop, max_loss)
+
+    # Stale / estimated marks: do not fire soft stops (emergency still allowed).
+    marks_estimated = bool(getattr(strategy, "mark_is_estimated", lambda: False)())
+    if callable(getattr(strategy, "mark_is_estimated", None)):
+        try:
+            marks_estimated = bool(strategy.mark_is_estimated())
+        except Exception:
+            marks_estimated = False
+    info["marks_estimated"] = marks_estimated
+
+    if emergency is not None and emergency > ZERO and loss_usd >= emergency:
+        return "stop_loss_emergency", {
+            **info,
+            "stop_loss_usd": float(emergency),
+            "gap_through_stop_usd": float(money(loss_usd - emergency)),
+            "urgency": "immediate",
+        }
+
+    if not capital_secured and max_loss > ZERO and loss_usd >= money(max_loss * policy.max_loss_trigger_pct):
+        return "max_loss_breach", {**info, "max_loss_usd": float(max_loss), "urgency": "immediate"}
+
+    if stop is not None and stop > ZERO and loss_usd >= stop:
+        if policy.require_fresh_marks_for_soft and marks_estimated:
+            return None, {**info, "soft_blocked_estimated_marks": True, "stop_loss_usd": float(stop)}
+        confirm_needed = max(1, int(policy.soft_confirm_cycles))
+        prior = int(meta.get("soft_stop_confirm_count") or 0)
+        info.update({
+            "stop_loss_usd": float(stop),
+            "gap_through_stop_usd": float(money(loss_usd - stop)),
+            "soft_stop_confirm_count": prior + 1,
+            "soft_confirm_needed": confirm_needed,
+        })
+        if prior + 1 >= confirm_needed:
+            return "stop_loss_breach", {**info, "urgency": "confirmed"}
+        return "stop_loss_pending", {**info, "urgency": "soft"}
+
+    # Clear pending counter when no longer breached (caller should persist).
+    if int(meta.get("soft_stop_confirm_count") or 0) > 0:
+        info["soft_stop_confirm_count"] = 0
+        info["soft_stop_cleared"] = True
     return None, info
 
 

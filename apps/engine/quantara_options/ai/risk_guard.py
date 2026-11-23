@@ -144,13 +144,18 @@ class OptionsRiskGuard:
             for l in candidate.legs if l.occ_symbol))
         has_stock_leg = any(l.leg_role == LegRole.UNDERLYING_STOCK for l in candidate.legs)
         short_put = next((l for l in candidate.legs if l.leg_role == LegRole.SHORT_PUT), None)
+        # Economic risk for CSP/Wheel: use the larger of a 15% stress and 25% of
+        # cash-secured notional (minus credit), capped by catalog max_loss.
+        econ_floor = 0.25
         if short_put is not None and short_put.strike is not None:
             notional = float(short_put.strike) * short_put.multiplier * candidate.contracts_qty
-            return max(0.0, min(max_loss, stress * notional - credit))
+            stressed = max(stress, econ_floor) * notional - credit
+            return max(0.0, min(max_loss, stressed))
         if has_stock_leg:
             stock = next(l for l in candidate.legs if l.leg_role == LegRole.UNDERLYING_STOCK)
             notional = float(stock.mid or candidate.underlying_price) * stock.multiplier * candidate.contracts_qty
-            return max(0.0, min(max_loss, stress * notional - credit))
+            stressed = max(stress, econ_floor) * notional - credit
+            return max(0.0, min(max_loss, stressed))
         return 0.0
 
     def collateral_estimate_usd(self, candidate: StrategyCandidate) -> float:
@@ -346,6 +351,7 @@ class OptionsRiskGuard:
         # 7. Duplicates ----------------------------------------------------------------
         key = (candidate.underlying_symbol.upper(), candidate.strategy_type.value,
                candidate.expiration_date.isoformat())
+        same_underlying = 0
         for g in open_list:
             gid = _attr(g, "id")
             if is_roll and rolling_group_id and str(gid) == str(rolling_group_id):
@@ -355,6 +361,40 @@ class OptionsRiskGuard:
             if gkey == key:
                 reasons.append(f"duplicate_strategy: {key[1]} {key[0]} {key[2]} already open ({gid})")
                 break
+            if str(_attr(g, "underlying_symbol", "")).upper() == candidate.underlying_symbol.upper():
+                same_underlying += 1
+        checks["open_same_underlying"] = same_underlying
+        if not is_roll and same_underlying >= 2:
+            reasons.append(
+                f"underlying_concentration: {same_underlying} open on {candidate.underlying_symbol} (limit 2)"
+            )
+
+        # 7b. Natural credit / width re-check at execution (scanner may have used older mid).
+        from quantara_options.policy import min_natural_credit_to_width
+        ev = candidate.skills_evidence or {}
+        width = ev.get("wing_width")
+        nat = ev.get("natural_net_after_fees_per_share")
+        if (
+            candidate.strategy_type in CREDIT_VERTICALS
+            or candidate.strategy_type == StrategyType.IRON_CONDOR
+        ) and width and nat is not None:
+            floor = min_natural_credit_to_width(candidate.strategy_type)
+            checks["natural_credit_to_width"] = round(float(nat) / float(width), 4) if float(width) else None
+            if float(nat) < float(width) * floor:
+                reasons.append(
+                    f"natural_credit_too_thin: {float(nat):.3f}/{float(width):.2f} "
+                    f"< {floor:.0%} after costs"
+                )
+
+        # 7c. Long debit size vs equity (directional).
+        if candidate.strategy_type in (StrategyType.LONG_CALL, StrategyType.LONG_PUT) and equity > 0:
+            debit_usd = max(0.0, -float(candidate.estimated_net_premium_total))
+            max_debit_pct = 3.0 if equity < 7500 else 4.0
+            checks["debit_pct_of_equity"] = round(100.0 * debit_usd / equity, 2)
+            if debit_usd > equity * max_debit_pct / 100.0:
+                reasons.append(
+                    f"long_debit_too_large: ${debit_usd:,.0f} > {max_debit_pct:g}% of equity"
+                )
 
         # 8. PDT (only matters when the profile enforces it) ------------------------------
         checks["pdt_enforced"] = prof.enforce_pdt_rule

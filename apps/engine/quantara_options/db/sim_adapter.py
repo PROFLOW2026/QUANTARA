@@ -720,6 +720,87 @@ class PostgresOptionsSimAdapter:
                         },
                     )
 
+            # Persist CLOSE fills (idempotent). Historical day-1 closes without close_fills stay as-is.
+            close_fills = list(meta_payload.get("close_fills") or [])
+            if (
+                not is_new
+                and st.status in (
+                    StrategyStatus.CLOSED,
+                    StrategyStatus.ROLLED,
+                    StrategyStatus.EXPIRED,
+                    StrategyStatus.ASSIGNED,
+                )
+                and close_fills
+                and st.closed_at is not None
+            ):
+                close_oid = _as_uuid(f"ord:{st.strategy_id}:close")
+                self._exec(
+                    """
+                    INSERT INTO opt_orders (
+                      id, account_id, strategy_id, action_kind, legs_payload, order_status,
+                      idempotency_key, created_at, filled_at
+                    ) VALUES (
+                      CAST(:oid AS uuid), CAST(:aid AS uuid), CAST(:sid AS uuid), 'CLOSE',
+                      CAST(:payload AS jsonb), 'filled', :ikey, :ts, :ts
+                    ) ON CONFLICT (idempotency_key) DO NOTHING
+                    """,
+                    {
+                        "oid": close_oid,
+                        "aid": account_id,
+                        "sid": st.strategy_id,
+                        "payload": _jdumps(close_fills),
+                        "ikey": f"sim_close:{st.strategy_id}",
+                        "ts": st.closed_at,
+                    },
+                )
+                # Insert fills only when the CLOSE order row exists and no fills yet for it.
+                existing = self._exec(
+                    "SELECT 1 FROM opt_fills WHERE order_id = CAST(:oid AS uuid) LIMIT 1",
+                    {"oid": close_oid},
+                ).first()
+                if existing is None:
+                    for fr in close_fills:
+                        occ = fr.get("occ")
+                        if not occ:
+                            continue
+                        matched = next((l for l in st.legs if l.occ_symbol == occ), None)
+                        leg_side = matched.side.value if matched is not None else (
+                            "short" if str(fr.get("action", "")).lower() == "buy" else "long"
+                        )
+                        lid = fr.get("leg_id") or (matched.leg_id if matched is not None else None)
+                        if not lid:
+                            lid = _as_uuid(f"leg-close:{st.strategy_id}:{occ}")
+                        self._exec(
+                            """
+                            INSERT INTO opt_fills (
+                              order_id, strategy_id, leg_id, occ_symbol, side, quantity, multiplier,
+                              fill_price, bid_at_fill, ask_at_fill, slippage_usd, fee_usd, cash_flow_usd,
+                              feed_tier, is_indicative, filled_at
+                            ) VALUES (
+                              CAST(:oid AS uuid), CAST(:sid AS uuid), CAST(:lid AS uuid), :occ, :side, :qty, :mult,
+                              :price, :bid, :ask, :slip, :fee, :cash, :tier, :ind, :ts
+                            )
+                            """,
+                            {
+                                "oid": close_oid,
+                                "sid": st.strategy_id,
+                                "lid": lid,
+                                "occ": occ,
+                                "side": leg_side,
+                                "qty": int(fr.get("qty") or 1),
+                                "mult": int(fr.get("multiplier") or 100),
+                                "price": money(fr.get("price") or 0),
+                                "bid": money(fr["bid"]) if fr.get("bid") not in (None, "None") else None,
+                                "ask": money(fr["ask"]) if fr.get("ask") not in (None, "None") else None,
+                                "slip": money(fr.get("slippage_usd") or 0),
+                                "fee": money(fr.get("fee_usd") or 0),
+                                "cash": money(fr.get("cash_flow_usd") or 0),
+                                "tier": str(meta_payload.get("feed_tier") or "alpaca_indicative"),
+                                "ind": bool(meta_payload.get("is_indicative", True)),
+                                "ts": st.closed_at,
+                            },
+                        )
+
         # 4) Append ledger events idempotently
         for ev in events:
             ev_id = _as_uuid(ev.event_id)

@@ -868,21 +868,41 @@ def evaluate_open_strategy_actions(
                     f"Captured {cap_txt} of credit (target {tp:.0%}) — buy back and free collateral.",
                     metrics=metrics)
 
-    # Stop loss: multiple of credit, capped by max loss
-    if ex.stop_loss_basis == "credit_multiple" and credit:
-        sl_usd = ex.stop_loss_pct * credit
+    # Stop loss (v2): primarily fraction of defined max_loss; credit-multiple is a floor only.
+    if ex.stop_loss_basis == "credit_multiple" and (credit or max_loss):
+        from quantara_options.policy import EXIT_THRESHOLDS
+        soft_pct = EXIT_THRESHOLDS.credit_soft_stop_of_max_loss
+        emerg_pct = EXIT_THRESHOLDS.credit_emergency_of_max_loss
+        sl_usd = 0.0
         if max_loss and max_loss > 0:
-            sl_usd = min(sl_usd, 0.9 * max_loss)
+            sl_usd = soft_pct * max_loss
+        if credit and ex.stop_loss_pct:
+            # Never use bare 2×tiny-credit alone when max_loss is known; take the larger of
+            # soft-of-max-loss and a capped multiple so tiny fill credits don't trip instantly.
+            mult_usd = ex.stop_loss_pct * credit
+            if max_loss and max_loss > 0:
+                mult_usd = min(mult_usd, 0.5 * max_loss)
+                sl_usd = max(sl_usd, mult_usd) if sl_usd > 0 else max(mult_usd, soft_pct * max_loss)
+            else:
+                sl_usd = mult_usd
+        emergency_usd = (emerg_pct * max_loss) if max_loss and max_loss > 0 else sl_usd
         metrics["stop_loss_usd"] = round(sl_usd, 2)
-        if loss_usd >= sl_usd and st != StrategyType.CASH_SECURED_PUT:
-            return _rec(strategy_view, st, AIAction.CLOSE, "stop_loss",
-                        f"הפסד ${loss_usd:,.0f} ≥ {ex.stop_loss_pct:.0f}× קרדיט (${sl_usd:,.0f}) — סגירה מחייבת.",
-                        f"Loss ${loss_usd:,.0f} >= {ex.stop_loss_pct:.0f}x credit (${sl_usd:,.0f}) — mandatory close.",
+        metrics["stop_loss_emergency_usd"] = round(emergency_usd, 2)
+        if loss_usd >= emergency_usd and st != StrategyType.CASH_SECURED_PUT:
+            return _rec(strategy_view, st, AIAction.CLOSE, "stop_loss_emergency",
+                        f"הפסד חירום ${loss_usd:,.0f} ≥ {emerg_pct:.0%} מ־max loss (${emergency_usd:,.0f}) — סגירה מיידית.",
+                        f"Emergency loss ${loss_usd:,.0f} >= {emerg_pct:.0%} of max loss (${emergency_usd:,.0f}) — immediate close.",
                         urgency="high", mandatory=True, metrics=metrics)
+        if loss_usd >= sl_usd and st != StrategyType.CASH_SECURED_PUT:
+            # Soft stop: HOLD here so lifecycle can confirm across mark cycles; avoid 1-cycle noise exits.
+            return _rec(strategy_view, st, AIAction.HOLD, "stop_loss_soft_pending",
+                        f"הפסד ${loss_usd:,.0f} חצה סף רך (${sl_usd:,.0f}) — ממתין לאימות מחזורי לפני סגירה.",
+                        f"Loss ${loss_usd:,.0f} breached soft stop (${sl_usd:,.0f}) — awaiting multi-cycle confirm.",
+                        urgency="high", mandatory=False, metrics=metrics)
         if loss_usd >= sl_usd:
             return _rec(strategy_view, st, AIAction.ROLL, "loss_roll",
-                        f"הפסד ${loss_usd:,.0f} ≥ {ex.stop_loss_pct:.0f}× קרדיט — גלגול למטה והחוצה לקבלת קרדיט נוסף.",
-                        f"Loss ${loss_usd:,.0f} >= {ex.stop_loss_pct:.0f}x credit — roll down & out for credit.",
+                        f"הפסד ${loss_usd:,.0f} ≥ סף רך — גלגול למטה והחוצה לקבלת קרדיט נוסף.",
+                        f"Loss ${loss_usd:,.0f} >= soft stop — roll down & out for credit.",
                         urgency="high", metrics=metrics,
                         roll_hint={"style": "down_and_out", "min_dte": spec.dte_min, "max_dte": spec.dte_max,
                                    "target_delta": 0.25, "require_net_credit": True})

@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from quantara_options.contracts import AccountRuleProfile, DecisionMode, StrategyType
+from quantara_options.policy import tier_profile_for_capital
 
 SCOPE_LONG_ONLY = "long_only"
 SCOPE_CREDIT_SPREADS = "credit_spreads"
@@ -62,13 +63,13 @@ class LabAccountSeed:
         return self.rule_profile.model_dump(mode="json")
 
 
-def _profile(**overrides: Any) -> AccountRuleProfile:
+def _profile(starting_capital: Decimal | float | int = 10_000, **overrides: Any) -> AccountRuleProfile:
     base: dict[str, Any] = {
-        "profile_name": "sim_flexible",
         "options_approval_level": 3,
         "margin_enabled": True,
         "enforce_pdt_rule": False,
     }
+    base.update(tier_profile_for_capital(starting_capital))
     base.update(overrides)
     return AccountRuleProfile(**base)
 
@@ -85,7 +86,7 @@ def _cohort(slug: str, name: str, scope: Optional[str]) -> LabAccountSeed:
         mode=DecisionMode.RULES,
         strategy_scope=scope,
         experiment_group=_COHORT_GROUP,
-        rule_profile=_profile(),
+        rule_profile=_profile(_CAPITAL_10K),
     )
 
 
@@ -97,11 +98,7 @@ LAB_ACCOUNT_SEEDS: tuple[LabAccountSeed, ...] = (
         mode=DecisionMode.AI,
         strategy_scope=None,
         experiment_group="options_lab",
-        rule_profile=_profile(
-            options_approval_level=3,
-            margin_enabled=True,
-            enforce_pdt_rule=False,
-        ),
+        rule_profile=_profile(5000),
     ),
     LabAccountSeed(
         slug="options-10k",
@@ -110,7 +107,7 @@ LAB_ACCOUNT_SEEDS: tuple[LabAccountSeed, ...] = (
         mode=DecisionMode.AI,
         strategy_scope=None,
         experiment_group="options_lab",
-        rule_profile=_profile(),
+        rule_profile=_profile(_CAPITAL_10K),
     ),
     LabAccountSeed(
         slug="options-25k",
@@ -119,7 +116,7 @@ LAB_ACCOUNT_SEEDS: tuple[LabAccountSeed, ...] = (
         mode=DecisionMode.AI,
         strategy_scope=None,
         experiment_group="options_lab",
-        rule_profile=_profile(pdt_equity_threshold_usd=Decimal("25000")),
+        rule_profile=_profile(25000, pdt_equity_threshold_usd=Decimal("25000")),
     ),
     _cohort("options-10k-rules", "Options $10K (Rules, all strategies)", None),
     _cohort("options-10k-long-only", "Options $10K (Rules, long only)", SCOPE_LONG_ONLY),

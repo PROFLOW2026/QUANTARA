@@ -485,6 +485,20 @@ class OptionsSimulationEngine:
                 "requirement_notes": req.notes,
                 "feed_tier": cand.feed_tier.value,
                 "entry_spot": str(spot),
+                "policy_version": __import__(
+                    "quantara_options.policy", fromlist=["POLICY_VERSION"]
+                ).POLICY_VERSION,
+                "entry_mid_premium": str(cand.estimated_net_premium_total),
+                "skills_evidence": {
+                    k: cand.skills_evidence.get(k)
+                    for k in (
+                        "mid_net_per_share",
+                        "natural_net_per_share",
+                        "natural_net_after_fees_per_share",
+                        "wing_width",
+                    )
+                    if k in (cand.skills_evidence or {})
+                },
             },
         )
         for leg in legs:
@@ -649,8 +663,34 @@ class OptionsSimulationEngine:
         if market_date(strategy.opened_at) == market_date(s.now):
             acct.day_trade_dates.append(market_date(s.now))
         s.touched.add(strategy.strategy_id)
+        fill_rows = []
+        for f in fills:
+            fill_rows.append(
+                {
+                    "occ": f.occ_symbol,
+                    "action": f.action.value,
+                    "qty": int(f.quantity),
+                    "multiplier": int(f.multiplier),
+                    "price": str(f.price),
+                    "natural": str(f.natural_price),
+                    "mid": str(f.mid) if f.mid is not None else None,
+                    "slippage_per_share": str(money(f.slippage_per_share)),
+                    "slippage_usd": str(money(f.slippage_per_share * f.multiplier * f.quantity)),
+                    "cash_flow_usd": str(f.cash_flow_usd),
+                    "fee_usd": "0",
+                    "estimated": bool(f.estimated),
+                    "leg_id": next(
+                        (l.leg_id for l in strategy.legs if l.occ_symbol == f.occ_symbol),
+                        None,
+                    ),
+                }
+            )
+        strategy.metadata["close_fills"] = fill_rows
+        strategy.metadata["close_reason"] = reason
         self._emit(
-            s, strategy, "CLOSE",
+            s,
+            strategy,
+            "CLOSE",
             f"Closed {strategy.strategy_type.value} {strategy.underlying_symbol} ({reason})",
             cash_delta=acct.cash_balance - cash_before,
             realized_pnl_delta=strategy.realized_pnl - realized_before,
@@ -658,8 +698,9 @@ class OptionsSimulationEngine:
             fee_usd=fees,
             metadata={
                 "reason": reason,
-                "fills": [{"occ": f.occ_symbol, "action": f.action.value, "price": str(f.price), "estimated": f.estimated} for f in fills],
+                "fills": fill_rows,
                 "strategy_realized_pnl": str(strategy.realized_pnl),
+                "persist_fills": True,
             },
         )
         return True, []
@@ -789,8 +830,21 @@ class OptionsSimulationEngine:
             )
             breach, info = evaluate_exit_breach(st, self.exit_policy)
             st.exit_breach = breach
-            if breach:
-                breaches.append({"strategy_id": st.strategy_id, "breach": breach, "estimated_mark": st.mark_is_estimated(), **info})
+            # Persist soft-stop confirmation counter (and clear) on strategy metadata.
+            if "soft_stop_confirm_count" in info:
+                st.metadata["soft_stop_confirm_count"] = int(info["soft_stop_confirm_count"])
+            if info.get("soft_stop_cleared"):
+                st.metadata["soft_stop_confirm_count"] = 0
+            st.metadata["exit_policy_version"] = info.get("policy_version") or st.metadata.get("exit_policy_version")
+            if breach and breach != "stop_loss_pending":
+                breaches.append(
+                    {"strategy_id": st.strategy_id, "breach": breach, "estimated_mark": st.mark_is_estimated(), **info}
+                )
+            elif breach == "stop_loss_pending":
+                s.warnings.append(
+                    f"soft_stop_pending:{st.strategy_id}:{info.get('soft_stop_confirm_count')}/"
+                    f"{info.get('soft_confirm_needed')}"
+                )
             s.touched.add(st.strategy_id)
 
         totals = compute_account_totals(acct, s.open_strategies())

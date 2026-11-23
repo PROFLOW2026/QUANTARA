@@ -565,7 +565,8 @@ class GroqOptionsAdvisor:
     def _record(self, account: OptionAccountSummary, *, action: AIAction, decided_by: str,
                 ctx: dict[str, Any], candidate: Optional[StrategyCandidate] = None,
                 rec: Optional[StrategyActionRecommendation] = None, qty: Optional[int] = None,
-                confidence: float = 0.0, he: str = "", en: str = "", mode: DecisionMode) -> AIDecisionRecord:
+                confidence: float = 0.0, he: str = "", en: str = "", mode: DecisionMode,
+                market_context_extra: Optional[dict[str, Any]] = None) -> AIDecisionRecord:
         st = candidate.strategy_type if candidate else (rec.strategy_type if rec else None)
         und = candidate.underlying_symbol if candidate else (rec.underlying_symbol if rec else "")
         mc = dict(ctx)
@@ -576,6 +577,8 @@ class GroqOptionsAdvisor:
             mc["candidate"] = {"rules_score": candidate.rules_score, "pop": candidate.probability_of_profit,
                                "max_loss_usd": float(candidate.max_loss_usd),
                                "collateral_usd": float(candidate.collateral_required_usd)}
+        if market_context_extra:
+            mc.update(market_context_extra)
         return AIDecisionRecord(
             decision_id=f"dec_{uuid.uuid4().hex[:16]}",
             account_slug=account.slug,
@@ -843,6 +846,11 @@ class GroqOptionsAdvisor:
                     continue
                 if r.mandatory:
                     continue
+                # v2: when the deterministic catalog says HOLD, block discretionary CLOSE/ROLL
+                # (e.g. "free a slot for another trade"). Mandatory risk exits are injected below.
+                if action in (AIAction.CLOSE, AIAction.ROLL) and r.action == AIAction.HOLD:
+                    res.discarded.append(f"discretionary_close_blocked_catalog_hold:{str(gid)[:40]}")
+                    continue
                 if action == AIAction.ROLL and r.action != AIAction.ROLL:
                     action = AIAction.CLOSE if r.action == AIAction.CLOSE else AIAction.HOLD
                     en = f"[ROLL not rule-supported -> {action.value}] " + en
@@ -852,7 +860,12 @@ class GroqOptionsAdvisor:
                 handled_gids.add(str(gid))
                 res.decisions.append(self._record(
                     account, action=action, decided_by=DECIDED_BY_AI, ctx=ctx, rec=r,
-                    confidence=conf_f, he=he or r.rationale_he, en=en or r.rationale_en, mode=DecisionMode.AI))
+                    confidence=conf_f, he=he or r.rationale_he, en=en or r.rationale_en, mode=DecisionMode.AI,
+                    market_context_extra={
+                        "exit_class": "planned" if r.action in (AIAction.CLOSE, AIAction.ROLL) else "hold",
+                        "catalog_reason": r.reason_code,
+                        "catalog_mandatory": bool(r.mandatory),
+                    }))
             elif action == AIAction.SKIP:
                 c = by_id.get(str(cid)) if cid else None
                 res.decisions.append(self._record(
